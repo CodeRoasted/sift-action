@@ -187,10 +187,13 @@ test('the comment body is deterministic: same (report, context) ⇒ same string'
 // content, safely embedded.
 
 // A row summary + body carrying every named vector: a </details> breakout, a raw
-// HTML tag, a code fence, a table pipe, an ampersand, and a <host>-style token.
+// HTML tag, a code fence, a table pipe, an ampersand, a <host>-style token, plus
+// a markdown link and image (the bot-comment phishing surface, contract §6.1).
+const PHISH_LINK = '[click to verify](https://evil.example/phish)';
+const PHISH_IMAGE = '![](https://tracker.example/p.png)';
 function maliciousReport(): SiftReport {
     const attack =
-        'New error: "</details><script>alert(1)</script> ``` | x & <host>" — 9.0% of changed';
+        `New error: "</details><script>alert(1)</script> \`\`\` | x & <host> ${PHISH_LINK} ${PHISH_IMAGE}" — 9.0% of changed`;
     const row: RankedChange = {
         kind: 'new_error_pattern',
         severity: 'high',
@@ -231,4 +234,21 @@ test('safe embedding: HTML/backtick/pipe render inert, content survives as escap
     assert.ok(out.includes('&#96;'), 'backticks are inert (no code fence/span)');
     assert.ok(out.includes('&#124;'), 'pipes are inert (no table cell)');
     assert.ok(out.includes('&amp;'), 'ampersands are escaped');
+});
+
+test('safe embedding: markdown link/image syntax is neutralized (no phishing under the bot)', () => {
+    const out = renderComment(maliciousReport(), ctx());
+    // Neither the link's `](url)` bridge nor the image's `![](url)` can parse —
+    // the brackets/parens are entity-encoded, so no hidden-destination link or
+    // auto-loading tracking pixel renders under our bot's identity.
+    assert.ok(!out.includes('](https://evil.example/phish)'), 'no parseable link bridge survives');
+    assert.ok(!out.includes('![](https://tracker.example/p.png)'), 'no parseable image survives');
+    assert.ok(out.includes('&#91;') && out.includes('&#93;'), 'square brackets are inert');
+    assert.ok(out.includes('&#40;') && out.includes('&#41;'), 'parens are inert');
+    // Content is preserved — the URL still SHOWS as inert text. The visible href
+    // is the proof there is no deceptive hidden destination.
+    assert.ok(out.includes('https://evil.example/phish'), 'the URL survives as visible, inert text');
+    // The frame's OWN links (footer "What is this?" + provenance) are trusted and
+    // composed raw, so they stay live — neutralization touches only engine content.
+    assert.ok(out.includes('[What is this?](https://coderoast.fr/sift)'), 'frame links stay live');
 });

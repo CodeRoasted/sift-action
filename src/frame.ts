@@ -59,15 +59,33 @@ export function escapeHtml(text: string): string {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Fully inert an engine string for embedding in markdown: HTML plus the
-// markdown-active chars that could break structure — backticks (a code fence or
-// an odd inline-code span would consume following lines) and pipes (a table
-// cell). The engine's intentional block formatting (#, *, -, _, links) uses none
-// of these, so applying this to the rendered body preserves its layout while
-// closing the fence/breakout vectors; the only cosmetic effect is that any
-// inline-`code` styling renders as literal backticks.
+// Fully inert an engine string for embedding in markdown: HTML, the structural
+// markdown chars that could break the comment frame, AND the link/image syntax
+// that would otherwise let attacker-controlled CI-log text post a clickable link
+// or auto-loading image under our bot's identity. Each is replaced by the
+// numeric entity that DISPLAYS the same character but is inert to the parser:
+//   `        → code fence / inline-code span (would swallow following lines)
+//   |        → table cell
+//   [ ] ( )  → markdown link `[text](url)`, image `![text](url)`, and the
+//              reference forms — the bot-comment phishing surface (contract
+//              §6.1 item 2): a hidden destination behind innocuous text, or a
+//              tracking pixel that loads on render.
+// The engine's intentional block formatting (#, *, -, _, and a decorative
+// `[BADGE]`) uses none of `|[]()` as live syntax and emits no links of its own
+// (line-ref deep links are deferred), so the body's headers/bold/bullets survive
+// intact and the bracketed badge renders identically as literal brackets. The
+// only cosmetic effect is that any inline-`code` styling renders as literal
+// backticks. Residual: a BARE url in log text can still GFM-autolink, but its
+// link text == its href (visible, not a hidden destination) — defanging that is
+// the item-4 perimeter pass, not this surface.
 export function escapeInline(text: string): string {
-    return escapeHtml(text).replace(/`/g, '&#96;').replace(/\|/g, '&#124;');
+    return escapeHtml(text)
+        .replace(/`/g, '&#96;')
+        .replace(/\|/g, '&#124;')
+        .replace(/\[/g, '&#91;')
+        .replace(/\]/g, '&#93;')
+        .replace(/\(/g, '&#40;')
+        .replace(/\)/g, '&#41;');
 }
 
 // Inline row badge — matches the engine's to_markdown row headline so the inline
