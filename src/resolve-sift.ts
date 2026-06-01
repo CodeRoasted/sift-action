@@ -5,9 +5,12 @@
 //   1. Override — the `sift-binary` input names a path (self-hosted runner, an
 //      in-image build, or a Docker-bundle packaging). Used verbatim, no download.
 //   2. Turnkey (default) — download the version-pinned `sift-linux-x64` release
-//      asset from insight-eidos and VERIFY its sha256 before exec. The asset is a
-//      supply-chain surface (we run it), so a checksum mismatch is fatal — never
-//      run an unverified binary.
+//      asset from this Action's own PUBLIC repo (CodeRoasted/sift-action) and
+//      VERIFY its sha256 before exec. Public so any consumer's GITHUB_TOKEN can
+//      reach it (the engine binary is free-to-run; the moat is the closed source,
+//      built privately in insight-eidos and published here by its release-publish).
+//      The asset is a supply-chain surface (we run it), so a checksum mismatch is
+//      fatal — never run an unverified binary.
 //
 // v1 platform scope = linux x64 (GitHub-hosted runners are overwhelmingly
 // ubuntu-latest). On any other platform we fail with an actionable message rather
@@ -21,7 +24,7 @@ import * as path from 'path';
 
 import { SIFT_VERSION } from './sift-version';
 
-const RELEASE_REPO = 'CodeRoasted/insight-eidos';
+const RELEASE_REPO = 'CodeRoasted/sift-action'; // public — unauthenticated download
 const ASSET = 'sift-linux-x64';
 
 async function download(url: string, dest: string): Promise<void> {
