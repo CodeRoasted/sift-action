@@ -10,7 +10,7 @@ THE `sift` ENGINE BINARY IS NOT PART OF THIS REPOSITORY AND IS NOT COVERED BY
 THE MIT LICENSE. The Action downloads it at runtime as a version-pinned,
 checksum-verified release asset. That binary is:
 
-    Copyright (c) 2026 CodeRoast SAS. All rights reserved.
+    Copyright (c) 2026 Emmanuel Prunet (CodeRoast). All rights reserved.
     Proprietary — a non-exclusive, non-transferable, revocable right to RUN the
     compiled binary for any purpose (including commercial use), free of charge;
     binary only. No redistribution, modification, reverse-engineering, or
@@ -23,5 +23,5 @@ do not commit a `sift` binary blob here.
 Third-party dependencies bundled into dist/ retain their own licenses, listed
 in dist/licenses.txt.
 
-"Sift" and "CodeRoast" are trademarks of CodeRoast SAS. Trademark rights are
+"Sift" and "CodeRoast" are trademarks of Emmanuel Prunet (CodeRoast). Trademark rights are
 separate from, and not granted by, the MIT license on this code.

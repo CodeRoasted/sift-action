@@ -97,10 +97,10 @@ This Action wrapper is **MIT** (see [LICENSE](LICENSE)) — commodity glue: reso
 the baseline, fetch + verify the binary, run it, render the comment frame.
 
 It downloads and runs the `sift` engine binary at runtime: a version-pinned,
-checksum-verified release asset that is **© 2026 CodeRoast SAS, proprietary**
+checksum-verified release asset that is **© 2026 Emmanuel Prunet (CodeRoast), proprietary**
 (free to run for any purpose incl. commercial; binary only; no redistribution or
 reverse-engineering) and **not covered by this repository's MIT license**. The
 binary is never vendored here — see [NOTICE](NOTICE). Bundled third-party
 dependencies in `dist/` keep their own licenses (`dist/licenses.txt`).
 
-"Sift" and "CodeRoast" are trademarks of CodeRoast SAS — separate from the code license.
+"Sift" and "CodeRoast" are trademarks of Emmanuel Prunet (CodeRoast) — separate from the code license.
