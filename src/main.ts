@@ -11,11 +11,35 @@ import * as path from 'path';
 
 import { resolveBaseline } from './baseline';
 import { upsertStickyComment } from './comment';
-import { publishBaselineLog } from './artifact';
+import { publishBaselineLog, writeRenderedComment } from './artifact';
 import { renderComment } from './frame';
+import { runPoster } from './poster';
 import { resolveSift } from './resolve-sift';
 import { runSift, type FailOn } from './sift';
-import { CONTEXT_VERSION, type BuildStatus, type SiftCommentContext } from './types';
+import {
+    CONTEXT_VERSION,
+    SIFT_COMMENT_DIR,
+    type BuildStatus,
+    type SiftCommentContext,
+} from './types';
+
+// Three modes (contract § 6.1):
+//   comment (default) — render + post the sticky comment inline. Same-repo PRs and
+//                       the proven path; the advisory gate fails the build.
+//   render            — render the escaped body to $RUNNER_TEMP/sift-comment/ and
+//                       NEVER post (no write token, untrusted-parse context). The
+//                       consumer's workflow uploads it; the gate does NOT fail the
+//                       build (else the upload step is skipped and the comment is
+//                       lost). The unprivileged fork build job.
+//   post              — run NO engine: download the rendered artifact off the
+//                       triggering run and upsert the comment. The privileged
+//                       workflow_run poster (→ poster.ts). OFF until a consumer
+//                       wires the fork topology.
+type Mode = 'comment' | 'render' | 'post';
+function readMode(): Mode {
+    const raw = (core.getInput('mode') || 'comment').toLowerCase();
+    return raw === 'render' || raw === 'post' ? raw : 'comment';
+}
 
 function readBuildStatus(): BuildStatus {
     const raw = (core.getInput('build-status') || 'unknown').toLowerCase();
@@ -43,6 +67,14 @@ async function tryWrite(label: string, write: () => Promise<unknown>): Promise<v
 }
 
 async function run(): Promise<void> {
+    const mode = readMode();
+    if (mode === 'post') {
+        // Privileged poster: no engine, no log — download the rendered artifact and
+        // upsert the comment. Fully handled in poster.ts.
+        await runPoster();
+        return;
+    }
+
     const logInput = core.getInput('log', { required: true });
     const failOn = readFailOn();
     const buildStatus = readBuildStatus();
@@ -107,15 +139,28 @@ async function run(): Promise<void> {
         body = renderComment(report, context);
     }
 
-    await tryWrite('post the PR comment', () =>
-        upsertStickyComment({ octokit, owner, repo, prNumber, body }),
-    );
+    if (mode === 'render') {
+        // Fork build job (contract § 6.1): write the escaped body to
+        // $RUNNER_TEMP/sift-comment/; the consumer's upload-artifact step publishes
+        // it, and the workflow_run poster posts it. NEVER post from here.
+        const runnerTemp = process.env.RUNNER_TEMP || os.tmpdir();
+        const commentDir = path.join(runnerTemp, SIFT_COMMENT_DIR);
+        await writeRenderedComment(body, headSha, commentDir);
+        core.info(`Sift: render mode — wrote the comment body to ${commentDir} (the workflow uploads it).`);
+    } else {
+        await tryWrite('post the PR comment', () =>
+            upsertStickyComment({ octokit, owner, repo, prNumber, body }),
+        );
+    }
     // Every run seeds future baselines — including this PR's own follow-up pushes.
     await tryWrite('publish the baseline artifact', () => publishBaselineLog(changedLog));
 
     // Advisory gate (contract § 8): the exit/check carries the verdict; the COMMENT
-    // never says "we blocked your merge".
-    if (gateExit !== 0) {
+    // never says "we blocked your merge". NOT applied in `render` mode — failing the
+    // build job there would skip the consumer's artifact-upload step (no `if:
+    // always()`), losing the very regression comment we just rendered. On the fork
+    // path the verdict lives in the posted comment (state ④), not a build failure.
+    if (mode !== 'render' && gateExit !== 0) {
         core.setFailed(`Sift gate (--fail-on ${failOn}) tripped — see the PR comment for what changed.`);
     }
 }

@@ -84,3 +84,33 @@ export const CONTEXT_VERSION = '0.1.0';
 // log under this name; a PR resolves its baseline by pulling the same-named
 // artifact off the base branch's last green run. One name, both sides.
 export const BASELINE_ARTIFACT_NAME = 'sift-baseline-log';
+
+// ── Fork-PR render → workflow_run post boundary (contract § 6.1) ─────────────
+//
+// `render` mode writes the (already Gate-B-escaped) comment body + head_sha meta
+// into $RUNNER_TEMP/sift-comment/; the consumer's workflow uploads that directory
+// as the `sift-comment` artifact (examples/fork-safe/build.yml). `post` mode
+// downloads that artifact off the triggering run and upserts the comment. The
+// body is INERT (escapeInline/escapeHtml) — the escape IS the trust boundary, so
+// the poster never parses a log or runs the engine. `pr_number` is deliberately
+// NOT carried: the poster re-derives it from the TRUSTED `workflow_run` head_sha
+// via the PRs API, never a fork-supplied value.
+export const SIFT_COMMENT_ARTIFACT_NAME = 'sift-comment';
+export const SIFT_COMMENT_DIR = 'sift-comment'; // under $RUNNER_TEMP (consumer uploads it)
+export const RENDERED_BODY_FILE = 'comment-body.md';
+export const RENDERED_META_FILE = 'comment-meta.json';
+
+// Size bounds the poster enforces (contract § 6.1: "bound the downloaded artifact
+// size"). The compressed cap gates on the artifact METADATA before any bytes
+// transfer; the body cap is GitHub's hard issue-comment limit — a larger body
+// could not post anyway.
+export const MAX_RENDERED_ARTIFACT_BYTES = 1024 * 1024; // 1 MiB, compressed (pre-download gate)
+export const MAX_RENDERED_BODY_BYTES = 65_536; // GitHub issue-comment hard limit (chars≈bytes)
+
+// Provenance the build job stamps into the artifact meta. `head_sha` is
+// cross-checked against the trusted `workflow_run` event head_sha (defence in
+// depth); it is NEVER the source of `pr_number`.
+export interface RenderedCommentMeta {
+    context_version: string;
+    head_sha: string;
+}

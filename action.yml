@@ -7,8 +7,8 @@ branding:
 
 inputs:
   log:
-    description: 'Path to the current run''s captured log to diff (the build/CI log).'
-    required: true
+    description: 'Path to the current run''s captured log to diff (the build/CI log). Required for mode comment|render; unused for mode post.'
+    required: false
     # Override only. By default the Action downloads + sha256-verifies the
     # version-pinned `sift-linux-x64` release asset (resolve-sift.ts). Set this to
     # a path for a self-hosted runner / in-image build / Docker-bundle packaging.
@@ -28,6 +28,25 @@ inputs:
     description: 'Token for the runs/artifacts API, the sticky comment, and artifact upload.'
     required: false
     default: ${{ github.token }}
+  mode:
+    description: >-
+      comment (default) — render + post the sticky comment inline (same-repo PRs,
+      the proven path). render — render the escaped comment body to
+      $RUNNER_TEMP/sift-comment/ WITHOUT posting (the unprivileged fork build job;
+      the workflow uploads it as the `sift-comment` artifact). post — run no engine;
+      download that artifact off the triggering run and post the comment (the
+      privileged workflow_run job). See examples/fork-safe/. Leave unset (comment)
+      unless you have wired the fork-comment topology.
+    required: false
+    default: 'comment'
+  run-id:
+    description: 'mode=post only: the triggering run id whose `sift-comment` artifact to post, e.g. ${{ github.event.workflow_run.id }}.'
+    required: false
+    default: ''
+  build-workflow:
+    description: 'mode=post only (optional): the expected build workflow (file name or display name) to double-check the triggering run against. The workflow_run trigger filter is the primary guard.'
+    required: false
+    default: ''
 
 # Permissions the caller workflow must grant (contract § 6):
 #   actions: read       — resolve the base branch's last green run + its artifact
