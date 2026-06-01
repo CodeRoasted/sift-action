@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
       - id: build
         run: ./ci/build.sh 2>&1 | tee build.log   # capture the log you want diffed
-      - uses: coderoast/sift-action@v1
+      - uses: CodeRoasted/sift-action@v1
         with:
           log: build.log
           fail-on: regression                      # advisory gate (none | significant | regression)
@@ -34,12 +34,32 @@ The first green run on the base branch seeds the baseline; every PR gets a diff
 automatically thereafter (self-bootstrapping). No prior green run ⇒ an honest
 "no baseline yet" comment.
 
+## Platform & supply chain
+
+- **Runner:** linux x64 (`ubuntu-latest`) for v1; arm/macOS/Windows are a
+  fast-follow. On any other platform the Action fails with an actionable message
+  rather than running a wrong-arch binary.
+- **Binary distribution:** the Action downloads the **version-pinned**
+  `sift-linux-x64` release asset and **verifies its sha256** before executing it —
+  a checksum mismatch is fatal (the asset is a supply-chain surface: the Action
+  runs it). The pinned version is fixed per Action release. Set `sift-binary:` only
+  to override with your own build (self-hosted runner / in-image).
+
+## Fork PRs
+
+PRs from forks get a **read-only** `GITHUB_TOKEN`, so the sticky comment and the
+baseline-artifact upload **cannot write**. The Action **does not silently no-op**:
+it logs a warning and the **advisory gate still applies** (the diff still runs and
+`fail-on` still gates). Posting comments on fork PRs requires `pull_request_target`,
+which is **deferred pending a security review** (fork-controlled log content is an
+output-injection surface) — see the contract § 6.
+
 ## Inputs
 
 | Input | Required | Default | Notes |
 |---|---|---|---|
 | `log` | yes | — | Path to the captured current-run log to diff. |
-| `sift-binary` | no | `sift` | Path to the pinned `sift` binary (packaging provides it). |
+| `sift-binary` | no | _(auto)_ | Override path to a `sift` binary. Default: download + sha256-verify the version-pinned `sift-linux-x64` release asset. |
 | `fail-on` | no | `none` | `none` \| `significant` \| `regression` — advisory gate (exit code only; the comment never says "blocked"). |
 | `build-status` | no | `unknown` | `green` \| `red` \| `unknown` — enhancer; drives the green-build headline. |
 | `github-token` | no | `${{ github.token }}` | Runs/artifacts API + comment + artifact upload. |

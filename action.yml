@@ -9,8 +9,11 @@ inputs:
   log:
     description: 'Path to the current run''s captured log to diff (the build/CI log).'
     required: true
+    # Override only. By default the Action downloads + sha256-verifies the
+    # version-pinned `sift-linux-x64` release asset (resolve-sift.ts). Set this to
+    # a path for a self-hosted runner / in-image build / Docker-bundle packaging.
   sift-binary:
-    description: 'Path to the pinned `sift` binary (provided by packaging — a downloaded release asset or an in-image path). Defaults to `sift` on PATH.'
+    description: 'Override path to a `sift` binary. Default: download + verify the version-pinned linux-x64 release asset.'
     required: false
     default: 'sift'
   fail-on:
