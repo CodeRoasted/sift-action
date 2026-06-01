@@ -40,13 +40,44 @@ function shortSha(sha: string): string {
     return sha.slice(0, 7);
 }
 
+// ── Safe embedding ──────────────────────────────────────────────────────────
+// The rows (`summary`) and the report body (`markdown`) are the engine's CONTENT
+// verbatim, but they derive from real — and on fork PRs, attacker-controlled — CI
+// logs. They must be SAFELY EMBEDDED: a log line carrying HTML, backticks, or a
+// pipe must not break the comment STRUCTURE. The critical vector is a literal
+// `</details>` escaping the collapsed block; the code-fence (```)/inline-code
+// backtick that would swallow the trailing `</details>` + footer is the second.
+// "Verbatim content, safely embedded" — not raw-concatenated. (GitHub also
+// sanitizes comment HTML; this is defence-in-depth at our boundary, and it fixes
+// a fidelity bug too — an unescaped `<host>` or the `<*>` mask token would
+// otherwise be eaten as a phantom HTML tag.) The rendered TEXT is unchanged: each
+// escape maps to the entity that displays the same character, inert.
+
+// HTML structural chars → entities. Neutralizes every HTML tag (incl. the
+// </details> breakout). `&` first, so the entities it introduces aren't re-hit.
+export function escapeHtml(text: string): string {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Fully inert an engine string for embedding in markdown: HTML plus the
+// markdown-active chars that could break structure — backticks (a code fence or
+// an odd inline-code span would consume following lines) and pipes (a table
+// cell). The engine's intentional block formatting (#, *, -, _, links) uses none
+// of these, so applying this to the rendered body preserves its layout while
+// closing the fence/breakout vectors; the only cosmetic effect is that any
+// inline-`code` styling renders as literal backticks.
+export function escapeInline(text: string): string {
+    return escapeHtml(text).replace(/`/g, '&#96;').replace(/\|/g, '&#124;');
+}
+
 // Inline row badge — matches the engine's to_markdown row headline so the inline
 // rows and the <details> body read identically: `**[HIGH · regression]**`.
 // Severity is uppercased (wire form is lowercase); polarity rides inside when
-// present (F-1). The `summary` is taken VERBATIM.
+// present (F-1). Badge fields are engine-enum strings (trusted vocabulary); the
+// `summary` is engine CONTENT — verbatim, safely embedded (escapeInline).
 function renderRow(index: number, row: SiftReport['ranked_changes'][number]): string {
     const badge = row.severity.toUpperCase() + (row.polarity ? ` · ${row.polarity}` : '');
-    return `${index}. **[${badge}]** ${row.summary}`;
+    return `${index}. **[${badge}]** ${escapeInline(row.summary)}`;
 }
 
 function renderRows(report: SiftReport): string {
@@ -60,14 +91,18 @@ function renderRows(report: SiftReport): string {
     return lines.join('\n');
 }
 
-// The collapsed full report: the engine's markdown body, embedded VERBATIM. Blank
-// lines around it so GitHub renders the markdown inside the <details>.
+// The collapsed full report: the engine's markdown body, safely embedded. The
+// body is escapeInline'd (not raw) so a log line in it cannot close the <details>
+// early or open a code fence that swallows the trailing tag + footer; the
+// engine's headers/bold/bullets survive (escapeInline leaves #,*,-,_ alone).
+// Blank lines around it so GitHub renders the markdown inside the <details>.
+// summaryLine is frame-controlled (counts), so it is composed raw.
 function renderDetails(report: SiftReport): string {
     const { total_changes, significant_changes } = report.summary;
     const summaryLine = `Full report — ${groupThousands(total_changes)} changes, ${groupThousands(
         significant_changes,
     )} significant`;
-    return `<details><summary>${summaryLine}</summary>\n\n${report.markdown ?? ''}\n\n</details>`;
+    return `<details><summary>${summaryLine}</summary>\n\n${escapeInline(report.markdown ?? '')}\n\n</details>`;
 }
 
 // ── State bodies (web_copy § "The four states") ─────────────────────────────

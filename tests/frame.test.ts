@@ -10,9 +10,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 
-import { renderComment, STICKY_MARKER } from '../src/frame';
+import { renderComment, STICKY_MARKER, escapeInline } from '../src/frame';
 import { selectState, State } from '../src/verdict';
-import type { SiftCommentContext, SiftReport } from '../src/types';
+import type { RankedChange, SiftCommentContext, SiftReport } from '../src/types';
 
 const FIXTURES = path.join(__dirname, '..', '..', 'tests', 'fixtures');
 
@@ -114,12 +114,12 @@ test('③ drift, build unknown: verbatim headline + rows verbatim + engine <deta
         ),
         out,
     );
-    // Rows VERBATIM from the engine (never re-authored).
+    // Rows are the engine's content, verbatim — safely embedded (escapeInline).
     const firstRow = report.ranked_changes[0]!;
-    assert.ok(out.includes(`**[${firstRow.severity.toUpperCase()}]** ${firstRow.summary}`), out);
-    // <details> embeds the engine markdown body verbatim.
+    assert.ok(out.includes(`**[${firstRow.severity.toUpperCase()}]** ${escapeInline(firstRow.summary)}`), out);
+    // <details> embeds the engine markdown body, safely embedded.
     assert.ok(out.includes(`<details><summary>Full report — ${report.summary.total_changes} changes, ${significant} significant</summary>`), out);
-    assert.ok(report.markdown && out.includes(report.markdown), 'engine markdown body embedded verbatim');
+    assert.ok(report.markdown && out.includes(escapeInline(report.markdown)), 'engine markdown body embedded (safely)');
 });
 
 test('③ drift, build GREEN: the cache-died hero headline (verbatim)', () => {
@@ -146,16 +146,16 @@ test('④ regression, build unknown: verbatim headline + regression row carries 
         out.includes("🚨 Regression flagged. A new error-level pattern that wasn't in the baseline:"),
         out,
     );
-    // The regression row renders with the F-1 polarity tag and the verbatim summary.
+    // The regression row renders with the F-1 polarity tag and the content (safely embedded).
     const regressionRow = report.ranked_changes.find((row) => row.polarity === 'regression')!;
     assert.ok(
-        out.includes(`**[${regressionRow.severity.toUpperCase()} · regression]** ${regressionRow.summary}`),
+        out.includes(`**[${regressionRow.severity.toUpperCase()} · regression]** ${escapeInline(regressionRow.summary)}`),
         out,
     );
     // A recovery row (the un-grep-able win) also renders its tag.
     const recoveryRow = report.ranked_changes.find((row) => row.polarity === 'recovery');
     if (recoveryRow) {
-        assert.ok(out.includes(`· recovery]** ${recoveryRow.summary}`), out);
+        assert.ok(out.includes(`· recovery]** ${escapeInline(recoveryRow.summary)}`), out);
     }
 });
 
@@ -179,4 +179,56 @@ test('the comment body is deterministic: same (report, context) ⇒ same string'
     const report = load('regression.json');
     const c = ctx({ build_status: 'green' });
     assert.equal(renderComment(report, c), renderComment(report, c));
+});
+
+// ── Safe embedding (contract § "Comment-embedding safety") ──────────────────
+// Engine content (rows + body) derives from CI logs that, on a fork PR, an
+// attacker controls. None of it may break the comment STRUCTURE — verbatim
+// content, safely embedded.
+
+// A row summary + body carrying every named vector: a </details> breakout, a raw
+// HTML tag, a code fence, a table pipe, an ampersand, and a <host>-style token.
+function maliciousReport(): SiftReport {
+    const attack =
+        'New error: "</details><script>alert(1)</script> ``` | x & <host>" — 9.0% of changed';
+    const row: RankedChange = {
+        kind: 'new_error_pattern',
+        severity: 'high',
+        significance: 0.9,
+        summary: attack,
+        polarity: 'regression',
+    };
+    return {
+        report_version: '0.1.0',
+        summary: { total_changes: 10, significant_changes: 1 },
+        ranked_changes: [row],
+        inputs: {
+            baseline: { label: 'a', lines_observed: 100, unique_templates: 5 },
+            changed: { label: 'b', lines_observed: 100, unique_templates: 5 },
+        },
+        // The engine's own structure (#, **, lists) plus injected breakout content.
+        markdown: `# Sift\n\n## Significant changes\n\n1. **[HIGH · regression]** ${attack}\n\n</details>\n\`\`\`\ntext after an unclosed fence\n`,
+    };
+}
+
+test('safe embedding: content cannot break out of the <details> block', () => {
+    const out = renderComment(maliciousReport(), ctx());
+    // Exactly ONE real <details> and </details> — the frame's own. The content's
+    // </details> (in the row AND the body) are escaped, so they do not count.
+    assert.equal((out.match(/<details>/g) ?? []).length, 1, out);
+    assert.equal((out.match(/<\/details>/g) ?? []).length, 1, out);
+    // The footer renders after the body — proof a fence/tag in the body did not
+    // swallow the trailing </details> + footer.
+    assert.ok(out.trimEnd().endsWith('</sub>'), out);
+});
+
+test('safe embedding: HTML/backtick/pipe render inert, content survives as escaped text', () => {
+    const out = renderComment(maliciousReport(), ctx());
+    assert.ok(!out.includes('<script>'), 'no raw <script> tag survives');
+    assert.ok(out.includes('&lt;script&gt;'), 'the script tag survives as escaped, inert text');
+    assert.ok(out.includes('&lt;/details&gt;'), 'the content </details> survives as escaped text');
+    assert.ok(out.includes('&lt;host&gt;'), 'the <host> token is shown, not eaten as a phantom tag');
+    assert.ok(out.includes('&#96;'), 'backticks are inert (no code fence/span)');
+    assert.ok(out.includes('&#124;'), 'pipes are inert (no table cell)');
+    assert.ok(out.includes('&amp;'), 'ampersands are escaped');
 });
