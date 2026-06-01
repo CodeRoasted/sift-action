@@ -1,0 +1,10 @@
+{
+  "report_version": "0.1.0",
+  "summary": { "total_changes": 851, "significant_changes": 0 },
+  "ranked_changes": [],
+  "inputs": {
+    "baseline": { "label": "green", "lines_observed": 12043, "unique_templates": 312 },
+    "changed": { "label": "pr", "lines_observed": 12058, "unique_templates": 312 }
+  },
+  "markdown": "# Sift — green → pr\n\n**851 changes, 0 structurally significant.**\n"
+}

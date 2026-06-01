@@ -1,0 +1,182 @@
+// Integration tests for the frame renderer: fixture report.json + a
+// SiftCommentContext → the expected comment markdown (sift_action_contract.md
+// § 8 / handoff). Covers all four states AND both build-green enhancer variants
+// (the two hero headlines). The governed-copy lines are asserted VERBATIM
+// against web_copy § "Surface: Sift PR comment"; rows are asserted to appear
+// VERBATIM from the engine fixture (never re-authored).
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import * as path from 'node:path';
+
+import { renderComment, STICKY_MARKER } from '../src/frame';
+import { selectState, State } from '../src/verdict';
+import type { SiftCommentContext, SiftReport } from '../src/types';
+
+const FIXTURES = path.join(__dirname, '..', '..', 'tests', 'fixtures');
+
+function load(name: string): SiftReport {
+    return JSON.parse(readFileSync(path.join(FIXTURES, name), 'utf8')) as SiftReport;
+}
+
+const HEAD_SHA = 'abc1234def5678';
+const BASE_SHA = 'def4567abc1234';
+
+function ctx(over: Partial<SiftCommentContext> = {}): SiftCommentContext {
+    return {
+        context_version: '0.1.0',
+        head_sha: HEAD_SHA,
+        pr_number: 42,
+        base_branch: 'main',
+        build_status: 'unknown',
+        baseline: {
+            sha: BASE_SHA,
+            run_id: '7654321',
+            run_url: 'https://github.com/o/r/actions/runs/7654321',
+            branch: 'main',
+            created_at: '2026-06-01T09:12:00Z',
+        },
+        ...over,
+    };
+}
+
+const HEADER = '### 🔬 Sift — structural diff of your CI logs';
+
+// ── Shared frame (every state) ──────────────────────────────────────────────
+
+test('every comment starts with the hidden sticky marker then the header', () => {
+    const out = renderComment(load('drift.json'), ctx());
+    assert.ok(out.startsWith(`${STICKY_MARKER}\n${HEADER}`), out.slice(0, 120));
+});
+
+test('footer carries determinism + privacy + provenance + as-of stamp (verbatim)', () => {
+    const out = renderComment(load('drift.json'), ctx());
+    assert.match(
+        out,
+        /<sub>Deterministic — same inputs, same comment\. Runs in your CI; your logs never leave it\. · \[What is this\?\]\(https:\/\/coderoast\.fr\/sift\) · Baseline: last green run on `main` @ \[`def4567`\]\(https:\/\/github\.com\/o\/r\/actions\/runs\/7654321\) · as of `abc1234`<\/sub>/,
+    );
+});
+
+// ── ① Cold start (no baseline ⇒ no report) ──────────────────────────────────
+
+test('① cold start: state, verbatim copy, base branch substituted, no baseline footnote', () => {
+    const coldCtx = ctx({ base_branch: 'develop', baseline: undefined });
+    assert.equal(selectState(null), State.ColdStart);
+    const out = renderComment(null, coldCtx);
+    assert.ok(
+        out.includes(
+            '🔬 No baseline yet. Sift diffs each run against the last green run on `develop`.\n' +
+                'Once one lands, every PR gets a structural diff here — nothing to compare this time.',
+        ),
+        out,
+    );
+    assert.ok(!out.includes('Baseline: last green run'), 'cold start must omit the provenance footnote');
+    assert.ok(out.includes('as of `abc1234`'));
+});
+
+// ── ② Clean ─────────────────────────────────────────────────────────────────
+
+test('② clean with suppression: verbatim copy, the 851→0 pitch, no <details>', () => {
+    const report = load('clean_suppressed.json');
+    assert.equal(selectState(report), State.Clean);
+    const out = renderComment(report, ctx());
+    assert.ok(out.includes('✅ No structural change. 12,043 → 12,058 log lines, same behaviour.'), out);
+    assert.ok(
+        out.includes(
+            'Sift weighed 851 surface diffs and dropped all 851 as noise — counts, ordering, IDs that carry no signal.',
+        ),
+        out,
+    );
+    assert.ok(!out.includes('<details>'), 'clean state has nothing to drill into');
+});
+
+test('② clean (no diffs at all): suppression line is omitted, not "dropped all 0"', () => {
+    const report = load('clean_empty.json');
+    assert.equal(selectState(report), State.Clean);
+    const out = renderComment(report, ctx());
+    assert.ok(out.includes('✅ No structural change.'), out);
+    assert.ok(!out.includes('dropped all 0'), 'must not read "dropped all 0 as noise"');
+    assert.ok(!out.includes('weighed'), out);
+});
+
+// ── ③ Drift (significant > 0, no regression) ────────────────────────────────
+
+test('③ drift, build unknown: verbatim headline + rows verbatim + engine <details>', () => {
+    const report = load('drift.json');
+    assert.equal(selectState(report), State.Drift);
+    const significant = report.summary.significant_changes;
+    const suppressed = report.summary.total_changes - significant;
+    const out = renderComment(report, ctx({ build_status: 'unknown' }));
+    assert.ok(
+        out.includes(
+            `🔍 ${significant} structural changes worth a look — ${suppressed} of ${report.summary.total_changes} diffs are noise.`,
+        ),
+        out,
+    );
+    // Rows VERBATIM from the engine (never re-authored).
+    const firstRow = report.ranked_changes[0]!;
+    assert.ok(out.includes(`**[${firstRow.severity.toUpperCase()}]** ${firstRow.summary}`), out);
+    // <details> embeds the engine markdown body verbatim.
+    assert.ok(out.includes(`<details><summary>Full report — ${report.summary.total_changes} changes, ${significant} significant</summary>`), out);
+    assert.ok(report.markdown && out.includes(report.markdown), 'engine markdown body embedded verbatim');
+});
+
+test('③ drift, build GREEN: the cache-died hero headline (verbatim)', () => {
+    const report = load('drift.json');
+    const significant = report.summary.significant_changes;
+    const suppressed = report.summary.total_changes - significant;
+    const out = renderComment(report, ctx({ build_status: 'green' }));
+    assert.ok(
+        out.includes(
+            "🔍 Green build, changed behaviour. Your tests passed; the shape of your logs didn't.\n" +
+                `${significant} changes worth a look, ${suppressed} are noise.`,
+        ),
+        out,
+    );
+});
+
+// ── ④ Regression (a row has polarity === regression) ────────────────────────
+
+test('④ regression, build unknown: verbatim headline + regression row carries · regression', () => {
+    const report = load('regression.json');
+    assert.equal(selectState(report), State.Regression);
+    const out = renderComment(report, ctx({ build_status: 'unknown' }));
+    assert.ok(
+        out.includes("🚨 Regression flagged. A new error-level pattern that wasn't in the baseline:"),
+        out,
+    );
+    // The regression row renders with the F-1 polarity tag and the verbatim summary.
+    const regressionRow = report.ranked_changes.find((row) => row.polarity === 'regression')!;
+    assert.ok(
+        out.includes(`**[${regressionRow.severity.toUpperCase()} · regression]** ${regressionRow.summary}`),
+        out,
+    );
+    // A recovery row (the un-grep-able win) also renders its tag.
+    const recoveryRow = report.ranked_changes.find((row) => row.polarity === 'recovery');
+    if (recoveryRow) {
+        assert.ok(out.includes(`· recovery]** ${recoveryRow.summary}`), out);
+    }
+});
+
+test('④ regression, build GREEN: the strongest hero headline (founder-locked, verbatim)', () => {
+    const report = load('regression.json');
+    const out = renderComment(report, ctx({ build_status: 'green' }));
+    assert.ok(out.includes('🚨 Green tests. Real regression. It slipped through:'), out);
+});
+
+test('④ regression rows come first (engine ranks regressions at the top tier)', () => {
+    const report = load('regression.json');
+    const out = renderComment(report, ctx());
+    const firstRegression = out.indexOf('· regression]');
+    const firstRecovery = out.indexOf('· recovery]');
+    assert.ok(firstRegression > -1 && (firstRecovery === -1 || firstRegression < firstRecovery), out);
+});
+
+// ── Determinism (contract § 4) ──────────────────────────────────────────────
+
+test('the comment body is deterministic: same (report, context) ⇒ same string', () => {
+    const report = load('regression.json');
+    const c = ctx({ build_status: 'green' });
+    assert.equal(renderComment(report, c), renderComment(report, c));
+});

@@ -1,0 +1,5 @@
+node_modules/
+lib/
+*.tsbuildinfo
+# dist/ (the ncc bundle) is committed for Marketplace consumption — Argos's
+# packaging step owns producing + committing it.

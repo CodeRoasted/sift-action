@@ -1,0 +1,39 @@
+name: 'Sift — structural CI-log diff'
+description: 'Diffs this run''s logs against the last green run on the base branch; posts one sticky PR comment + an advisory gate.'
+author: 'CodeRoast'
+branding:
+  icon: 'git-pull-request'
+  color: 'purple'
+
+inputs:
+  log:
+    description: 'Path to the current run''s captured log to diff (the build/CI log).'
+    required: true
+  sift-binary:
+    description: 'Path to the pinned `sift` binary (provided by packaging — a downloaded release asset or an in-image path). Defaults to `sift` on PATH.'
+    required: false
+    default: 'sift'
+  fail-on:
+    description: 'Advisory gate: exit non-zero when the condition holds. One of none | significant | regression.'
+    required: false
+    default: 'none'
+  build-status:
+    description: 'Optional enhancer: the current run''s suite result (green | red | unknown), e.g. ${{ needs.test.result == ''success'' && ''green'' || ''red'' }}. Drives the green-build headline; degrades gracefully when unknown.'
+    required: false
+    default: 'unknown'
+  github-token:
+    description: 'Token for the runs/artifacts API, the sticky comment, and artifact upload.'
+    required: false
+    default: ${{ github.token }}
+
+# Permissions the caller workflow must grant (contract § 6):
+#   actions: read       — resolve the base branch's last green run + its artifact
+#   contents: read      — checkout / API
+#   pull-requests: write — post/update the sticky comment
+#   actions: write      — upload this run's baseline-log artifact
+# Fork PRs get a read-only token: the comment/artifact writes degrade with a
+# warning (the advisory gate still applies).
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: dist/ is in sync with src/ (the committed bundle is what runs)
+        # `runs: main: dist/index.js` — GitHub executes the COMMITTED bundle, not
+        # src/. A stale dist silently ships old behaviour, so re-bundle and fail if
+        # the committed dist differs. The #1 JS-action footgun; this gate kills it.
+        run: |
+          npm run package
+          if ! git diff --quiet --exit-code dist/; then
+            echo "::error::dist/ is stale — run 'npm run package' and commit dist/."
+            git --no-pager diff --stat dist/
+            exit 1
+          fi
+
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash
+          ./actionlint
