@@ -90,3 +90,17 @@ npm run package     # ncc bundle → dist/ (packaging; owned by the release lane
 
 > Packaging (final bundling to `dist/`, the `sift` release-asset publish, the home
 > repo, token/fork-PR posture) is the DevOps lane — see contract § 6–7.
+
+## License
+
+This Action wrapper is **MIT** (see [LICENSE](LICENSE)) — commodity glue: resolve
+the baseline, fetch + verify the binary, run it, render the comment frame.
+
+It downloads and runs the `sift` engine binary at runtime: a version-pinned,
+checksum-verified release asset that is **© 2026 CodeRoast SAS, proprietary**
+(free to run for any purpose incl. commercial; binary only; no redistribution or
+reverse-engineering) and **not covered by this repository's MIT license**. The
+binary is never vendored here — see [NOTICE](NOTICE). Bundled third-party
+dependencies in `dist/` keep their own licenses (`dist/licenses.txt`).
+
+"Sift" and "CodeRoast" are trademarks of CodeRoast SAS — separate from the code license.

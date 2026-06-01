@@ -1,0 +1,27 @@
+Sift Action — NOTICE
+====================
+
+This repository (the "Sift Action") is a GitHub Action wrapper licensed under
+the MIT License (see LICENSE). The MIT license covers ONLY the wrapper in this
+repository: the TypeScript source under src/, the bundled dist/ output,
+action.yml, and the workflow/config files.
+
+THE `sift` ENGINE BINARY IS NOT PART OF THIS REPOSITORY AND IS NOT COVERED BY
+THE MIT LICENSE. The Action downloads it at runtime as a version-pinned,
+checksum-verified release asset. That binary is:
+
+    Copyright (c) 2026 CodeRoast SAS. All rights reserved.
+    Proprietary — a non-exclusive, non-transferable, revocable right to RUN the
+    compiled binary for any purpose (including commercial use), free of charge;
+    binary only. No redistribution, modification, reverse-engineering, or
+    derivative works. See the CodeRoast Proprietary License shipped with the
+    binary. Contact: emmanuel.prunet@coderoast.fr
+
+The binary is fetched at runtime and is NEVER vendored into this repository —
+do not commit a `sift` binary blob here.
+
+Third-party dependencies bundled into dist/ retain their own licenses, listed
+in dist/licenses.txt.
+
+"Sift" and "CodeRoast" are trademarks of CodeRoast SAS. Trademark rights are
+separate from, and not granted by, the MIT license on this code.

@@ -3,7 +3,7 @@
   "version": "1.4.1",
   "private": true,
   "description": "Sift — structural diff of your CI logs, as a sticky PR comment + advisory gate.",
-  "license": "LicenseRef-CodeRoast-Proprietary",
+  "license": "MIT",
   "main": "dist/index.js",
   "scripts": {
     "typecheck": "tsc --noEmit",
