@@ -1,0 +1,39 @@
+# Fork-safe Sift — 2 of 2: PRIVILEGED poster.
+#
+# Triggered when the build+render workflow (1 of 2) completes. Runs in the BASE
+# repo context with a write token, so it does the ONE privileged thing — post the
+# sticky comment from the trusted, pre-rendered artifact — and NOTHING ELSE.
+#
+# ⛔ FORBIDDEN — never do this in this job (or any pull_request_target job):
+#     - uses: actions/checkout   with the PR head ref
+#     - any build / compile / test / npm / make step
+#   This job holds pull-requests: write in the base context; running fork-controlled
+#   code here is remote code execution + secret exfiltration. The privileged job must
+#   ONLY consume the artifact the unprivileged job already rendered. Keep the build in
+#   1-of-2 (read-only token); keep the write here. Never cross the streams.
+#
+# Requires sift-action's `post` mode (arms with fork-comment support, contract §6.1).
+# Keep this workflow DISABLED until the Fuzz/ASan gate is green (the arming flip).
+name: Sift (post)
+
+on:
+  workflow_run:
+    workflows: ["Sift (build + render)"]
+    types: [completed]
+
+permissions:
+  pull-requests: write     # post/update the sticky comment — the ONLY write this job needs
+  actions: read            # download the triggering run's rendered artifact
+
+jobs:
+  sift-post:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      # NOTE: deliberately NO actions/checkout of the PR head and NO build step (see
+      # the FORBIDDEN block above). The action's `post` mode downloads the `sift-comment`
+      # artifact from the triggering run and upserts the sticky comment — nothing else.
+      - uses: CodeRoasted/sift-action@v1
+        with:
+          mode: post
+          run-id: ${{ github.event.workflow_run.id }}

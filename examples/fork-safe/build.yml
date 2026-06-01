@@ -1,0 +1,37 @@
+# Fork-safe Sift — 1 of 2: UNPRIVILEGED build + render.
+#
+# Runs on EVERY PR, including from forks. It has a READ-ONLY token (no
+# pull-requests: write, no secrets), so even though it builds the PR's (possibly
+# fork-controlled) code, it cannot post a comment or touch anything privileged.
+# It renders the Sift comment body to an artifact; the poster (2 of 2) posts it.
+#
+# Requires sift-action's `render` mode (arms with fork-comment support, contract §6.1).
+name: Sift (build + render)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read          # checkout only — NO pull-requests: write in this fork-exposed job
+
+jobs:
+  sift-render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: build
+        run: ./ci/build.sh 2>&1 | tee build.log     # your build; produces the log to diff
+
+      - uses: CodeRoasted/sift-action@v1
+        with:
+          log: build.log
+          mode: render                               # compute the body to an artifact dir; never post
+          build-status: ${{ steps.build.outcome == 'success' && 'green' || 'red' }}
+
+      # render mode writes the comment body + PR metadata under ${{ runner.temp }}/sift-comment/.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sift-comment
+          path: ${{ runner.temp }}/sift-comment/
+          if-no-files-found: error

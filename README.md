@@ -47,12 +47,26 @@ automatically thereafter (self-bootstrapping). No prior green run ⇒ an honest
 
 ## Fork PRs
 
-PRs from forks get a **read-only** `GITHUB_TOKEN`, so the sticky comment and the
-baseline-artifact upload **cannot write**. The Action **does not silently no-op**:
-it logs a warning and the **advisory gate still applies** (the diff still runs and
-`fail-on` still gates). Posting comments on fork PRs requires `pull_request_target`,
-which is **deferred pending a security review** (fork-controlled log content is an
-output-injection surface) — see the contract § 6.
+By default (one workflow), a fork PR gets a **read-only** token, so the sticky comment
+and baseline upload **can't write**. The Action does **not** silently no-op — it warns
+and the **advisory gate still applies** (the diff runs, `fail-on` gates). Safe default.
+
+To actually **post comments on fork PRs**, use the two-workflow pattern (the secure
+alternative to `pull_request_target`) — see [`examples/fork-safe/`](examples/fork-safe/):
+
+1. **`build.yml`** (`on: pull_request`, **read-only**) builds the PR and runs Sift in
+   `mode: render` → uploads the comment body as an artifact. Fork code runs here, but
+   the token can't post or touch anything privileged.
+2. **`post.yml`** (`on: workflow_run`, **`pull-requests: write`**) downloads that
+   artifact and posts the sticky comment — and does **nothing else**.
+
+> ⛔ **Forbidden pattern:** never `actions/checkout` the PR head and build/run it in a
+> privileged job (`workflow_run` or `pull_request_target` with write access). That runs
+> fork-controlled code with a write token — RCE + secret exfiltration. Build only in the
+> unprivileged `pull_request` job; the privileged job consumes only the rendered artifact.
+
+Fork-comment posting (the `render`/`post` modes + this pattern) **arms with contract §6.1**,
+gated on the parser's **Fuzz/ASan gate** being green — keep `post.yml` disabled until then.
 
 ## Inputs
 
