@@ -1,0 +1,59 @@
+// Sift on Jenkins — Tier-0, doc-only recipe (sift_action_contract.md § 9.3).
+//
+// The GitHub Action is a thin adapter over a CI-AGNOSTIC substrate: the `sift`
+// engine ships as a PUBLIC, unauthenticated, checksummed release asset
+// (`sift-linux-x64` + `.sha256`) on CodeRoasted/sift-action. Jenkins — or any CI
+// with `curl` + `sha256sum` — is just another client of that asset. This pipeline
+// reproduces the Action's advisory-first posture WITHOUT any new code or infra:
+//   • `--fail-on regression` is the gate (advisory: it sets the build result);
+//   • the archived `sift-report.json` + build status are the surface (a PR comment
+//     is GitHub-only until a Tier-1 SCM-plugin adapter wires it — § 9.4);
+//   • the baseline is USER-wired here (last green build's archived log via the Copy
+//     Artifact plugin, or a committed known-good log). Base-branch-aware "last green"
+//     resolution is Tier-1 / Sift v2, not a per-CI adapter's job.
+//
+// Asset URL (stable, unauthenticated): the only varying segment is the version tag;
+// the asset names are fixed. Pin SIFT_VERSION to a PUBLISHED release tag.
+//   https://github.com/CodeRoasted/sift-action/releases/download/v<VERSION>/sift-linux-x64
+//
+// Prereqs: a Linux agent with curl + sha256sum; the Copy Artifact plugin (optional,
+// for the baseline); optionally the HTML Publisher plugin to surface the report.
+
+pipeline {
+  agent any
+  environment { SIFT_VERSION = '1.4.1' }                 // pin the engine version (published release tag)
+  stages {
+    stage('Sift — structural log diff') {
+      steps {
+        sh '''
+          set -euo pipefail
+          base="https://github.com/CodeRoasted/sift-action/releases/download/v${SIFT_VERSION}"
+          curl -fsSL "$base/sift-linux-x64"        -o sift-linux-x64
+          curl -fsSL "$base/sift-linux-x64.sha256" -o sift-linux-x64.sha256
+          sha256sum -c sift-linux-x64.sha256                # FATAL on mismatch
+          chmod +x sift-linux-x64
+        '''
+        // baseline.log = last green build's archived log (Copy Artifact plugin);
+        // changed.log  = this build's captured log.
+        copyArtifacts(projectName: env.JOB_NAME, selector: lastSuccessful(),
+                      filter: 'changed.log', target: 'baseline', optional: true)
+        sh '''
+          set -euo pipefail
+          if [ -f baseline/changed.log ]; then
+            ./sift-linux-x64 baseline/changed.log changed.log \
+              --format both -o sift-report.json --fail-on regression   # advisory gate
+          else
+            echo "Sift: no prior green build to diff against — cold start, skipping."
+          fi
+        '''
+      }
+      post {
+        always {
+          archiveArtifacts artifacts: 'changed.log, sift-report.json', fingerprint: true,
+                           allowEmptyArchive: true
+          // optional: publishHTML the markdown body (HTML Publisher plugin) as the report surface
+        }
+      }
+    }
+  }
+}

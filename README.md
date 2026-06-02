@@ -68,6 +68,25 @@ alternative to `pull_request_target`) — see [`examples/fork-safe/`](examples/f
 Fork-comment posting (the `render`/`post` modes + this pattern) **arms with contract §6.1**,
 gated on the parser's **Fuzz/ASan gate** being green — keep `post.yml` disabled until then.
 
+## Other CI / Jenkins
+
+This Action is a thin adapter over a **CI-agnostic substrate**: the `sift` engine ships as a
+**public, unauthenticated, checksummed** release asset — `sift-linux-x64` (+ `.sha256`) on this
+repo's releases. Any CI with `curl` + `sha256sum` is just another client. The download URL is
+**stable** — only the version tag varies, the asset names are fixed:
+
+```
+https://github.com/CodeRoasted/sift-action/releases/download/v<VERSION>/sift-linux-x64
+```
+
+**Jenkins** has a ready, **doc-only** Tier-0 recipe: [`examples/jenkins/Jenkinsfile`](examples/jenkins/Jenkinsfile).
+It reproduces the Action's advisory-first posture with zero new code — `--fail-on regression` is the
+gate; the archived `sift-report.json` + build status are the surface. The baseline is **user-wired**
+(last green build's archived log via the Copy Artifact plugin, or a committed known-good log);
+base-branch-aware "last green" resolution and a native PR/MR comment are platform-specific Tier-1 work
+(see `sift_action_contract.md` § 9). The same curl-verify-run pattern ports to GitLab CI, Buildkite, or
+a local shell.
+
 ## Inputs
 
 | Input | Required | Default | Notes |
