@@ -5,4 +5,4 @@
 //
 // Bump this in lockstep with the coordinated version cut (it is exactly the
 // CR_PIN-class CI-vendoring pin the gate guards, applied to the Action).
-export const SIFT_VERSION = '1.4.1';
+export const SIFT_VERSION = '1.4.2';

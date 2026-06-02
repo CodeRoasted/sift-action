@@ -1,6 +1,6 @@
 {
   "name": "sift-action",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "private": true,
   "description": "Sift — structural diff of your CI logs, as a sticky PR comment + advisory gate.",
   "license": "MIT",
