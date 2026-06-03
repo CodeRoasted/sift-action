@@ -27,6 +27,28 @@ export interface ResolveParams {
 }
 
 export async function resolveBaseline(params: ResolveParams): Promise<ResolvedBaseline | null> {
+    // Baseline resolution is ADVISORY (contract § 3, § 6 fork posture). A fork PR gets a
+    // READ-ONLY token that 403s on the runs/artifacts API, and any transient API/transport
+    // error must degrade to an honest cold start — NEVER fail the render/comment job (which
+    // would turn a green PR red). The diff is an enhancement; its absence is a cold start,
+    // not an error. The strict resolver below throws on such errors; we swallow them here.
+    try {
+        return await resolveBaselineStrict(params);
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        core.warning(
+            `Sift: baseline lookup failed (${reason}) — proceeding cold start (current log only, ` +
+                `no diff). On a fork PR this is expected: the read-only token cannot read the base ` +
+                `branch's run history.`,
+        );
+        return null;
+    }
+}
+
+// Strict resolution: THROWS on an API/transport error (the caller degrades to cold start).
+// Returns null for the legitimately-empty cases (no green base run, no/expired/empty baseline
+// artifact) — those are normal cold starts, distinct from an error.
+async function resolveBaselineStrict(params: ResolveParams): Promise<ResolvedBaseline | null> {
     const { octokit, owner, repo, runId, baseBranch, workDir } = params;
 
     // Resolve the last green run of THE SAME workflow (not just any workflow) on
