@@ -14,7 +14,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       pull-requests: write   # Sift dogfood: comment on same-repo PRs + seed on push; fork PRs skipped (read-only token anyway)
       actions: write         # Sift dogfood: upload the baseline-log artifact (+ read for last-green resolution)
     steps:
@@ -56,6 +56,7 @@ jobs:
         with:
           log: build.log
           fail-on: none
+          commit-comment: regression
           build-status: ${{ job.status == 'success' && 'green' || 'red' }}
 
   actionlint:
