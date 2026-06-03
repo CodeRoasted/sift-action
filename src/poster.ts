@@ -143,6 +143,16 @@ export async function runPoster(): Promise<void> {
         return; // absent / oversize / digest mismatch — already logged
     }
 
+    // Honour the render-side pr-comment verdict: the unprivileged build job already decided whether
+    // this result clears the threshold (contract § 3). Below it ⇒ post nothing — the diff still lives
+    // in the build run's job summary + outputs.
+    if (!rendered.shouldPost) {
+        core.info(
+            'Sift poster: render verdict is below the pr-comment threshold — nothing to post.',
+        );
+        return;
+    }
+
     // Defence in depth: the body's stamped head_sha must agree with the trusted
     // event head_sha. A mismatch means a confused or forged artifact — refuse.
     if (rendered.headSha !== headSha) {

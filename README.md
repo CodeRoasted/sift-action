@@ -107,10 +107,10 @@ To actually **post comments on fork PRs**, use the two-workflow pattern (the sec
 alternative to `pull_request_target`) — see [`examples/fork-safe/`](examples/fork-safe/):
 
 1. **`build.yml`** (`on: pull_request`, **read-only**) builds the PR and runs Sift in
-   `mode: render` → uploads the comment body as an artifact. Fork code runs here, but
-   the token can't post or touch anything privileged.
-2. **`post.yml`** (`on: workflow_run`, **`pull-requests: write`**) downloads that
-   artifact and posts the sticky comment — and does **nothing else**.
+   `mode: render` → uploads the comment body (stamped with the `pr-comment` verdict) as an
+   artifact. Fork code runs here, but the token can't post or touch anything privileged.
+2. **`post.yml`** (`on: workflow_run`, **`pull-requests: write`**) downloads that artifact and
+   posts the sticky comment **when the stamped verdict clears `pr-comment`** — and does **nothing else**.
 
 > ⛔ **Forbidden pattern:** never `actions/checkout` the PR head and build/run it in a
 > privileged job (`workflow_run` or `pull_request_target` with write access). That runs

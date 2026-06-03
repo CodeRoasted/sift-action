@@ -45,9 +45,14 @@ export async function writeRenderedComment(
     body: string,
     headSha: string,
     dir: string,
+    shouldPost: boolean,
 ): Promise<void> {
     await fs.mkdir(dir, { recursive: true });
-    const meta: RenderedCommentMeta = { context_version: CONTEXT_VERSION, head_sha: headSha };
+    const meta: RenderedCommentMeta = {
+        context_version: CONTEXT_VERSION,
+        head_sha: headSha,
+        should_post: shouldPost,
+    };
     await fs.writeFile(path.join(dir, RENDERED_BODY_FILE), body, 'utf8');
     await fs.writeFile(path.join(dir, RENDERED_META_FILE), JSON.stringify(meta), 'utf8');
 }
@@ -55,6 +60,7 @@ export async function writeRenderedComment(
 export interface RenderedComment {
     body: string;
     headSha: string;
+    shouldPost: boolean; // the render-side pr-comment verdict (absent in the meta ⇒ true, back-compat)
 }
 
 export interface DownloadRenderedParams {
@@ -124,5 +130,5 @@ export async function downloadRenderedComment(
     const meta = JSON.parse(
         await fs.readFile(path.join(destDir, RENDERED_META_FILE), 'utf8'),
     ) as RenderedCommentMeta;
-    return { body, headSha: meta.head_sha };
+    return { body, headSha: meta.head_sha, shouldPost: meta.should_post ?? true };
 }

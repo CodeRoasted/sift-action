@@ -163,13 +163,16 @@ async function run(): Promise<void> {
     setSiftOutputs(state, report);
 
     if (mode === 'render') {
-        // Fork build job (contract § 6.1): write the escaped body for the workflow_run poster;
-        // NEVER post or fail the build from here. (The fork path posts unconditionally for now —
-        // pr-comment level gating across the render→post boundary is a separate follow-up.)
+        // Fork build job (contract § 6.1): write the escaped body for the workflow_run poster; NEVER
+        // post or fail the build from here. The fork build is always a PR, so gate on `pr-comment` and
+        // STAMP the verdict into the artifact — the poster honours it, so pr-comment controls fork-PR
+        // comments exactly like inline ones (no shared floor; render always writes so the upload never
+        // errors — the poster simply skips when the flag is false).
+        const shouldPost = shouldComment(state, prComment);
         const runnerTemp = process.env.RUNNER_TEMP || os.tmpdir();
         const commentDir = path.join(runnerTemp, SIFT_COMMENT_DIR);
-        await writeRenderedComment(body, headSha, commentDir);
-        core.info(`Sift: render mode — wrote the comment body to ${commentDir} (the workflow uploads it).`);
+        await writeRenderedComment(body, headSha, commentDir, shouldPost);
+        core.info(`Sift: render mode — wrote the comment body (pr-comment=${prComment} ⇒ post=${shouldPost}); the workflow uploads it.`);
         await tryWrite('publish the baseline artifact', () => publishBaselineLog(changedLog));
         return;
     }

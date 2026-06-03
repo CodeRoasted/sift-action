@@ -5,8 +5,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 import { selectPrNumber, triggeringRunIsTrusted, type AssociatedPr } from '../src/poster';
+import { writeRenderedComment } from '../src/artifact';
+import { RENDERED_META_FILE, type RenderedCommentMeta } from '../src/types';
 
 // ── (a) triggeringRunIsTrusted ──────────────────────────────────────────────
 
@@ -86,4 +91,18 @@ test('a PR with a different head sha is never selected, even if listed first', (
         { number: 2, state: 'open', head: { sha: 'trusted-head' } },
     ]);
     assert.equal(selectPrNumber(data, 'trusted-head'), 2);
+});
+
+// ── render → post: pr-comment verdict crosses the boundary via the meta ──────
+
+test('writeRenderedComment stamps should_post so the poster can honour pr-comment on fork PRs', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-render-'));
+    const read = async () =>
+        JSON.parse(await fs.readFile(path.join(dir, RENDERED_META_FILE), 'utf8')) as RenderedCommentMeta;
+
+    await writeRenderedComment('body', 'abc1234', dir, false);
+    assert.equal((await read()).should_post, false, 'below-threshold render must stamp should_post=false');
+
+    await writeRenderedComment('body', 'abc1234', dir, true);
+    assert.equal((await read()).should_post, true, 'at/above-threshold render must stamp should_post=true');
 });

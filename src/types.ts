@@ -113,4 +113,5 @@ export const MAX_RENDERED_BODY_BYTES = 65_536; // GitHub issue-comment hard limi
 export interface RenderedCommentMeta {
     context_version: string;
     head_sha: string;
+    should_post: boolean; // render stamps the pr-comment verdict; the poster honours it (absent ⇒ post, for back-compat)
 }
