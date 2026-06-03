@@ -38,6 +38,18 @@ The first green run on the base branch seeds the baseline; every PR gets a diff
 automatically thereafter (self-bootstrapping). No prior green run ⇒ an honest
 "no baseline yet" comment.
 
+## On a push vs a PR
+
+The trigger decides where the diff goes — Sift works whether you use PRs or push straight to `main`:
+
+- **On a PR** — Sift posts/updates the sticky **comment** on the PR (this run vs the base branch's last green run).
+- **On a push** (trunk commit to `main`, no PR) — Sift writes the diff to the run's **job summary**
+  (`$GITHUB_STEP_SUMMARY`) instead, since there's no PR to comment on, and re-seeds the baseline
+  **green-gated**: a red build still diffs against the prior green but never becomes the baseline.
+
+`fail-on` applies in both cases. On either trigger, the first run on a fresh branch is a cold start
+(seed only); every run after gets a structural diff.
+
 ## Capturing the log
 
 `log:` just needs a file holding the build/test output you want diffed — capture it

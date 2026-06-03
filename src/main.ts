@@ -88,9 +88,62 @@ async function run(): Promise<void> {
 
     const pullRequest = github.context.payload.pull_request;
     if (!pullRequest) {
-        // No PR (e.g. a base-branch push): seed the baseline for future PRs; no comment.
-        await tryWrite('publish the baseline artifact', () => publishBaselineLog(changedLog));
-        core.info('Sift: no PR context — published the baseline-log seed only (no comment).');
+        // PUSH (trunk commit, e.g. to main): no PR to comment on. Diff this run against the
+        // last-green baseline and report to the JOB SUMMARY ($GITHUB_STEP_SUMMARY), then re-seed
+        // GREEN-GATED — a red build still diffs against last-green but never overwrites the
+        // baseline. This is what makes Sift useful on a trunk / push-to-main workflow with no PRs
+        // (contract § 3). `render`/`post` modes are PR-only and never reach here.
+        const branch = github.context.ref.replace(/^refs\/heads\//, '');
+        const pushSha = github.context.sha;
+        const baseline = await resolveBaseline({
+            octokit,
+            owner,
+            repo,
+            runId: github.context.runId,
+            baseBranch: branch,
+            workDir,
+        });
+        const pushContext: SiftCommentContext = {
+            context_version: CONTEXT_VERSION,
+            head_sha: pushSha,
+            base_branch: branch,
+            build_status: buildStatus,
+            baseline: baseline?.meta,
+        };
+        let pushGateExit = 0;
+        let summaryBody: string;
+        if (!baseline) {
+            summaryBody = renderComment(null, pushContext); // cold start (contract § 3): no diff yet
+            core.info(`Sift: push to \`${branch}\` — cold start, no baseline yet (seeding below).`);
+        } else {
+            const siftBin = await resolveSift(core.getInput('sift-binary'), workDir);
+            const { report, exitCode } = await runSift({
+                siftBin,
+                baselineLog: baseline.logPath,
+                changedLog,
+                baselineLabel: baseline.meta.sha.slice(0, 7),
+                changedLabel: pushSha.slice(0, 7),
+                failOn,
+                outputPath: path.join(workDir, 'report.json'),
+            });
+            pushGateExit = exitCode;
+            summaryBody = renderComment(report, pushContext);
+            core.info(`Sift: push to \`${branch}\` — diffed against last-green ${baseline.meta.sha.slice(0, 7)}.`);
+        }
+        // Report to the job summary — there is no PR comment surface on a push. The body is the same
+        // markdown the PR comment uses (the STICKY_MARKER is an inert HTML comment in a summary).
+        await core.summary.addRaw(summaryBody).write();
+        // Re-seed GREEN-GATED: only a green (or status-unknown) build advances the last-green baseline,
+        // so a red push diffs against the prior green but never poisons the baseline.
+        if (buildStatus === 'red') {
+            core.info('Sift: red build — kept the previous green baseline (did not re-seed).');
+        } else {
+            await tryWrite('publish the baseline artifact', () => publishBaselineLog(changedLog));
+        }
+        // Advisory gate applies on push too — a real trunk CI gate when fail-on is set (no-op for none).
+        if (pushGateExit !== 0) {
+            core.setFailed(`Sift gate (--fail-on ${failOn}) tripped — see the job summary for what changed.`);
+        }
         return;
     }
 
@@ -123,8 +176,8 @@ async function run(): Promise<void> {
         body = renderComment(null, context);
         core.info('Sift: cold start — no baseline to diff against.');
     } else {
-        // Resolve the binary only now — cold-start and base-branch pushes never
-        // invoke the engine, so they skip the download (resolve-sift.ts, Argos lane).
+        // Resolve the binary only now — cold starts never invoke the engine, so they skip the
+        // download (resolve-sift.ts, Argos lane). A push WITH a baseline does invoke it (above).
         const siftBin = await resolveSift(core.getInput('sift-binary'), workDir);
         const { report, exitCode } = await runSift({
             siftBin,

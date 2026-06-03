@@ -72,8 +72,8 @@ export interface BaselineProvenance {
 export interface SiftCommentContext {
     context_version: string;
     head_sha: string;
-    pr_number: number;
-    base_branch: string;        // the PR's base — needed for the cold-start copy
+    pr_number?: number;         // absent on a PUSH (trunk commit) — there is no PR (contract § 3)
+    base_branch: string;        // the PR's base, or the pushed branch — needed for the cold-start copy
     build_status: BuildStatus;  // OPTIONAL enhancer; "unknown" degrades gracefully
     baseline?: BaselineProvenance; // absent ⇒ cold start
 }

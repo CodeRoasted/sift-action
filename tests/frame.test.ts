@@ -252,3 +252,16 @@ test('safe embedding: markdown link/image syntax is neutralized (no phishing und
     // composed raw, so they stay live — neutralization touches only engine content.
     assert.ok(out.includes('[What is this?](https://coderoast.fr/sift)'), 'frame links stay live');
 });
+
+// ── Push mode: the renderer must not depend on pr_number (contract § 3) ─────
+
+test('push context (no pr_number) renders identically — the frame never reads pr_number', () => {
+    const report = load('drift.json');
+    const withPr = renderComment(report, ctx({ pr_number: 42 }));
+    const withoutPr = renderComment(report, ctx({ pr_number: undefined }));
+    assert.equal(
+        withoutPr,
+        withPr,
+        'render must be independent of pr_number so push mode (no PR) reuses the same body',
+    );
+});
