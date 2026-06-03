@@ -24,6 +24,15 @@ inputs:
     description: 'Optional enhancer: the current run''s suite result (green | red | unknown). Set it from your build/test job result — green on success, else red (README shows the exact expression). Drives the green-build headline; degrades gracefully when unknown.'
     required: false
     default: 'unknown'
+  commit-comment:
+    description: >-
+      Push runs only (no PR — e.g. trunk commits to main): ALSO post the structural-diff comment on
+      the pushed commit, gated by verdict level — none (default; job summary only) | significant
+      (drift OR regression) | regression (only a flagged regression). NEVER comments on a clean or
+      cold-start run, so it can't flood the commit timeline. The job summary is always written
+      regardless. Needs `contents: write`; degrades to a warning without it (the run never fails).
+    required: false
+    default: 'none'
   github-token:
     description: 'Token for the runs/artifacts API, the sticky comment, and artifact upload.'
     required: false
@@ -51,8 +60,9 @@ inputs:
 # Permissions the caller workflow must grant (contract § 6):
 #   actions: read       — resolve the base branch's last green run + its artifact
 #   contents: read      — checkout / API
-#   pull-requests: write — post/update the sticky comment
+#   pull-requests: write — post/update the sticky comment (PR runs)
 #   actions: write      — upload this run's baseline-log artifact
+#   contents: write     — ONLY if commit-comment is set (push-mode commit comments); else omit
 # Fork PRs get a read-only token: the comment/artifact writes degrade with a
 # warning (the advisory gate still applies).
 

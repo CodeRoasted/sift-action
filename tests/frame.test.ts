@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 
 import { renderComment, STICKY_MARKER, escapeInline } from '../src/frame';
-import { selectState, State } from '../src/verdict';
+import { selectState, shouldCommitComment, State } from '../src/verdict';
 import type { RankedChange, SiftCommentContext, SiftReport } from '../src/types';
 
 const FIXTURES = path.join(__dirname, '..', '..', 'tests', 'fixtures');
@@ -264,4 +264,22 @@ test('push context (no pr_number) renders identically — the frame never reads 
         withPr,
         'render must be independent of pr_number so push mode (no PR) reuses the same body',
     );
+});
+
+// ── Push mode: commit-comment threshold (contract § 3, noise control) ─────────
+
+test('shouldCommitComment honours the level and never fires on clean / cold-start', () => {
+    // none (default): never comment, whatever the verdict
+    for (const s of [State.ColdStart, State.Clean, State.Drift, State.Regression]) {
+        assert.equal(shouldCommitComment(s, 'none'), false, `none must never comment (was ${s})`);
+    }
+    // significant: drift OR regression — never clean / cold-start
+    assert.equal(shouldCommitComment(State.ColdStart, 'significant'), false);
+    assert.equal(shouldCommitComment(State.Clean, 'significant'), false, 'clean is not "notable" — no noise');
+    assert.equal(shouldCommitComment(State.Drift, 'significant'), true);
+    assert.equal(shouldCommitComment(State.Regression, 'significant'), true);
+    // regression: only a flagged regression
+    assert.equal(shouldCommitComment(State.Clean, 'regression'), false);
+    assert.equal(shouldCommitComment(State.Drift, 'regression'), false, 'drift alone is below the regression bar');
+    assert.equal(shouldCommitComment(State.Regression, 'regression'), true);
 });

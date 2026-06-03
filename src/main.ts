@@ -10,12 +10,13 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { resolveBaseline } from './baseline';
-import { upsertStickyComment } from './comment';
+import { upsertStickyComment, upsertCommitComment } from './comment';
 import { publishBaselineLog, writeRenderedComment } from './artifact';
 import { renderComment } from './frame';
 import { runPoster } from './poster';
 import { resolveSift } from './resolve-sift';
 import { runSift, type FailOn } from './sift';
+import { selectState, shouldCommitComment, State, type CommitCommentLevel } from './verdict';
 import {
     CONTEXT_VERSION,
     SIFT_COMMENT_DIR,
@@ -48,6 +49,13 @@ function readBuildStatus(): BuildStatus {
 
 function readFailOn(): FailOn {
     const raw = (core.getInput('fail-on') || 'none').toLowerCase();
+    return raw === 'significant' || raw === 'regression' ? raw : 'none';
+}
+
+// Push mode only (contract § 3): on a push, ALSO post a commit comment when the verdict clears
+// this level. Default `none` = job summary only (quiet). Mirrors `fail-on`'s vocabulary.
+function readCommitCommentLevel(): CommitCommentLevel {
+    const raw = (core.getInput('commit-comment') || 'none').toLowerCase();
     return raw === 'significant' || raw === 'regression' ? raw : 'none';
 }
 
@@ -111,6 +119,7 @@ async function run(): Promise<void> {
             baseline: baseline?.meta,
         };
         let pushGateExit = 0;
+        let pushState: State = State.ColdStart;
         let summaryBody: string;
         if (!baseline) {
             summaryBody = renderComment(null, pushContext); // cold start (contract § 3): no diff yet
@@ -127,12 +136,23 @@ async function run(): Promise<void> {
                 outputPath: path.join(workDir, 'report.json'),
             });
             pushGateExit = exitCode;
+            pushState = selectState(report);
             summaryBody = renderComment(report, pushContext);
             core.info(`Sift: push to \`${branch}\` — diffed against last-green ${baseline.meta.sha.slice(0, 7)}.`);
         }
         // Report to the job summary — there is no PR comment surface on a push. The body is the same
         // markdown the PR comment uses (the STICKY_MARKER is an inert HTML comment in a summary).
         await core.summary.addRaw(summaryBody).write();
+        // Opt-in commit comment (contract § 3): post on the pushed SHA only when the verdict clears the
+        // chosen threshold — never on a clean / cold-start run, so the commit timeline can't drown in
+        // noise. Upserted per-commit (re-runs don't duplicate). Default `none` = job summary only.
+        const commitLevel = readCommitCommentLevel();
+        if (shouldCommitComment(pushState, commitLevel)) {
+            await tryWrite('post the commit comment (needs contents: write)', () =>
+                upsertCommitComment({ octokit, owner, repo, commitSha: pushSha, body: summaryBody }),
+            );
+            core.info(`Sift: push — commit comment upserted on ${pushSha.slice(0, 7)} (commit-comment: ${commitLevel}).`);
+        }
         // Re-seed GREEN-GATED: only a green (or status-unknown) build advances the last-green baseline,
         // so a red push diffs against the prior green but never poisons the baseline.
         if (buildStatus === 'red') {

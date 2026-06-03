@@ -46,6 +46,9 @@ The trigger decides where the diff goes — Sift works whether you use PRs or pu
 - **On a push** (trunk commit to `main`, no PR) — Sift writes the diff to the run's **job summary**
   (`$GITHUB_STEP_SUMMARY`) instead, since there's no PR to comment on, and re-seeds the baseline
   **green-gated**: a red build still diffs against the prior green but never becomes the baseline.
+  Want it louder? Set **`commit-comment: significant`** (drift or regression) or **`regression`**
+  (regression only) to *also* drop a comment on the pushed commit — **off by default** (job summary
+  only), **never on a clean run** (no noise), and it needs `contents: write`.
 
 `fail-on` applies in both cases. On either trigger, the first run on a fresh branch is a cold start
 (seed only); every run after gets a structural diff.

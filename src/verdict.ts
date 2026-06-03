@@ -36,3 +36,22 @@ export function selectState(report: SiftReport | null): State {
     }
     return State.Drift;
 }
+
+// ── Commit-comment threshold (push mode, contract § 3) ───────────────────────
+//
+// On a push there is no PR; the diff always goes to the job summary. `commit-comment`
+// ADDITIONALLY posts a comment on the pushed commit — but only when the verdict is at
+// least the chosen level, so a clean or cold-start run is never noise. Mirrors
+// `fail-on`'s vocabulary: none (default) | significant (drift OR regression) | regression.
+export type CommitCommentLevel = 'none' | 'significant' | 'regression';
+
+export function shouldCommitComment(state: State, level: CommitCommentLevel): boolean {
+    switch (level) {
+        case 'none':
+            return false;
+        case 'significant':
+            return state === State.Drift || state === State.Regression; // anything "worth a look"
+        case 'regression':
+            return state === State.Regression; // only a flagged regression
+    }
+}
