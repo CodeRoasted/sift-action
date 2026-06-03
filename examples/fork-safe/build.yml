@@ -13,6 +13,9 @@ on:
 
 permissions:
   contents: read          # checkout only — NO pull-requests: write in this fork-exposed job
+  actions: read           # read-only: resolve the base branch's last-green run + its baseline
+                          # artifact. Still no WRITE in this fork-exposed job; a fork's restricted
+                          # token may 403 on these reads anyway → the Action cold-starts gracefully.
 
 jobs:
   sift-render:
