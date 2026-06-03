@@ -40,18 +40,20 @@ automatically thereafter (self-bootstrapping). No prior green run ⇒ an honest
 
 ## On a push vs a PR
 
-The trigger decides where the diff goes — Sift works whether you use PRs or push straight to `main`:
+Sift works whether you use PRs or push straight to `main`. **The diff is always written to the run's
+job summary (`$GITHUB_STEP_SUMMARY`) and to step outputs** — that's the result, retrievable no matter
+how you configure comments. Comments are an optional overlay on top, each surface with its own level:
 
-- **On a PR** — Sift posts/updates the sticky **comment** on the PR (this run vs the base branch's last green run).
-- **On a push** (trunk commit to `main`, no PR) — Sift writes the diff to the run's **job summary**
-  (`$GITHUB_STEP_SUMMARY`) instead, since there's no PR to comment on, and re-seeds the baseline
-  **green-gated**: a red build still diffs against the prior green but never becomes the baseline.
-  Want it louder? Set **`commit-comment: significant`** (drift or regression) or **`regression`**
-  (regression only) to *also* drop a comment on the pushed commit — **off by default** (job summary
-  only), **never on a clean run** (no noise), and it needs `contents: write`.
+- **PR runs** — `pr-comment` controls the sticky comment: `never` | `regression` | `significant`
+  (drift or regression) | **`always`** (default — keeps the green "✅ no change" reassurance).
+- **Push runs** (trunk commit to `main`, no PR) — `commit-comment` controls a comment on the pushed
+  commit: **`never`** (default — job summary only) | `regression` | `significant` | `always`. Needs
+  `contents: write`; upserts per-commit (re-runs don't duplicate). The baseline re-seed is
+  **green-gated** (a red build still diffs against the prior green but never becomes the baseline).
 
-`fail-on` applies in both cases. On either trigger, the first run on a fresh branch is a cold start
-(seed only); every run after gets a structural diff.
+Each surface has its **own** level (no shared floor), so you can keep the reassuring PR comment while
+staying silent on routine pushes. `fail-on` is a separate axis — it gates the **build** (exit code),
+not the comment. The first run on a fresh branch is a cold start (seed only); every run after diffs.
 
 ## Capturing the log
 
@@ -145,7 +147,21 @@ a local shell.
 | `sift-binary` | no | _(auto)_ | Override path to a `sift` binary. Default: download + sha256-verify the version-pinned `sift-linux-x64` release asset. |
 | `fail-on` | no | `none` | `none` \| `significant` \| `regression` — advisory gate (exit code only; the comment never says "blocked"). |
 | `build-status` | no | `unknown` | `green` \| `red` \| `unknown` — enhancer; drives the green-build headline. |
+| `pr-comment` | no | `always` | `never` \| `regression` \| `significant` \| `always` — sticky PR comment at/above this verdict. |
+| `commit-comment` | no | `never` | `never` \| `regression` \| `significant` \| `always` — commit comment on push at/above this verdict (needs `contents: write`). |
 | `github-token` | no | `${{ github.token }}` | Runs/artifacts API + comment + artifact upload. |
+
+## Outputs
+
+Set on **every** run, whatever the comment config — branch on them in a later step
+(`if: steps.sift.outputs.state == 'regression'`):
+
+| Output | Description |
+|---|---|
+| `state` | `cold-start` \| `clean` \| `drift` \| `regression` |
+| `total-changes` | Total observed deltas (before significance suppression). |
+| `significant-changes` | Deltas that cleared the significance floor. |
+| `regression` | `true` when a regression was flagged, else `false`. |
 
 ## Architecture
 

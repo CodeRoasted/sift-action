@@ -37,21 +37,26 @@ export function selectState(report: SiftReport | null): State {
     return State.Drift;
 }
 
-// ── Commit-comment threshold (push mode, contract § 3) ───────────────────────
+// ── Comment threshold — per surface, no shared floor (contract § 3) ──────────
 //
-// On a push there is no PR; the diff always goes to the job summary. `commit-comment`
-// ADDITIONALLY posts a comment on the pushed commit — but only when the verdict is at
-// least the chosen level, so a clean or cold-start run is never noise. Mirrors
-// `fail-on`'s vocabulary: none (default) | significant (drift OR regression) | regression.
-export type CommitCommentLevel = 'none' | 'significant' | 'regression';
+// Both pr-comment and commit-comment carry their OWN level: does a result at `state`
+// clear it? The ladder (rising = more comments):
+//   never       — off (no comment on this surface)
+//   regression  — only a flagged regression
+//   significant — drift OR regression ("≥ notable")
+//   always      — every state, incl. clean's "✅ no change" reassurance and cold start
+// The job summary + outputs are written regardless; this only gates the comment.
+export type CommentLevel = 'never' | 'regression' | 'significant' | 'always';
 
-export function shouldCommitComment(state: State, level: CommitCommentLevel): boolean {
+export function shouldComment(state: State, level: CommentLevel): boolean {
     switch (level) {
-        case 'none':
+        case 'never':
             return false;
-        case 'significant':
-            return state === State.Drift || state === State.Regression; // anything "worth a look"
         case 'regression':
-            return state === State.Regression; // only a flagged regression
+            return state === State.Regression;
+        case 'significant':
+            return state === State.Drift || state === State.Regression;
+        case 'always':
+            return true;
     }
 }

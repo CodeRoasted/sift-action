@@ -24,15 +24,22 @@ inputs:
     description: 'Optional enhancer: the current run''s suite result (green | red | unknown). Set it from your build/test job result — green on success, else red (README shows the exact expression). Drives the green-build headline; degrades gracefully when unknown.'
     required: false
     default: 'unknown'
+  pr-comment:
+    description: >-
+      PR runs: post the sticky comment when the verdict is at least this level —
+      never | regression (only a flagged regression) | significant (drift OR regression) |
+      always (every state, incl. the green "no change" reassurance). Default `always`.
+      The job summary + outputs are written regardless.
+    required: false
+    default: 'always'
   commit-comment:
     description: >-
-      Push runs only (no PR — e.g. trunk commits to main): ALSO post the structural-diff comment on
-      the pushed commit, gated by verdict level — none (default; job summary only) | significant
-      (drift OR regression) | regression (only a flagged regression). NEVER comments on a clean or
-      cold-start run, so it can't flood the commit timeline. The job summary is always written
-      regardless. Needs `contents: write`; degrades to a warning without it (the run never fails).
+      Push runs (no PR — e.g. trunk commits to main): ALSO post a comment on the pushed commit when
+      the verdict is at least this level — never (default; job summary only) | regression | significant
+      (drift OR regression) | always. NEVER fires below the level (a clean run stays quiet), upserts
+      per-commit (re-runs don't duplicate). Needs `contents: write`; degrades to a warning without it.
     required: false
-    default: 'none'
+    default: 'never'
   github-token:
     description: 'Token for the runs/artifacts API, the sticky comment, and artifact upload.'
     required: false
@@ -56,6 +63,18 @@ inputs:
     description: 'mode=post only (optional): the expected build workflow (file name or display name) to double-check the triggering run against. The workflow_run trigger filter is the primary guard.'
     required: false
     default: ''
+
+# Machine-readable verdict — set on EVERY run regardless of the comment config, so a later step can
+# branch on Sift's result (e.g. `if: steps.sift.outputs.state == 'regression'`) without parsing text.
+outputs:
+  state:
+    description: 'Verdict: cold-start | clean | drift | regression.'
+  total-changes:
+    description: 'Total observed deltas (the "of N" number, before significance suppression).'
+  significant-changes:
+    description: 'Deltas that cleared the significance floor.'
+  regression:
+    description: 'true when a regression was flagged, else false.'
 
 # Permissions the caller workflow must grant (contract § 6):
 #   actions: read       — resolve the base branch's last green run + its artifact
