@@ -13,6 +13,10 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write   # Sift dogfood: post/update the sticky comment (same-repo, private — no forks)
+      actions: write         # Sift dogfood: upload the baseline-log artifact (+ read for last-green resolution)
     steps:
       - uses: actions/checkout@v4
 
@@ -24,11 +28,14 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Start build-log capture (typecheck/test below append; Sift diffs it)
+        run: truncate --size 0 "$GITHUB_WORKSPACE/build.log"
+
       - name: Typecheck
-        run: npm run typecheck
+        run: npm run typecheck 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
       - name: Test
-        run: npm test
+        run: npm test 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
       - name: dist/ is in sync with src/ (the committed bundle is what runs)
         # `runs: main: dist/index.js` — GitHub executes the COMMITTED bundle, not
@@ -41,6 +48,15 @@ jobs:
             git --no-pager diff --stat dist/
             exit 1
           fi
+
+      - name: Sift — structural diff of this run's typecheck/test log (advisory, dogfoods THIS code)
+        if: ${{ always() }}
+        continue-on-error: true    # advisory: a Sift error must NEVER fail this build
+        uses: ./    # the local action (dist/ was just rebuilt above), NOT @v1 — so the PR's own code eats its dog food
+        with:
+          log: build.log
+          fail-on: none
+          build-status: ${{ job.status == 'success' && 'green' || 'red' }}
 
   actionlint:
     runs-on: ubuntu-latest
