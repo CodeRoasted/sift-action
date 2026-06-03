@@ -49,3 +49,20 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash
           ./actionlint
+
+  manifest-load:
+    # actionlint lints WORKFLOWS, not action.yml — so a broken manifest (a ${{ }} expression
+    # using a context invalid in action metadata, e.g. `needs` / `github.event`) ships silently
+    # and fails EVERY consumer at `uses:`, which the TS suite can never catch. Force GitHub to
+    # LOAD the manifest by self-using the action. On a non-PR event main.ts takes the no-PR path
+    # (seed-only) and exits 0 — no engine, no binary, no comment. A manifest that won't load
+    # fails this job at the `uses:` step. (PRs are covered by the push:main run after merge,
+    # before the floating @v1 is re-pointed at the new commit.)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "manifest-load smoke" > smoke.log   # a real file for the required `log` input
+      - uses: ./
+        with:
+          log: smoke.log
