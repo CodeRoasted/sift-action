@@ -51,7 +51,12 @@ export async function resolveSift(override: string, workDir: string): Promise<st
         );
     }
 
-    const base = `https://github.com/${RELEASE_REPO}/releases/download/v${SIFT_VERSION}`;
+    // The engine binary rides a DISTINCT `engine-v<X.Y.Z>` tag, not a bare `v<X.Y.Z>`:
+    // the bare vX.Y.Z series is the Action's own consumer releases (v1.0.0 / @v1), and a
+    // semver `v1.4.2` would outrank `v1.0.0` as GitHub's "Latest". Keeping the binary on
+    // `engine-v…` means the public repo + Marketplace always headline the Action, never the
+    // engine asset. release-publish.yml (insight-eidos) publishes under the same scheme.
+    const base = `https://github.com/${RELEASE_REPO}/releases/download/engine-v${SIFT_VERSION}`;
     const bin = path.join(workDir, 'sift');
     const shaFile = path.join(workDir, 'sift.sha256');
 
@@ -62,12 +67,12 @@ export async function resolveSift(override: string, workDir: string): Promise<st
     const actual = crypto.createHash('sha256').update(await fs.readFile(bin)).digest('hex');
     if (!expected || expected !== actual) {
         throw new Error(
-            `Sift: sha256 mismatch for ${ASSET} v${SIFT_VERSION} — refusing to run an ` +
+            `Sift: sha256 mismatch for ${ASSET} (engine v${SIFT_VERSION}) — refusing to run an ` +
                 `unverified binary (expected '${expected}', got '${actual}').`,
         );
     }
 
     await fs.chmod(bin, 0o755);
-    core.info(`Sift: downloaded + sha256-verified ${ASSET} v${SIFT_VERSION}.`);
+    core.info(`Sift: downloaded + sha256-verified ${ASSET} (engine v${SIFT_VERSION}).`);
     return bin;
 }
