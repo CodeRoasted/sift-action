@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write   # Sift dogfood: post/update the sticky comment (same-repo, private — no forks)
+      pull-requests: write   # Sift dogfood: comment on same-repo PRs + seed on push; fork PRs skipped (read-only token anyway)
       actions: write         # Sift dogfood: upload the baseline-log artifact (+ read for last-green resolution)
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +50,7 @@ jobs:
           fi
 
       - name: Sift — structural diff of this run's typecheck/test log (advisory, dogfoods THIS code)
-        if: ${{ always() }}
+        if: ${{ always() && github.event.pull_request.head.repo.fork != true }}
         continue-on-error: true    # advisory: a Sift error must NEVER fail this build
         uses: ./    # the local action (dist/ was just rebuilt above), NOT @v1 — so the PR's own code eats its dog food
         with:
