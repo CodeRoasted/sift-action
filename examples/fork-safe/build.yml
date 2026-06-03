@@ -21,7 +21,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - id: build
-        run: ./ci/build.sh 2>&1 | tee build.log     # your build; produces the log to diff
+        continue-on-error: true                      # a red build must still render — don't fail the job here,
+                                                     # or the workflow_run poster (2 of 2) never fires
+        run: |
+          set -o pipefail                            # `| tee` must not mask the build's real exit code,
+                                                     # or build-status below is always (wrongly) green
+          ./ci/build.sh 2>&1 | tee build.log         # your build; produces the log to diff
 
       - uses: CodeRoasted/sift-action@v1
         with:

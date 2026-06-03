@@ -22,8 +22,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: build
-        run: ./ci/build.sh 2>&1 | tee build.log   # capture the log you want diffed
+        run: |
+          set -o pipefail                          # `| tee` must not mask the build's real exit code,
+                                                   # or build-status below is always (wrongly) green
+          ./ci/build.sh 2>&1 | tee build.log       # capture the log you want diffed
       - uses: CodeRoasted/sift-action@v1
+        if: ${{ !cancelled() }}                    # still diff + comment when the build went red — that's the point
         with:
           log: build.log
           fail-on: regression                      # advisory gate (none | significant | regression)
