@@ -21,7 +21,7 @@ inputs:
     required: false
     default: 'none'
   build-status:
-    description: 'Optional enhancer: the current run''s suite result (green | red | unknown), e.g. ${{ needs.test.result == ''success'' && ''green'' || ''red'' }}. Drives the green-build headline; degrades gracefully when unknown.'
+    description: 'Optional enhancer: the current run''s suite result (green | red | unknown). Set it from your build/test job result — green on success, else red (README shows the exact expression). Drives the green-build headline; degrades gracefully when unknown.'
     required: false
     default: 'unknown'
   github-token:
@@ -40,7 +40,7 @@ inputs:
     required: false
     default: 'comment'
   run-id:
-    description: 'mode=post only: the triggering run id whose `sift-comment` artifact to post, e.g. ${{ github.event.workflow_run.id }}.'
+    description: 'mode=post only: the triggering run id whose `sift-comment` artifact to post — the workflow_run event''s run id (see examples/fork-safe).'
     required: false
     default: ''
   build-workflow:
