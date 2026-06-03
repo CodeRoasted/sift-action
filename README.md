@@ -124,11 +124,21 @@ gated on the parser's **Fuzz/ASan gate** being green — keep `post.yml` disable
 
 This Action is a thin adapter over a **CI-agnostic substrate**: the `sift` engine ships as a
 **public, unauthenticated, checksummed** release asset — `sift-linux-x64` (+ `.sha256`) on this
-repo's releases. Any CI with `curl` + `sha256sum` is just another client. The download URL is
-**stable** — only the version tag varies, the asset names are fixed:
+repo's releases. Any CI with `curl` + `sha256sum` is just another client.
+
+**No GitHub Actions? Install the CLI** — one line, downloads + sha256-verifies the latest binary:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/CodeRoasted/sift-action/main/install.sh | sh
+# pin a version:          ...install.sh | sh -s -- 1.4.2
+# choose the location:    SIFT_INSTALL_DIR="$HOME/bin"  (default: /usr/local/bin, else ~/.local/bin)
+```
+
+Then `sift <baseline.log> <changed.log>` in any CI or locally. The download URL is **stable** — only
+the version tag varies, the asset names are fixed (the engine binary rides a distinct `engine-v…` tag):
 
 ```
-https://github.com/CodeRoasted/sift-action/releases/download/v<VERSION>/sift-linux-x64
+https://github.com/CodeRoasted/sift-action/releases/download/engine-v<VERSION>/sift-linux-x64
 ```
 
 **Jenkins** has a ready, **doc-only** Tier-0 recipe: [`examples/jenkins/Jenkinsfile`](examples/jenkins/Jenkinsfile).
