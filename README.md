@@ -38,6 +38,37 @@ The first green run on the base branch seeds the baseline; every PR gets a diff
 automatically thereafter (self-bootstrapping). No prior green run ⇒ an honest
 "no baseline yet" comment.
 
+## Capturing the log
+
+`log:` just needs a file holding the build/test output you want diffed — capture it
+whichever way fits your job. Always with `set -o pipefail` (a bare `… | tee` masks the
+build's real exit code, so `build-status` would read green on a red build):
+
+- **One command** (as in Usage above) — pipe it through `tee`:
+  ```yaml
+  - id: build
+    run: |
+      set -o pipefail
+      make 2>&1 | tee build.log
+  ```
+- **Several commands in one step** — start capturing once, at the top:
+  ```yaml
+  - id: build
+    run: |
+      set -eo pipefail
+      exec > >(tee build.log) 2>&1     # everything below this line is captured
+      cmake --build build
+      ctest --test-dir build
+  ```
+- **Output spread across several steps** — start an empty file, then append (`tee -a`):
+  ```yaml
+  - name: Start build-log capture
+    run: truncate --size 0 "$GITHUB_WORKSPACE/build.log"
+  - run: cmake --build build   2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+  - run: ctest --test-dir build 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+  # … then point Sift at it:  with: { log: build.log }
+  ```
+
 ## Platform & supply chain
 
 - **Runner:** linux x64 (`ubuntu-latest`) for v1; arm/macOS/Windows are a
