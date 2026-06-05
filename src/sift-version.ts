@@ -10,4 +10,4 @@
 // line that debuts at 1.0.0 — do NOT conflate the two numbers. Bump THIS in
 // lockstep with the coordinated platform cut (the CR_PIN-class vendoring pin the
 // gate guards); bump package.json on the Action wrapper's own release cadence.
-export const SIFT_VERSION = '1.5.0';
+export const SIFT_VERSION = '1.5.1';
