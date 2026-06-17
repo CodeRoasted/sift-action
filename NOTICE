@@ -25,7 +25,7 @@ in dist/licenses.txt.
 
 EXPLAIN (opt-in) RUNTIME ASSETS — NOT bundled in this repository. When `explain:
 true`, the Action downloads, at runtime, two redistributed assets from the public
-CodeRoasted/Eidos Hugging Face repo, each under its own permissive license (the
+CodeRoasted/sift-explain-model Hugging Face repo, each under its own permissive license (the
 license texts ship in that repo):
     - phi-3.5-mini-instruct-Q4_K_M.gguf — a GGUF quantization of Microsoft's
       Phi-3.5-mini-instruct, MIT License (© Microsoft).

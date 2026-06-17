@@ -85935,7 +85935,7 @@ function readCommentLevel(input, fallback) {
         : fallback;
 }
 // Opt-in `--explain` provisioning (adr/0009 §6.2). Runs the engine's idempotent `explain-setup`:
-// download + SHA-256-verify the pinned model + inference server from the public CodeRoasted/Eidos HF
+// download + SHA-256-verify the pinned model + inference server from the public CodeRoasted/sift-explain-model HF
 // repo (NO credential — anonymous, fork-safe). Best-effort + fail-soft: a provisioning failure is a
 // WARNING, never an Action failure — `sift --explain` then degrades to no-narrative on the non-TTY CI
 // run and the deterministic report + gate are unaffected. Cross-run caching of the ~2.4 GB asset dir
@@ -86517,7 +86517,7 @@ async function runSift(invocation) {
     return { report, exitCode };
 }
 // `sift explain-setup`: download + SHA-256-verify + cache the pinned model + inference server from the
-// public CodeRoasted/Eidos HF repo (no credential). Idempotent — a cache hit re-verifies + skips the
+// public CodeRoasted/sift-explain-model HF repo (no credential). Idempotent — a cache hit re-verifies + skips the
 // fetch. Fail-soft: a failure (network / cache service / sha mismatch) is a warning, NOT an Action
 // failure — `sift --explain` then degrades to no-narrative on the (non-TTY) CI run. Secret-free env.
 async function runExplainSetup(siftBin) {

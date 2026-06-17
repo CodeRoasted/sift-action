@@ -103,7 +103,7 @@ export async function runSift(invocation: SiftInvocation): Promise<SiftResult> {
 }
 
 // `sift explain-setup`: download + SHA-256-verify + cache the pinned model + inference server from the
-// public CodeRoasted/Eidos HF repo (no credential). Idempotent — a cache hit re-verifies + skips the
+// public CodeRoasted/sift-explain-model HF repo (no credential). Idempotent — a cache hit re-verifies + skips the
 // fetch. Fail-soft: a failure (network / cache service / sha mismatch) is a warning, NOT an Action
 // failure — `sift --explain` then degrades to no-narrative on the (non-TTY) CI run. Secret-free env.
 export async function runExplainSetup(siftBin: string): Promise<boolean> {

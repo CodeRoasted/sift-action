@@ -90,7 +90,7 @@ build's real exit code, so `build-status` would read green on a red build):
 
 `explain: true` adds a short plain-English story above the deterministic diff. The Action provisions a
 **local** model + inference server — a pinned, checksum-verified [Phi-3.5-mini GGUF + a static
-`llama.cpp` server](https://huggingface.co/CodeRoasted/Eidos), fetched anonymously (no token, fork-safe)
+`llama.cpp` server](https://huggingface.co/CodeRoasted/sift-explain-model), fetched anonymously (no token, fork-safe)
 — and runs it on the runner. **Nothing leaves the runner**, and the narrative is **advisory + fail-soft**:
 if anything goes wrong (offline, low memory) you still get the full deterministic report, unchanged, and
 the gate is untouched. (Cloud "bring your own key" is a **CLI-only** affordance; the Action never carries
