@@ -20,6 +20,21 @@ inputs:
     description: 'Advisory gate: exit non-zero when the condition holds. One of none | significant | regression.'
     required: false
     default: 'none'
+  explain:
+    description: >-
+      Opt-in AI narrative header (false default | true). When true, the Action provisions a pinned,
+      checksum-verified LOCAL model + inference server (no credential, fork-safe — nothing leaves the
+      runner) and asks sift for a short plain-English story over the deterministic report. Adds a
+      ~2.4 GB model download (cache it across runs with a one-line `actions/cache` step on
+      `~/.cache/coderoast` — see the README explain example) + a few seconds of CPU inference; the
+      deterministic report is ALWAYS produced regardless (the narrative is advisory and fail-soft — never
+      blocks or changes the gate). Cloud BYO is CLI-only and never via the Action.
+    required: false
+    default: 'false'
+  explain-model:
+    description: 'Advanced: override the pinned recommended model name passed to `sift --explain`. Leave unset for the default (the only model the Action auto-provisions).'
+    required: false
+    default: ''
   build-status:
     description: 'Optional enhancer: the current run''s suite result (green | red | unknown). Set it from your build/test job result — green on success, else red (README shows the exact expression). Drives the green-build headline; degrades gracefully when unknown.'
     required: false

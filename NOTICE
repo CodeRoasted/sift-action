@@ -23,5 +23,16 @@ do not commit a `sift` binary blob here.
 Third-party dependencies bundled into dist/ retain their own licenses, listed
 in dist/licenses.txt.
 
+EXPLAIN (opt-in) RUNTIME ASSETS — NOT bundled in this repository. When `explain:
+true`, the Action downloads, at runtime, two redistributed assets from the public
+CodeRoasted/Eidos Hugging Face repo, each under its own permissive license (the
+license texts ship in that repo):
+    - phi-3.5-mini-instruct-Q4_K_M.gguf — a GGUF quantization of Microsoft's
+      Phi-3.5-mini-instruct, MIT License (© Microsoft).
+    - llama-server-linux-x64 — a static build of the llama.cpp server,
+      MIT License (© 2023-2026 The ggml authors).
+These are fetched + checksum-verified by the `sift` engine; they are never
+vendored into this Action repository.
+
 "Sift" and "CodeRoast" are trademarks of Emmanuel Prunet (CodeRoast). Trademark rights are
 separate from, and not granted by, the MIT license on this code.

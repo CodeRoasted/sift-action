@@ -19,6 +19,12 @@ export interface SiftInvocation {
     changedLabel: string;
     failOn: FailOn;
     outputPath: string;
+    // Opt-in AI narrative (adr/0009). The pinned local model + server are provisioned by
+    // runExplainSetup() before this runs; `sift --explain` then auto-spawns the bundled server,
+    // narrates additively, and tears it down. Fail-soft: a missing/unreachable model leaves the
+    // deterministic report + the gate exit code untouched. No credential — the Action never carries one.
+    explain?: boolean;
+    explainModel?: string; // advanced override; default = the auto-provisioned pinned model
 }
 
 export interface SiftResult {
@@ -55,7 +61,8 @@ export function engineEnv(): Record<string, string> {
     return env;
 }
 
-export async function runSift(invocation: SiftInvocation): Promise<SiftResult> {
+// Pure: the exact `sift` argv for an invocation (exported so it is unit-testable without spawning).
+export function siftArgs(invocation: SiftInvocation): string[] {
     const args = [
         invocation.baselineLog,
         invocation.changedLog,
@@ -71,13 +78,38 @@ export async function runSift(invocation: SiftInvocation): Promise<SiftResult> {
     if (invocation.failOn !== 'none') {
         args.push('--fail-on', invocation.failOn);
     }
+    if (invocation.explain) {
+        // Assets are already provisioned (runExplainSetup ran first); `sift --explain` spawns the bundled
+        // local server itself. Fail-soft in the binary: no endpoint reached ⇒ no narrative, report + exit
+        // code unchanged. The --fail-on exit code ignores the narrative (engine GateExitCodeIgnoresNarrative).
+        args.push('--explain');
+        if (invocation.explainModel) {
+            args.push('--explain-model', invocation.explainModel);
+        }
+    }
+    return args;
+}
+
+export async function runSift(invocation: SiftInvocation): Promise<SiftResult> {
     // ignoreReturnCode: a non-zero exit is the advisory gate, not an Action error.
     // env: a scrubbed, credential-free environment (see engineEnv).
-    const exitCode = await exec.exec(invocation.siftBin, args, {
+    const exitCode = await exec.exec(invocation.siftBin, siftArgs(invocation), {
         ignoreReturnCode: true,
         env: engineEnv(),
     });
     const raw = await fs.readFile(invocation.outputPath, 'utf8');
     const report = JSON.parse(raw) as SiftReport;
     return { report, exitCode };
+}
+
+// `sift explain-setup`: download + SHA-256-verify + cache the pinned model + inference server from the
+// public CodeRoasted/Eidos HF repo (no credential). Idempotent — a cache hit re-verifies + skips the
+// fetch. Fail-soft: a failure (network / cache service / sha mismatch) is a warning, NOT an Action
+// failure — `sift --explain` then degrades to no-narrative on the (non-TTY) CI run. Secret-free env.
+export async function runExplainSetup(siftBin: string): Promise<boolean> {
+    const exitCode = await exec.exec(siftBin, ['explain-setup'], {
+        ignoreReturnCode: true,
+        env: engineEnv(),
+    });
+    return exitCode === 0;
 }

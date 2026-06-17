@@ -17,7 +17,7 @@ import { publishBaselineLog, writeRenderedComment } from './artifact';
 import { renderComment } from './frame';
 import { runPoster } from './poster';
 import { resolveSift } from './resolve-sift';
-import { runSift, type FailOn } from './sift';
+import { runSift, runExplainSetup, type FailOn } from './sift';
 import { selectState, shouldComment, State, type CommentLevel } from './verdict';
 import {
     CONTEXT_VERSION,
@@ -63,6 +63,22 @@ function readCommentLevel(input: string, fallback: CommentLevel): CommentLevel {
     return raw === 'never' || raw === 'regression' || raw === 'significant' || raw === 'always'
         ? (raw as CommentLevel)
         : fallback;
+}
+
+// Opt-in `--explain` provisioning (adr/0009 §6.2). Runs the engine's idempotent `explain-setup`:
+// download + SHA-256-verify the pinned model + inference server from the public CodeRoasted/Eidos HF
+// repo (NO credential — anonymous, fork-safe). Best-effort + fail-soft: a provisioning failure is a
+// WARNING, never an Action failure — `sift --explain` then degrades to no-narrative on the non-TTY CI
+// run and the deterministic report + gate are unaffected. Cross-run caching of the ~2.4 GB asset dir
+// (`${XDG_CACHE_HOME:-~/.cache}/coderoast`) is the caller's one-line `actions/cache` step — see the
+// README explain example. (Deliberately NOT a bundled @actions/cache: it pulls a heavy SDK + extra
+// advisories into this fork-reachable Action; the maintained `actions/cache` action is the clean path.)
+async function provisionExplain(siftBin: string): Promise<void> {
+    if (!(await runExplainSetup(siftBin))) {
+        core.warning(
+            'explain: model/server provisioning failed; emitting the deterministic report without a narrative.',
+        );
+    }
 }
 
 // Machine-readable verdict — set on EVERY run (PR or push), before any comment decision, so a
@@ -140,6 +156,11 @@ async function run(): Promise<void> {
     let report: SiftReport | null = null;
     if (baseline) {
         const siftBin = await resolveSift(core.getInput('sift-binary'), workDir);
+        const explain = core.getBooleanInput('explain');
+        const explainModel = core.getInput('explain-model') || undefined;
+        if (explain) {
+            await provisionExplain(siftBin);
+        }
         const result = await runSift({
             siftBin,
             baselineLog: baseline.logPath,
@@ -148,6 +169,8 @@ async function run(): Promise<void> {
             changedLabel: headSha.slice(0, 7),
             failOn,
             outputPath: path.join(workDir, 'report.json'),
+            explain,
+            explainModel,
         });
         gateExit = result.exitCode;
         report = result.report;

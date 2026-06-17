@@ -85934,6 +85934,19 @@ function readCommentLevel(input, fallback) {
         ? raw
         : fallback;
 }
+// Opt-in `--explain` provisioning (adr/0009 §6.2). Runs the engine's idempotent `explain-setup`:
+// download + SHA-256-verify the pinned model + inference server from the public CodeRoasted/Eidos HF
+// repo (NO credential — anonymous, fork-safe). Best-effort + fail-soft: a provisioning failure is a
+// WARNING, never an Action failure — `sift --explain` then degrades to no-narrative on the non-TTY CI
+// run and the deterministic report + gate are unaffected. Cross-run caching of the ~2.4 GB asset dir
+// (`${XDG_CACHE_HOME:-~/.cache}/coderoast`) is the caller's one-line `actions/cache` step — see the
+// README explain example. (Deliberately NOT a bundled @actions/cache: it pulls a heavy SDK + extra
+// advisories into this fork-reachable Action; the maintained `actions/cache` action is the clean path.)
+async function provisionExplain(siftBin) {
+    if (!(await (0, sift_1.runExplainSetup)(siftBin))) {
+        core.warning('explain: model/server provisioning failed; emitting the deterministic report without a narrative.');
+    }
+}
 // Machine-readable verdict — set on EVERY run (PR or push), before any comment decision, so a
 // later step can branch on Sift's result without parsing a comment (contract § 3).
 function setSiftOutputs(state, report) {
@@ -86000,6 +86013,11 @@ async function run() {
     let report = null;
     if (baseline) {
         const siftBin = await (0, resolve_sift_1.resolveSift)(core.getInput('sift-binary'), workDir);
+        const explain = core.getBooleanInput('explain');
+        const explainModel = core.getInput('explain-model') || undefined;
+        if (explain) {
+            await provisionExplain(siftBin);
+        }
         const result = await (0, sift_1.runSift)({
             siftBin,
             baselineLog: baseline.logPath,
@@ -86008,6 +86026,8 @@ async function run() {
             changedLabel: headSha.slice(0, 7),
             failOn,
             outputPath: path.join(workDir, 'report.json'),
+            explain,
+            explainModel,
         });
         gateExit = result.exitCode;
         report = result.report;
@@ -86374,7 +86394,7 @@ exports.SIFT_VERSION = void 0;
 // line that debuts at 1.0.0 — do NOT conflate the two numbers. Bump THIS in
 // lockstep with the coordinated platform cut (the CR_PIN-class vendoring pin the
 // gate guards); bump package.json on the Action wrapper's own release cadence.
-exports.SIFT_VERSION = '1.4.4';
+exports.SIFT_VERSION = '1.5.4';
 
 
 /***/ }),
@@ -86425,7 +86445,9 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.engineEnv = engineEnv;
+exports.siftArgs = siftArgs;
 exports.runSift = runSift;
+exports.runExplainSetup = runExplainSetup;
 const exec = __importStar(__nccwpck_require__(95236));
 const fs_1 = __nccwpck_require__(79896);
 // Operational, non-secret env the engine may legitimately need from the runner.
@@ -86455,7 +86477,8 @@ function engineEnv() {
     }
     return env;
 }
-async function runSift(invocation) {
+// Pure: the exact `sift` argv for an invocation (exported so it is unit-testable without spawning).
+function siftArgs(invocation) {
     const args = [
         invocation.baselineLog,
         invocation.changedLog,
@@ -86471,15 +86494,38 @@ async function runSift(invocation) {
     if (invocation.failOn !== 'none') {
         args.push('--fail-on', invocation.failOn);
     }
+    if (invocation.explain) {
+        // Assets are already provisioned (runExplainSetup ran first); `sift --explain` spawns the bundled
+        // local server itself. Fail-soft in the binary: no endpoint reached ⇒ no narrative, report + exit
+        // code unchanged. The --fail-on exit code ignores the narrative (engine GateExitCodeIgnoresNarrative).
+        args.push('--explain');
+        if (invocation.explainModel) {
+            args.push('--explain-model', invocation.explainModel);
+        }
+    }
+    return args;
+}
+async function runSift(invocation) {
     // ignoreReturnCode: a non-zero exit is the advisory gate, not an Action error.
     // env: a scrubbed, credential-free environment (see engineEnv).
-    const exitCode = await exec.exec(invocation.siftBin, args, {
+    const exitCode = await exec.exec(invocation.siftBin, siftArgs(invocation), {
         ignoreReturnCode: true,
         env: engineEnv(),
     });
     const raw = await fs_1.promises.readFile(invocation.outputPath, 'utf8');
     const report = JSON.parse(raw);
     return { report, exitCode };
+}
+// `sift explain-setup`: download + SHA-256-verify + cache the pinned model + inference server from the
+// public CodeRoasted/Eidos HF repo (no credential). Idempotent — a cache hit re-verifies + skips the
+// fetch. Fail-soft: a failure (network / cache service / sha mismatch) is a warning, NOT an Action
+// failure — `sift --explain` then degrades to no-narrative on the (non-TTY) CI run. Secret-free env.
+async function runExplainSetup(siftBin) {
+    const exitCode = await exec.exec(siftBin, ['explain-setup'], {
+        ignoreReturnCode: true,
+        env: engineEnv(),
+    });
+    return exitCode === 0;
 }
 
 

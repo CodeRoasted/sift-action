@@ -86,6 +86,33 @@ build's real exit code, so `build-status` would read green on a red build):
   # … then point Sift at it:  with: { log: build.log }
   ```
 
+## Explain (opt-in AI narrative)
+
+`explain: true` adds a short plain-English story above the deterministic diff. The Action provisions a
+**local** model + inference server — a pinned, checksum-verified [Phi-3.5-mini GGUF + a static
+`llama.cpp` server](https://huggingface.co/CodeRoasted/Eidos), fetched anonymously (no token, fork-safe)
+— and runs it on the runner. **Nothing leaves the runner**, and the narrative is **advisory + fail-soft**:
+if anything goes wrong (offline, low memory) you still get the full deterministic report, unchanged, and
+the gate is untouched. (Cloud "bring your own key" is a **CLI-only** affordance; the Action never carries
+a credential.)
+
+It costs a one-time **~2.4 GB model download** + a few seconds of CPU. Cache it across runs with one
+standard step — the engine caches under `~/.cache/coderoast`:
+
+```yaml
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/coderoast          # the pinned model + server (~2.4 GB)
+          key: sift-explain-${{ runner.os }}-v1.5.4   # bump with the Sift engine version
+      - uses: CodeRoasted/sift-action@v1
+        with:
+          log: build.log
+          explain: true
+```
+
+Without the cache step it still works — it just re-downloads the model each run. Leave `explain` unset
+(the default) for the lean diff-only path; the model is never downloaded unless you opt in.
+
 ## Platform & supply chain
 
 - **Runner:** linux x64 (`ubuntu-latest`) for v1; arm/macOS/Windows are a
@@ -156,6 +183,8 @@ a local shell.
 | `log` | yes | — | Path to the captured current-run log to diff. |
 | `sift-binary` | no | _(auto)_ | Override path to a `sift` binary. Default: download + sha256-verify the version-pinned `sift-linux-x64` release asset. |
 | `fail-on` | no | `none` | `none` \| `significant` \| `regression` — advisory gate (exit code only; the comment never says "blocked"). |
+| `explain` | no | `false` | `true` opts into an AI narrative header: the Action provisions a pinned, checksum-verified **local** model + server (no credential, fork-safe — nothing leaves the runner) and adds a short plain-English story. Advisory + fail-soft — never blocks or changes the gate. Adds a ~2.4 GB model download (cache it — see [Explain](#explain-opt-in-ai-narrative)) + a few seconds of CPU. |
+| `explain-model` | no | _(pinned)_ | Advanced: override the model name passed to `sift --explain`. Leave unset for the auto-provisioned default. |
 | `build-status` | no | `unknown` | `green` \| `red` \| `unknown` — enhancer; drives the green-build headline. |
 | `pr-comment` | no | `always` | `never` \| `regression` \| `significant` \| `always` — sticky PR comment at/above this verdict. |
 | `commit-comment` | no | `never` | `never` \| `regression` \| `significant` \| `always` — commit comment on push at/above this verdict (needs `contents: write`). |

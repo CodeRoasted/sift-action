@@ -6,7 +6,39 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { engineEnv } from '../src/sift';
+import { engineEnv, siftArgs, type SiftInvocation } from '../src/sift';
+
+const baseInvocation: SiftInvocation = {
+    siftBin: 'sift',
+    baselineLog: 'base.log',
+    changedLog: 'changed.log',
+    baselineLabel: 'aaaaaaa',
+    changedLabel: 'bbbbbbb',
+    failOn: 'none',
+    outputPath: 'report.json',
+};
+
+test('siftArgs: --explain is absent by default (opt-in)', () => {
+    assert.ok(!siftArgs(baseInvocation).includes('--explain'));
+    assert.ok(!siftArgs({ ...baseInvocation, explain: false }).includes('--explain'));
+});
+
+test('siftArgs: explain=true adds --explain, no --explain-model unless overridden', () => {
+    const args = siftArgs({ ...baseInvocation, explain: true });
+    assert.ok(args.includes('--explain'), 'must pass --explain');
+    assert.ok(!args.includes('--explain-model'), 'no model override ⇒ the auto-provisioned default');
+});
+
+test('siftArgs: an explicit explainModel passes --explain-model NAME', () => {
+    const args = siftArgs({ ...baseInvocation, explain: true, explainModel: 'phi-3.5-mini' });
+    const i = args.indexOf('--explain-model');
+    assert.ok(i >= 0 && args[i + 1] === 'phi-3.5-mini', 'must pass --explain-model NAME');
+});
+
+test('siftArgs: --explain-model is NOT passed when explain is off', () => {
+    const args = siftArgs({ ...baseInvocation, explain: false, explainModel: 'phi-3.5-mini' });
+    assert.ok(!args.includes('--explain') && !args.includes('--explain-model'));
+});
 
 test('engineEnv excludes credentials, the action inputs, and runtime tokens', () => {
     const planted: Record<string, string> = {
