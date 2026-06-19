@@ -4,7 +4,7 @@
 // § "Verdict logic"): `significant_changes`, whether any ranked row is
 // `polarity == "regression"`, and the optional CI `build_status`. No I/O.
 
-import type { SiftReport } from './types';
+import type { SiftReport } from './types.js';
 
 // The four frame states (web_copy § "The four states"). `ColdStart` is rendered
 // without a report (the engine is not invoked when no baseline exists).

@@ -7,7 +7,7 @@
 
 import * as exec from '@actions/exec';
 import { promises as fs } from 'fs';
-import type { SiftReport } from './types';
+import type { SiftReport } from './types.js';
 
 export type FailOn = 'none' | 'significant' | 'regression';
 

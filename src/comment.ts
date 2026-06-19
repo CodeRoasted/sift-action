@@ -3,7 +3,7 @@
 // marker, PATCH it — else POST a new one. Never one comment per push.
 
 import type { getOctokit } from '@actions/github';
-import { STICKY_MARKER } from './frame';
+import { STICKY_MARKER } from './frame.js';
 
 type Octokit = ReturnType<typeof getOctokit>;
 

@@ -8,7 +8,7 @@ import type { getOctokit } from '@actions/github';
 import AdmZip from 'adm-zip';
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { BASELINE_ARTIFACT_NAME, type BaselineProvenance } from './types';
+import { BASELINE_ARTIFACT_NAME, type BaselineProvenance } from './types.js';
 
 type Octokit = ReturnType<typeof getOctokit>;
 

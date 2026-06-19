@@ -13,8 +13,8 @@
 // The Action never re-authors a row: the message is the engine's `summary` (+
 // first `evidence` line) VERBATIM, only transport-encoded (contract § 1).
 
-import type { RankedChange, SiftReport } from './types';
-import { selectState, shouldComment, type CommentLevel } from './verdict';
+import type { RankedChange, SiftReport } from './types.js';
+import { selectState, shouldComment, type CommentLevel } from './verdict.js';
 
 // Defensive cap on emitted annotations: the top significant rows, aligned to
 // GitHub's 10-per-severity-per-step display sweet spot (§ B.3.7). The FULL set

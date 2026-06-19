@@ -11,14 +11,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
     buildAnnotationCommands,
     encodeCommandData,
     MAX_ANNOTATIONS,
-} from '../src/annotations';
-import type { RankedChange, SiftReport } from '../src/types';
+} from '../src/annotations.js';
+import type { RankedChange, SiftReport } from '../src/types.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.join(__dirname, '..', '..', 'tests', 'fixtures');
 const SRC = path.join(__dirname, '..', '..', 'src');
 
@@ -170,7 +172,7 @@ test('annotations.ts imports ONLY the display types + the verdict ladder', () =>
     const imports = [...source.matchAll(/^import[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1]);
     assert.deepEqual(
         [...new Set(imports)].sort(),
-        ['./types', './verdict'],
+        ['./types.js', './verdict.js'],
         'no detection/explain/engine/network import may reach the annotation surface',
     );
 });

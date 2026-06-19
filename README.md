@@ -251,9 +251,14 @@ root — never re-authored here.
 ```bash
 npm install
 npm run typecheck   # tsc --noEmit
-npm test            # builds + runs the frame integration tests (node:test)
-npm run package     # ncc bundle → dist/ (packaging; owned by the release lane)
+npm test            # tsc → lib/ then node --test (ESM)
+npm run package     # esbuild ESM bundle → dist/index.js + dist/licenses.txt (esbuild.config.mjs)
 ```
+
+The Action is **ESM** (`"type": "module"`, `runs: using: node20`): the `@actions`
+toolchain (core@3 / github@9 / artifact@6) and octokit@7 are ESM-only, so `dist/index.js`
+is an ESM bundle built by esbuild (ncc only emits CJS). `dist/licenses.txt` is regenerated
+from the build metafile (the exact bundled set) on every package.
 
 > Packaging (final bundling to `dist/`, the `sift` release-asset publish, the home
 > repo, token/fork-PR posture) is the DevOps lane — see contract § 6–7.

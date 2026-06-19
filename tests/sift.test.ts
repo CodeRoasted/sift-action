@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { engineEnv, siftArgs, type SiftInvocation } from '../src/sift';
+import { engineEnv, siftArgs, type SiftInvocation } from '../src/sift.js';
 
 const baseInvocation: SiftInvocation = {
     siftBin: 'sift',

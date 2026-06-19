@@ -9,8 +9,8 @@
 // the Action never re-authors a row (contract § 1, web_copy § "rows are the
 // engine's"). Copy below is governed by web_copy § "Surface: Sift PR comment".
 
-import type { SiftReport, SiftCommentContext } from './types';
-import { State, selectState } from './verdict';
+import type { SiftReport, SiftCommentContext } from './types.js';
+import { State, selectState } from './verdict.js';
 
 // Hidden sticky-comment key (contract § 4): list comments, PATCH the marked one
 // or POST a new one — one comment per PR, updated in place.

@@ -11,22 +11,22 @@ import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { buildAnnotationCommands } from './annotations';
-import { resolveBaseline } from './baseline';
-import { upsertStickyComment, upsertCommitComment } from './comment';
-import { publishBaselineLog, writeRenderedComment } from './artifact';
-import { renderComment } from './frame';
-import { runPoster } from './poster';
-import { resolveSift } from './resolve-sift';
-import { runSift, runExplainSetup, type FailOn } from './sift';
-import { selectState, shouldComment, State, type CommentLevel } from './verdict';
+import { buildAnnotationCommands } from './annotations.js';
+import { resolveBaseline } from './baseline.js';
+import { upsertStickyComment, upsertCommitComment } from './comment.js';
+import { publishBaselineLog, writeRenderedComment } from './artifact.js';
+import { renderComment } from './frame.js';
+import { runPoster } from './poster.js';
+import { resolveSift } from './resolve-sift.js';
+import { runSift, runExplainSetup, type FailOn } from './sift.js';
+import { selectState, shouldComment, State, type CommentLevel } from './verdict.js';
 import {
     CONTEXT_VERSION,
     SIFT_COMMENT_DIR,
     type BuildStatus,
     type SiftCommentContext,
     type SiftReport,
-} from './types';
+} from './types.js';
 
 // Three modes (contract § 6.1):
 //   comment (default) — render + post the sticky comment inline. Same-repo PRs and

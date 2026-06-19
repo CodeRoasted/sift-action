@@ -22,7 +22,7 @@ import * as crypto from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 
-import { SIFT_VERSION } from './sift-version';
+import { SIFT_VERSION } from './sift-version.js';
 
 const RELEASE_REPO = 'CodeRoasted/sift-action'; // public — unauthenticated download
 const ASSET = 'sift-linux-x64';

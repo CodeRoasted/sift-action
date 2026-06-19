@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveBaseline, type ResolveParams } from '../src/baseline';
+import { resolveBaseline, type ResolveParams } from '../src/baseline.js';
 
 function params(octokit: unknown): ResolveParams {
     return {

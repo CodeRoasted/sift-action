@@ -20,8 +20,8 @@ import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { downloadRenderedComment } from './artifact';
-import { upsertStickyComment } from './comment';
+import { downloadRenderedComment } from './artifact.js';
+import { upsertStickyComment } from './comment.js';
 
 type Octokit = ReturnType<typeof github.getOctokit>;
 

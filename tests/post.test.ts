@@ -9,9 +9,9 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { selectPrNumber, triggeringRunIsTrusted, type AssociatedPr } from '../src/poster';
-import { writeRenderedComment } from '../src/artifact';
-import { RENDERED_META_FILE, type RenderedCommentMeta } from '../src/types';
+import { selectPrNumber, triggeringRunIsTrusted, type AssociatedPr } from '../src/poster.js';
+import { writeRenderedComment } from '../src/artifact.js';
+import { RENDERED_META_FILE, type RenderedCommentMeta } from '../src/types.js';
 
 // ── (a) triggeringRunIsTrusted ──────────────────────────────────────────────
 

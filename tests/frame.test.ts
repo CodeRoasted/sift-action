@@ -9,11 +9,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { renderComment, STICKY_MARKER, escapeInline } from '../src/frame';
-import { selectState, shouldComment, State } from '../src/verdict';
-import type { RankedChange, SiftCommentContext, SiftReport } from '../src/types';
+import { renderComment, STICKY_MARKER, escapeInline } from '../src/frame.js';
+import { selectState, shouldComment, State } from '../src/verdict.js';
+import type { RankedChange, SiftCommentContext, SiftReport } from '../src/types.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.join(__dirname, '..', '..', 'tests', 'fixtures');
 
 function load(name: string): SiftReport {

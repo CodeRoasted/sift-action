@@ -21,7 +21,7 @@ import {
     RENDERED_META_FILE,
     SIFT_COMMENT_ARTIFACT_NAME,
     type RenderedCommentMeta,
-} from './types';
+} from './types.js';
 
 // GitHub's default artifact retention (90d) bounds baseline availability; older
 // base runs fall back to cold start (contract § 3, "Retention caveat").
