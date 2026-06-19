@@ -55,6 +55,30 @@ Each surface has its **own** level (no shared floor), so you can keep the reassu
 staying silent on routine pushes. `fail-on` is a separate axis — it gates the **build** (exit code),
 not the comment. The first run on a fresh branch is a cold start (seed only); every run after diffs.
 
+## Inline annotations
+
+Sift also emits the significant rows as native **check-run annotations** (`::error` / `::warning` /
+`::notice`) — they show in the **Checks** tab and the PR "checks were not successful" strip, inline with
+the run. `annotations` controls the level, its own axis: `never` | `regression` | `significant` (default
+— drift or regression) | `always`. Polarity drives the severity:
+
+- a **regression** row → `::error::`
+- a **recovery** (the un-grep-able win) → `::notice::`
+- any other significant drift → `::warning::`
+
+They **fire on a green build** too — exactly where GitHub's own "Explain error" is silent (it only fires
+on a *red* check). The message is the engine's ranked `summary` + its first evidence line, **verbatim**;
+there is **no `file:line` anchor** — Sift diffs *logs*, not source, so it never guesses a source location
+(the full report stays in the PR comment + `<details>`). A clean run has no significant rows, so the
+default `significant` stays quiet.
+
+**Annotations are fork-safe by construction.** They are GitHub *workflow commands* written to stdout —
+they need **no write token** — so the unprivileged `mode: render` build job (the `on: pull_request` job
+in [`examples/fork-safe/`](examples/fork-safe/)) emits them and they appear on a **fork PR's** checks,
+with nothing privileged involved (the `workflow_run` poster is untouched). Engine content is encoded per
+GitHub's workflow-command rules before it is emitted, so an attacker-controlled CI log line cannot forge
+or break an annotation (`src/annotations.ts`).
+
 ## Capturing the log
 
 `log:` just needs a file holding the build/test output you want diffed — capture it
@@ -127,8 +151,11 @@ Without the cache step it still works — it just re-downloads the model each ru
 ## Fork PRs
 
 By default (one workflow), a fork PR gets a **read-only** token, so the sticky comment
-and baseline upload **can't write**. The Action does **not** silently no-op — it warns
-and the **advisory gate still applies** (the diff runs, `fail-on` gates). Safe default.
+and baseline upload **can't write**. The Action does **not** silently no-op — it warns,
+the **advisory gate still applies** (the diff runs, `fail-on` gates), **and the [inline
+annotations](#inline-annotations) still surface** (they are token-free stdout workflow
+commands), so a fork PR keeps a structural signal even without the two-workflow pattern.
+Safe default.
 
 To actually **post comments on fork PRs**, use the two-workflow pattern (the secure
 alternative to `pull_request_target`) — see [`examples/fork-safe/`](examples/fork-safe/):
@@ -188,6 +215,7 @@ a local shell.
 | `build-status` | no | `unknown` | `green` \| `red` \| `unknown` — enhancer; drives the green-build headline. |
 | `pr-comment` | no | `always` | `never` \| `regression` \| `significant` \| `always` — sticky PR comment at/above this verdict. |
 | `commit-comment` | no | `never` | `never` \| `regression` \| `significant` \| `always` — commit comment on push at/above this verdict (needs `contents: write`). |
+| `annotations` | no | `significant` | `never` \| `regression` \| `significant` \| `always` — inline check-run annotations (`::error`/`::warning`/`::notice`) at/above this verdict. Fork-safe (stdout workflow commands, no token); fires on green. See [Inline annotations](#inline-annotations). |
 | `github-token` | no | `${{ github.token }}` | Runs/artifacts API + comment + artifact upload. |
 
 ## Outputs
@@ -211,6 +239,7 @@ comment, baseline artifact, check status). A bad row is an engine fix at the
 root — never re-authored here.
 
 - `src/frame.ts` — the pure, deterministic comment renderer (the governed copy).
+- `src/annotations.ts` — the pure check-run annotation builder + the workflow-command encoder (the stdout-surface trust boundary, the `escapeInline` analogue).
 - `src/verdict.ts` — the four-state machine (cold-start / clean / drift / regression).
 - `src/baseline.ts` — last-green-on-base resolution via the GitHub API.
 - `src/sift.ts` — engine invocation (`--format both`, `--fail-on`).

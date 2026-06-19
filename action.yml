@@ -55,6 +55,17 @@ inputs:
       per-commit (re-runs don't duplicate). Needs `contents: write`; degrades to a warning without it.
     required: false
     default: 'never'
+  annotations:
+    description: >-
+      Inline check-run annotations: emit a `::error|warning|notice::` workflow command for each
+      significant row when the verdict is at least this level — never | regression (regressions only) |
+      significant (drift OR regression) | always. They surface in the Checks tab / PR checks strip,
+      fire on a GREEN build (where GitHub's failure-explain is silent), and need NO write token, so a
+      fork PR's unprivileged build (mode=render) annotates fork-safely. Polarity drives the level:
+      regression → error, recovery → notice, other significant → warning. Default `significant`
+      (a clean run has no significant rows, so it stays quiet).
+    required: false
+    default: 'significant'
   github-token:
     description: 'Token for the runs/artifacts API, the sticky comment, and artifact upload.'
     required: false

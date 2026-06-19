@@ -85327,6 +85327,98 @@ ZipStream.prototype.finalize = function() {
 
 /***/ }),
 
+/***/ 30105:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+// Inline check-run annotations — the 4th Action output surface
+// (sift_action_contract.md § B / sift_conversion_surface.md § B.3).
+//
+// GitHub `::error|warning|notice::` workflow commands surface in the Checks tab
+// and the PR "checks were not successful" strip. They are written to STDOUT and
+// need NO write token, so the UNPRIVILEGED fork build job (mode=render) emits
+// them and they appear on a fork PR's checks — fork-safe by construction; the
+// privileged workflow_run poster is untouched (§ B.3.6).
+//
+// This module is a PURE function of the report: same report ⇒ same command list.
+// It reads ONLY the engine's `ranked_changes` (display data) + the verdict ladder
+// — no detection / explain / LLM path is reachable from here (§ B.5 isolation).
+// The Action never re-authors a row: the message is the engine's `summary` (+
+// first `evidence` line) VERBATIM, only transport-encoded (contract § 1).
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.MAX_ANNOTATIONS = void 0;
+exports.encodeCommandData = encodeCommandData;
+exports.buildAnnotationCommands = buildAnnotationCommands;
+const verdict_1 = __nccwpck_require__(53138);
+// Defensive cap on emitted annotations: the top significant rows, aligned to
+// GitHub's 10-per-severity-per-step display sweet spot (§ B.3.7). The FULL set
+// always lives in the PR comment + <details>, so this never hides signal — Sift's
+// "3 that matter" pitch sits far below it. Mirrors frame.ts's MAX_INLINE_ROWS:
+// a structural bound, not a product limit.
+exports.MAX_ANNOTATIONS = 10;
+// ── The security boundary: workflow-command data encoding ────────────────────
+// The message carries engine content derived from real — and on fork PRs,
+// ATTACKER-controlled — CI logs. It must be SAFELY EMBEDDED in a workflow command
+// exactly as `escapeInline` (frame.ts) safely embeds a row in the comment: the
+// escape IS the trust boundary (contract § 3 / adr/0014 § 3).
+//
+// A workflow command is recognised only as a WHOLE LINE beginning (after leading
+// whitespace) with `::`. So forging or breaking a command requires either a raw
+// newline (to start a second `::`-line) or smuggling text into the command name /
+// properties — which sit BEFORE the `::` we ourselves write (`::warning::`). Both
+// are closed by GitHub's data encoding, applied here:
+//   %  → %25   (FIRST, so the %0D/%0A introduced below are not re-encoded)
+//   \r → %0D
+//   \n → %0A
+// After it the data is GUARANTEED single-line and never at line-start (it always
+// follows our literal `::<kind>::`), so an injected `::error::…` / `::set-output::`
+// is inert text, mid-line — the `::` command-introducer is neutralised (§ B.3.5).
+// This is the exact escapeData the @actions/core toolkit applies; owned + tested
+// here so the §B.5 re-audit has a concrete encoder to fuzz, like escapeInline.
+function encodeCommandData(raw) {
+    return raw.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+}
+function mapKind(polarity) {
+    if (polarity === 'regression') {
+        return 'error';
+    }
+    if (polarity === 'recovery') {
+        return 'notice';
+    }
+    return 'warning';
+}
+// One ranked row → one encoded check-level workflow command. NO `file=`/`line=`
+// anchor: Sift diffs LOGS, not source, so there is no honest source `file:line`
+// to pin to — a guessed anchor would violate precision-first (§ B.3.2,
+// adr/0013). The message is the engine's `summary` plus its first `evidence`
+// line (the deterministic "here's the line"), surfaced verbatim, then encoded.
+function annotationCommand(row) {
+    const firstEvidence = row.evidence?.[0];
+    const message = firstEvidence ? `${row.summary}\n${firstEvidence}` : row.summary;
+    return `::${mapKind(row.polarity)}::${encodeCommandData(message)}`;
+}
+// The full ordered list of encoded workflow-command lines to emit, level-gated.
+//
+// The surface carries its OWN level (a separate axis from pr-comment / fail-on,
+// contract § 3), reusing `shouldComment` VERBATIM (§ B.3.8): below the level ⇒ no
+// annotations. With the `significant` default a clean run has no significant rows,
+// so `significant ≡ always ≡ zero annotations` on clean. Cold start (report null)
+// ⇒ no rows ⇒ empty. Rows are already ranked (regressions first) and are the
+// significant set; the cap is a defensive tail-bound.
+function buildAnnotationCommands(report, level) {
+    if (report === null) {
+        return [];
+    }
+    if (!(0, verdict_1.shouldComment)((0, verdict_1.selectState)(report), level)) {
+        return [];
+    }
+    return report.ranked_changes.slice(0, exports.MAX_ANNOTATIONS).map(annotationCommand);
+}
+
+
+/***/ }),
+
 /***/ 15849:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -85904,6 +85996,7 @@ const github = __importStar(__nccwpck_require__(93228));
 const fs_1 = __nccwpck_require__(79896);
 const os = __importStar(__nccwpck_require__(70857));
 const path = __importStar(__nccwpck_require__(16928));
+const annotations_1 = __nccwpck_require__(30105);
 const baseline_1 = __nccwpck_require__(89860);
 const comment_1 = __nccwpck_require__(62246);
 const artifact_1 = __nccwpck_require__(15849);
@@ -86041,6 +86134,17 @@ async function run() {
     // before any comment decision — so the result is in the job info whatever the comment config.
     await core.summary.addRaw(body).write();
     setSiftOutputs(state, report);
+    // Inline check-run annotations (contract § B / sift_conversion_surface § B.3): emit the
+    // level-gated `::error|warning|notice::` workflow commands on stdout. They carry no write
+    // token, so this fires in BOTH the inline `comment` job and the UNPRIVILEGED fork `render`
+    // job (mode=post returned at the top — no report), surfacing drift on a fork PR's checks
+    // where GitHub's failure-explain is silent. The encode in annotations.ts is the trust
+    // boundary; nothing privileged happens here. Own axis (default `significant`): a clean run
+    // has no significant rows ⇒ no annotations.
+    const annotationsLevel = readCommentLevel('annotations', 'significant');
+    for (const command of (0, annotations_1.buildAnnotationCommands)(report, annotationsLevel)) {
+        process.stdout.write(`${command}\n`);
+    }
     if (mode === 'render') {
         // Fork build job (contract § 6.1): write the escaped body for the workflow_run poster; NEVER
         // post or fail the build from here. The fork build is always a PR, so gate on `pr-comment` and
@@ -86394,7 +86498,7 @@ exports.SIFT_VERSION = void 0;
 // line that debuts at 1.0.0 — do NOT conflate the two numbers. Bump THIS in
 // lockstep with the coordinated platform cut (the CR_PIN-class vendoring pin the
 // gate guards); bump package.json on the Action wrapper's own release cadence.
-exports.SIFT_VERSION = '1.5.4';
+exports.SIFT_VERSION = '1.5.5';
 
 
 /***/ }),

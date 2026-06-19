@@ -11,6 +11,7 @@ import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import { buildAnnotationCommands } from './annotations';
 import { resolveBaseline } from './baseline';
 import { upsertStickyComment, upsertCommitComment } from './comment';
 import { publishBaselineLog, writeRenderedComment } from './artifact';
@@ -184,6 +185,18 @@ async function run(): Promise<void> {
     // before any comment decision — so the result is in the job info whatever the comment config.
     await core.summary.addRaw(body).write();
     setSiftOutputs(state, report);
+
+    // Inline check-run annotations (contract § B / sift_conversion_surface § B.3): emit the
+    // level-gated `::error|warning|notice::` workflow commands on stdout. They carry no write
+    // token, so this fires in BOTH the inline `comment` job and the UNPRIVILEGED fork `render`
+    // job (mode=post returned at the top — no report), surfacing drift on a fork PR's checks
+    // where GitHub's failure-explain is silent. The encode in annotations.ts is the trust
+    // boundary; nothing privileged happens here. Own axis (default `significant`): a clean run
+    // has no significant rows ⇒ no annotations.
+    const annotationsLevel = readCommentLevel('annotations', 'significant');
+    for (const command of buildAnnotationCommands(report, annotationsLevel)) {
+        process.stdout.write(`${command}\n`);
+    }
 
     if (mode === 'render') {
         // Fork build job (contract § 6.1): write the escaped body for the workflow_run poster; NEVER
