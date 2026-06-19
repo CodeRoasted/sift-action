@@ -18,6 +18,10 @@
     "@actions/github": "^6.0.0",
     "adm-zip": "^0.5.12"
   },
+  "overridesNote": "Force the patched undici to 6.27.0 across the @actions tree to clear undici@5.29.0 (GHSA-g9mf-h72j-4rw9 HIGH + 4 more, bundled into dist/) — pulled directly by @actions/github@6 and transitively via @actions/http-client@2.x (@actions/github + @actions/artifact). undici-ONLY: http-client@2.2.3 stays (it only touches undici's stable ProxyAgent/fetch, fine on 6.x); bumping http-client to 4 breaks @actions/core@1.11.1's require (ERR_PACKAGE_PATH_NOT_EXPORTED), and bumping @actions/github to 9 drags in ESM-only @octokit/core@7 (ncc/CJS risk). Drop when @actions/github bumps to a major on undici 6.x. (Remaining: 7 @octokit ReDoS moderates — fix only exists in ESM-only octokit majors; gated on that migration.)",
+  "overrides": {
+    "undici": "^6.27.0"
+  },
   "devDependencies": {
     "@types/adm-zip": "^0.5.5",
     "@types/node": "^20.12.0",
