@@ -190,7 +190,7 @@ curl -fsSL https://raw.githubusercontent.com/CodeRoasted/sift-action/main/instal
 ```
 
 ```powershell
-# Windows (PowerShell) — diff-only (--explain is a fast-follow on Windows):
+# Windows (PowerShell) — diff + `--explain` via a BYO endpoint (local model pull is Linux-only):
 irm https://raw.githubusercontent.com/CodeRoasted/sift-action/main/install.ps1 | iex
 # pin a version:   & ([scriptblock]::Create((irm .../install.ps1))) -Version 1.5.5
 # choose location: $env:SIFT_INSTALL_DIR = 'C:\tools\sift'  (default: %LOCALAPPDATA%\Programs\sift)

@@ -6,8 +6,9 @@
 #   $env:SIFT_INSTALL_DIR = 'C:\tools\sift'; irm .../install.ps1 | iex                                                          # choose where
 #
 # The Windows mirror of install.sh / resolve-sift.ts: same engine-v<X.Y.Z> release, same sha256-fatal
-# check. windows-x64 only, and DIFF-ONLY — `--explain` is not yet shipped on Windows (the inference
-# runtime is a later item); `sift before.log after.log` works today. The download is public — no token.
+# check. windows-x64 only. Diff works out of the box; `--explain` works via a BYO OpenAI-compatible
+# endpoint (--explain-endpoint / $INSIGHT_LLM_ENDPOINT) — the bundled local-model pull is Linux-only.
+# The download is public — no token.
 param(
     [string]$Version = $env:SIFT_VERSION
 )
