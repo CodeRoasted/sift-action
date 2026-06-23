@@ -18,6 +18,7 @@ import {
     encodeCommandData,
     MAX_ANNOTATIONS,
 } from '../src/annotations.js';
+import { statusGlyph } from '../src/glyph.js';
 import type { RankedChange, SiftReport } from '../src/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -49,6 +50,15 @@ test('regression fixture → ::error:: then ::notice:: (polarity drives severity
     assert.ok(cmds[1]!.startsWith('::notice::'), cmds[1]); // polarity=recovery
 });
 
+test('recovery carries the GREEN glyph after its ::notice:: level (the orange-Resolved fix)', () => {
+    const cmds = buildAnnotationCommands(load('regression.json'), 'significant');
+    // The recovery row (cmds[1], ::notice::) reads green — not as an orange warning.
+    assert.ok(cmds[1]!.startsWith('::notice::🟢 '), cmds[1]);
+    // The regression row (cmds[0], ::error::) rides the severity heat glyph, not green.
+    assert.ok(/^::error::(🔴|🟠|🟡|⚪) /.test(cmds[0]!), cmds[0]);
+    assert.ok(!cmds[0]!.includes('🟢'), 'a regression must not read green');
+});
+
 test('drift fixture → ::warning:: for every (neutral-polarity) significant row', () => {
     const cmds = buildAnnotationCommands(load('drift.json'), 'significant');
     assert.equal(cmds.length, 2);
@@ -64,7 +74,7 @@ test('message = the engine summary + first evidence line, VERBATIM (only transpo
     // then transport-encoded — nothing re-authored. (This summary carries a literal
     // `%` — "7.0% of changed" — so the encode proves content is preserved as `%25`,
     // not dropped: verbatim content, safely encoded.)
-    const expected = `::error::${encodeCommandData(`${row.summary}\n${row.evidence![0]}`)}`;
+    const expected = `::error::${statusGlyph(row)} ${encodeCommandData(`${row.summary}\n${row.evidence![0]}`)}`;
     assert.equal(cmd, expected);
     assert.ok(cmd.includes('7.0%25 of changed'), 'the content % is encoded, not stripped');
     assert.ok(cmd.includes('%0Aappears 6x on changed'), 'evidence below an encoded line break');
@@ -78,7 +88,8 @@ test('no file=/line= anchor — Sift diffs logs, not source (check-run-level onl
 
 test('a row with no evidence emits the summary alone (no trailing separator)', () => {
     const row: RankedChange = { kind: 'drift', severity: 'medium', significance: 0.3, summary: 'shape shifted' };
-    assert.deepEqual(buildAnnotationCommands(report([row]), 'always'), ['::warning::shape shifted']);
+    // medium-severity neutral row → amber glyph, ::warning:: level, summary verbatim.
+    assert.deepEqual(buildAnnotationCommands(report([row]), 'always'), ['::warning::🟡 shape shifted']);
 });
 
 // ── Level-gating (reuses shouldComment) + cold start ─────────────────────────
@@ -172,7 +183,8 @@ test('annotations.ts imports ONLY the display types + the verdict ladder', () =>
     const imports = [...source.matchAll(/^import[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1]);
     assert.deepEqual(
         [...new Set(imports)].sort(),
-        ['./types.js', './verdict.js'],
-        'no detection/explain/engine/network import may reach the annotation surface',
+        ['./glyph.js', './types.js', './verdict.js'],
+        'no detection/explain/engine/network import may reach the annotation surface ' +
+            '(glyph.js is a pure display helper — severity/polarity → emoji, no detection reach)',
     );
 });

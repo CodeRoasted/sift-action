@@ -12,6 +12,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { renderComment, STICKY_MARKER, escapeInline } from '../src/frame.js';
+import { statusGlyph } from '../src/glyph.js';
 import { selectState, shouldComment, State } from '../src/verdict.js';
 import type { RankedChange, SiftCommentContext, SiftReport } from '../src/types.js';
 
@@ -159,6 +160,27 @@ test('④ regression, build unknown: verbatim headline + regression row carries 
     if (recoveryRow) {
         assert.ok(out.includes(`· recovery]** ${escapeInline(recoveryRow.summary)}`), out);
     }
+});
+
+test('④ a recovery row reads GREEN (🟢), a regression rides the severity heat glyph — never green', () => {
+    // The dogfood-2026-06-23 fix: "Resolved" (recovery) must read green/positive, not
+    // as an orange severity warning. The leading glyph carries the colour the no-ANSI
+    // comment can't (mirrors the CLI badge_code: recovery green, else severity heat).
+    const report = load('regression.json');
+    const out = renderComment(report, ctx());
+    const recoveryRow = report.ranked_changes.find((row) => row.polarity === 'recovery')!;
+    const regressionRow = report.ranked_changes.find((row) => row.polarity === 'regression')!;
+    assert.equal(statusGlyph(recoveryRow), '🟢', 'recovery → green, regardless of its severity tier');
+    assert.ok(
+        out.includes(`🟢 **[${recoveryRow.severity.toUpperCase()} · recovery]** ${escapeInline(recoveryRow.summary)}`),
+        out,
+    );
+    // The regression row carries its severity heat glyph (not green).
+    assert.ok(
+        out.includes(`${statusGlyph(regressionRow)} **[${regressionRow.severity.toUpperCase()} · regression]**`),
+        out,
+    );
+    assert.notEqual(statusGlyph(regressionRow), '🟢', 'a regression must never read green');
 });
 
 test('④ regression, build GREEN: the strongest hero headline (founder-locked, verbatim)', () => {

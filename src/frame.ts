@@ -10,6 +10,7 @@
 // engine's"). Copy below is governed by web_copy § "Surface: Sift PR comment".
 
 import type { SiftReport, SiftCommentContext } from './types.js';
+import { statusGlyph } from './glyph.js';
 import { State, selectState } from './verdict.js';
 
 // Hidden sticky-comment key (contract § 4): list comments, PATCH the marked one
@@ -89,13 +90,15 @@ export function escapeInline(text: string): string {
 }
 
 // Inline row badge — matches the engine's to_markdown row headline so the inline
-// rows and the <details> body read identically: `**[HIGH · regression]**`.
-// Severity is uppercased (wire form is lowercase); polarity rides inside when
+// rows and the <details> body read identically: `🟢 **[HIGH · recovery]**`. A
+// leading status glyph (statusGlyph) carries the colour the no-ANSI comment/summary
+// can't (recovery green, else severity heat — mirrors the CLI badge_code). Severity
+// is uppercased (wire form is lowercase); polarity rides inside the text badge when
 // present (F-1). Badge fields are engine-enum strings (trusted vocabulary); the
 // `summary` is engine CONTENT — verbatim, safely embedded (escapeInline).
 function renderRow(index: number, row: SiftReport['ranked_changes'][number]): string {
     const badge = row.severity.toUpperCase() + (row.polarity ? ` · ${row.polarity}` : '');
-    return `${index}. **[${badge}]** ${escapeInline(row.summary)}`;
+    return `${index}. ${statusGlyph(row)} **[${badge}]** ${escapeInline(row.summary)}`;
 }
 
 function renderRows(report: SiftReport): string {

@@ -62595,6 +62595,26 @@ import { promises as fs13 } from "fs";
 import * as os8 from "os";
 import * as path8 from "path";
 
+// src/glyph.ts
+function severityGlyph(severity) {
+  switch (severity.toLowerCase()) {
+    case "critical":
+      return "\u{1F534}";
+    // crimson
+    case "high":
+      return "\u{1F7E0}";
+    // orange
+    case "medium":
+      return "\u{1F7E1}";
+    // amber
+    default:
+      return "\u26AA";
+  }
+}
+function statusGlyph(row) {
+  return row.polarity === "recovery" ? "\u{1F7E2}" : severityGlyph(row.severity);
+}
+
 // src/verdict.ts
 function hasRegression(report) {
   return report.ranked_changes.some((row) => row.polarity === "regression");
@@ -62642,7 +62662,7 @@ function annotationCommand(row) {
   const firstEvidence = row.evidence?.[0];
   const message = firstEvidence ? `${row.summary}
 ${firstEvidence}` : row.summary;
-  return `::${mapKind(row.polarity)}::${encodeCommandData(message)}`;
+  return `::${mapKind(row.polarity)}::${statusGlyph(row)} ${encodeCommandData(message)}`;
 }
 function buildAnnotationCommands(report, level) {
   if (report === null) {
@@ -62761,7 +62781,7 @@ function escapeInline(text) {
 }
 function renderRow(index, row) {
   const badge = row.severity.toUpperCase() + (row.polarity ? ` \xB7 ${row.polarity}` : "");
-  return `${index}. **[${badge}]** ${escapeInline(row.summary)}`;
+  return `${index}. ${statusGlyph(row)} **[${badge}]** ${escapeInline(row.summary)}`;
 }
 function renderRows(report) {
   const rows = report.ranked_changes;
@@ -98297,7 +98317,7 @@ import { promises as fs11 } from "fs";
 import * as path7 from "path";
 
 // src/sift-version.ts
-var SIFT_VERSION = "1.5.5";
+var SIFT_VERSION = "1.6.0";
 
 // src/resolve-sift.ts
 var RELEASE_REPO = "CodeRoasted/sift-action";
