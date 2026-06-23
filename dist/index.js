@@ -62595,26 +62595,6 @@ import { promises as fs13 } from "fs";
 import * as os8 from "os";
 import * as path8 from "path";
 
-// src/glyph.ts
-function severityGlyph(severity) {
-  switch (severity.toLowerCase()) {
-    case "critical":
-      return "\u{1F534}";
-    // crimson
-    case "high":
-      return "\u{1F7E0}";
-    // orange
-    case "medium":
-      return "\u{1F7E1}";
-    // amber
-    default:
-      return "\u26AA";
-  }
-}
-function statusGlyph(row) {
-  return row.polarity === "recovery" ? "\u{1F7E2}" : severityGlyph(row.severity);
-}
-
 // src/verdict.ts
 function hasRegression(report) {
   return report.ranked_changes.some((row) => row.polarity === "regression");
@@ -62662,7 +62642,7 @@ function annotationCommand(row) {
   const firstEvidence = row.evidence?.[0];
   const message = firstEvidence ? `${row.summary}
 ${firstEvidence}` : row.summary;
-  return `::${mapKind(row.polarity)}::${statusGlyph(row)} ${encodeCommandData(message)}`;
+  return `::${mapKind(row.polarity)}::${encodeCommandData(message)}`;
 }
 function buildAnnotationCommands(report, level) {
   if (report === null) {
@@ -62757,6 +62737,24 @@ async function resolveBaselineStrict(params) {
     created_at: baseRun.created_at
   };
   return { logPath, meta };
+}
+
+// src/glyph.ts
+function severityGlyph(severity) {
+  switch (severity.toLowerCase()) {
+    case "critical":
+      return "\u{1F7E5}";
+    case "high":
+      return "\u{1F7E7}";
+    case "medium":
+      return "\u{1F7E8}";
+    default:
+      return "\u{1F7E6}";
+  }
+}
+function statusGlyph(row) {
+  const square = severityGlyph(row.severity);
+  return row.polarity === "recovery" ? `${square} \u{1F7E2}` : square;
 }
 
 // src/frame.ts

@@ -89,13 +89,16 @@ export function escapeInline(text: string): string {
         .replace(/\)/g, '&#41;');
 }
 
-// Inline row badge — matches the engine's to_markdown row headline so the inline
-// rows and the <details> body read identically: `🟢 **[HIGH · recovery]**`. A
-// leading status glyph (statusGlyph) carries the colour the no-ANSI comment/summary
-// can't (recovery green, else severity heat — mirrors the CLI badge_code). Severity
-// is uppercased (wire form is lowercase); polarity rides inside the text badge when
-// present (F-1). Badge fields are engine-enum strings (trusted vocabulary); the
-// `summary` is engine CONTENT — verbatim, safely embedded (escapeInline).
+// Inline row badge (§B.4 visual parity — web_copy.md § "Badge glyphs"). The no-ANSI
+// comment carries the heat ladder + recovery-green as emoji on THESE top-N rows only
+// (the <details> body / to_markdown stays emoji-free; annotations use native icons).
+// Two independent axes (statusGlyph): a heat SQUARE for severity ALWAYS, plus a green
+// CIRCLE as a second glyph on a recovery — `🟧 🟢 **[HIGH · recovery]**`,
+// `🟥 **[CRITICAL · regression]**`. The text badge `[SEVERITY · polarity]` stays
+// verbatim beneath the glyphs (the screen-reader / no-emoji fallback). Severity is
+// uppercased (wire form is lowercase); polarity rides inside the badge when present
+// (F-1). Badge fields are engine-enum strings (trusted); the `summary` is engine
+// CONTENT — verbatim, safely embedded (escapeInline).
 function renderRow(index: number, row: SiftReport['ranked_changes'][number]): string {
     const badge = row.severity.toUpperCase() + (row.polarity ? ` · ${row.polarity}` : '');
     return `${index}. ${statusGlyph(row)} **[${badge}]** ${escapeInline(row.summary)}`;

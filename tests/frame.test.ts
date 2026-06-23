@@ -12,7 +12,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { renderComment, STICKY_MARKER, escapeInline } from '../src/frame.js';
-import { statusGlyph } from '../src/glyph.js';
+import { statusGlyph, severityGlyph } from '../src/glyph.js';
 import { selectState, shouldComment, State } from '../src/verdict.js';
 import type { RankedChange, SiftCommentContext, SiftReport } from '../src/types.js';
 
@@ -162,25 +162,31 @@ test('④ regression, build unknown: verbatim headline + regression row carries 
     }
 });
 
-test('④ a recovery row reads GREEN (🟢), a regression rides the severity heat glyph — never green', () => {
-    // The dogfood-2026-06-23 fix: "Resolved" (recovery) must read green/positive, not
-    // as an orange severity warning. The leading glyph carries the colour the no-ANSI
-    // comment can't (mirrors the CLI badge_code: recovery green, else severity heat).
+test('④ two independent axes: every row keeps its heat SQUARE; recovery ADDS a green circle', () => {
+    // §B.4 (web_copy § "Badge glyphs"): severity = a heat square ALWAYS; recovery adds a
+    // green circle as a SECOND glyph (🟧 🟢), it does NOT collapse to a bare 🟢 — else a
+    // HIGH and a LOW recovery would render identically and we'd lose the heat axis.
     const report = load('regression.json');
     const out = renderComment(report, ctx());
     const recoveryRow = report.ranked_changes.find((row) => row.polarity === 'recovery')!;
     const regressionRow = report.ranked_changes.find((row) => row.polarity === 'regression')!;
-    assert.equal(statusGlyph(recoveryRow), '🟢', 'recovery → green, regardless of its severity tier');
+
+    const recSquare = severityGlyph(recoveryRow.severity);
+    // The square is a heat SQUARE (not a circle), and it survives on the recovery row.
+    assert.ok(['🟥', '🟧', '🟨', '🟦'].includes(recSquare), `severity must be a heat square: ${recSquare}`);
+    assert.equal(statusGlyph(recoveryRow), `${recSquare} 🟢`, 'recovery = its heat square + the green circle');
     assert.ok(
-        out.includes(`🟢 **[${recoveryRow.severity.toUpperCase()} · recovery]** ${escapeInline(recoveryRow.summary)}`),
+        out.includes(`${recSquare} 🟢 **[${recoveryRow.severity.toUpperCase()} · recovery]** ${escapeInline(recoveryRow.summary)}`),
         out,
     );
-    // The regression row carries its severity heat glyph (not green).
+
+    // A regression rides the hot square ALONE — no circle, never green.
+    assert.equal(statusGlyph(regressionRow), severityGlyph(regressionRow.severity), 'regression = square only');
+    assert.ok(!statusGlyph(regressionRow).includes('🟢'), 'a regression must never carry the green circle');
     assert.ok(
-        out.includes(`${statusGlyph(regressionRow)} **[${regressionRow.severity.toUpperCase()} · regression]**`),
+        out.includes(`${severityGlyph(regressionRow.severity)} **[${regressionRow.severity.toUpperCase()} · regression]**`),
         out,
     );
-    assert.notEqual(statusGlyph(regressionRow), '🟢', 'a regression must never read green');
 });
 
 test('④ regression, build GREEN: the strongest hero headline (founder-locked, verbatim)', () => {

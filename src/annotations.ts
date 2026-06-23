@@ -14,7 +14,6 @@
 // first `evidence` line) VERBATIM, only transport-encoded (contract § 1).
 
 import type { RankedChange, SiftReport } from './types.js';
-import { statusGlyph } from './glyph.js';
 import { selectState, shouldComment, type CommentLevel } from './verdict.js';
 
 // Defensive cap on emitted annotations: the top significant rows, aligned to
@@ -69,17 +68,14 @@ function mapKind(polarity: RankedChange['polarity']): AnnotationKind {
 // adr/0013). The message is the engine's `summary` plus its first `evidence`
 // line (the deterministic "here's the line"), surfaced verbatim, then encoded.
 //
-// A leading status glyph (statusGlyph) gives the message its COLOUR. GitHub has
-// only three annotation levels (error/warning/notice) and none is green, so the
-// recovery-green the level can't express rides the glyph — a resolved error reads
-// 🟢 (good news), not as an orange warning (§ B.4 visual parity, the dogfood-2026-06-23
-// "Resolved renders orange" fix). The glyph is a frame-controlled constant prepended
-// to the verbatim-encoded engine content — it is never at line-start and carries no
-// `%`/CR/LF, so it cannot forge a workflow command (§ B.3.5 holds).
+// Colour here is GitHub's NATIVE error/warning/notice icon (mapKind, § B.3.3) — a
+// recovery → ::notice:: reads positive, NOT the orange ::warning::. The §B.4 emoji
+// badges are the COMMENT's surface only (web_copy.md § "Badge glyphs"); the message
+// stays the engine string verbatim so the §B.5 re-audit has a pure encoder to fuzz.
 function annotationCommand(row: RankedChange): string {
     const firstEvidence = row.evidence?.[0];
     const message = firstEvidence ? `${row.summary}\n${firstEvidence}` : row.summary;
-    return `::${mapKind(row.polarity)}::${statusGlyph(row)} ${encodeCommandData(message)}`;
+    return `::${mapKind(row.polarity)}::${encodeCommandData(message)}`;
 }
 
 // The full ordered list of encoded workflow-command lines to emit, level-gated.

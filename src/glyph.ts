@@ -1,31 +1,38 @@
-// Status glyphs — the colour the no-ANSI surfaces carry (B.4 visual parity,
-// sift_conversion_surface.md § B.4). GitHub-flavored markdown (the PR comment +
-// the job summary) and the Checks-tab annotations cannot render ANSI, so the CLI's
-// 256-colour heat ladder + recovery-green (terminal_render.cpp § badge_code) ride an
-// emoji glyph instead. This is the ONE place the comment, the job summary, and the
-// annotations agree on colour — mirror the C++ severity_emoji/status_emoji
-// (change_report_serialize.cpp) byte-for-byte so the surfaces read identically.
+// Status glyphs for the PR-comment top-N rows ONLY (frame.ts renderRow) — the §B.4
+// visual-parity layer (web_copy.md § "Badge glyphs", sift_conversion_surface.md § B.4).
+// GitHub-flavored markdown has no ANSI, so the web report's heat ladder + recovery-green
+// ride emoji HERE — not the `to_markdown` <details> body (byte-frozen, emoji-free) and
+// not the annotations (GitHub's native error/warning/notice icons). Two axes, two glyph
+// families that must never collapse into a git red/green diff:
+//
+//   • Severity = a heat SQUARE (importance): 🟦 low · 🟨 medium · 🟧 high · 🟥 critical.
+//   • Polarity = a CIRCLE, asymmetric: recovery → a green circle 🟢 as a SECOND glyph
+//     (decoupled from heat — a high-heat recovery is still good news); regression /
+//     neutral → no circle (a regression rides the hot square + the `· regression` word;
+//     a red square beside a green circle must never read as an added/removed diff).
+//
+// So a HIGH recovery is `🟧 🟢` (square keeps the heat axis), NOT a bare `🟢` — else a
+// HIGH-severity and a LOW-severity recovery would render identically.
 
 import type { RankedChange } from './types.js';
 
-// Severity heat ladder, as emoji: slate → amber → orange → crimson.
+// Severity heat SQUARE: slate → amber → orange → crimson.
 export function severityGlyph(severity: string): string {
     switch (severity.toLowerCase()) {
         case 'critical':
-            return '🔴'; // crimson
+            return '🟥';
         case 'high':
-            return '🟠'; // orange
+            return '🟧';
         case 'medium':
-            return '🟡'; // amber
+            return '🟨';
         default:
-            return '⚪'; // low / unknown — slate
+            return '🟦'; // low / unknown
     }
 }
 
-// The row status glyph — mirrors the CLI's badge_code EXACTLY: a recovery reads
-// GREEN (a semantic better/worse signal, decoupled from severity heat — an error
-// that no longer fires is good news, not a low warning); everything else rides the
-// severity tier.
+// The row's glyph(s): the heat square ALWAYS, plus the green recovery circle as a
+// SECOND glyph on good-news rows (the two axes are independent — the square never drops).
 export function statusGlyph(row: Pick<RankedChange, 'severity' | 'polarity'>): string {
-    return row.polarity === 'recovery' ? '🟢' : severityGlyph(row.severity);
+    const square = severityGlyph(row.severity);
+    return row.polarity === 'recovery' ? `${square} 🟢` : square;
 }
