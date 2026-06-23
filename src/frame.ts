@@ -101,7 +101,11 @@ export function escapeInline(text: string): string {
 // CONTENT — verbatim, safely embedded (escapeInline).
 function renderRow(index: number, row: SiftReport['ranked_changes'][number]): string {
     const badge = row.severity.toUpperCase() + (row.polarity ? ` · ${row.polarity}` : '');
-    return `${index}. ${statusGlyph(row)} **[${badge}]** ${escapeInline(row.summary)}`;
+    // WHERE attribution (D-WHERE-7 tier 1): the functional location after the summary,
+    // as inline code. `where` is engine CONTENT (canon-extracted, fork-attacker-reachable)
+    // → escapeInline; the surrounding backticks are frame-controlled. Absent ⇒ nothing.
+    const where = row.where ? ` · in \`${escapeInline(row.where)}\`` : '';
+    return `${index}. ${statusGlyph(row)} **[${badge}]** ${escapeInline(row.summary)}${where}`;
 }
 
 function renderRows(report: SiftReport): string {

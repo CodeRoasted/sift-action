@@ -189,6 +189,40 @@ test('④ two independent axes: every row keeps its heat SQUARE; recovery ADDS a
     );
 });
 
+// WHERE attribution (D-WHERE-7/12): the functional location renders as inline code
+// after the summary, composing with the badge. Engine CONTENT → escapeInline.
+function whereReport(where: string): SiftReport {
+    const row: RankedChange = {
+        kind: 'new_error_pattern',
+        severity: 'high',
+        significance: 0.9,
+        summary: 'new error appeared',
+        polarity: 'regression',
+        where,
+    };
+    return {
+        report_version: '0.1.0',
+        summary: { total_changes: 1, significant_changes: 1 },
+        ranked_changes: [row],
+        inputs: {
+            baseline: { label: 'a', lines_observed: 100, unique_templates: 5 },
+            changed: { label: 'b', lines_observed: 100, unique_templates: 5 },
+        },
+    };
+}
+
+test('a row WHERE renders as inline code after the summary', () => {
+    const out = renderComment(whereReport('src/auth'), ctx());
+    assert.ok(out.includes('· in `src/auth`'), out);
+});
+
+test('a forged WHERE is escapeInline-defanged (no HTML / inline-code breakout)', () => {
+    const attack = '`</details><script>alert(1)</script>';
+    const out = renderComment(whereReport(attack), ctx());
+    assert.ok(!out.includes('<script>'), out); // HTML escaped
+    assert.ok(out.includes(escapeInline(attack)), out); // the WHERE rode escapeInline
+});
+
 test('④ regression, build GREEN: the strongest hero headline (founder-locked, verbatim)', () => {
     const report = load('regression.json');
     const out = renderComment(report, ctx({ build_status: 'green' }));

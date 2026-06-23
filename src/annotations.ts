@@ -74,7 +74,11 @@ function mapKind(polarity: RankedChange['polarity']): AnnotationKind {
 // stays the engine string verbatim so the §B.5 re-audit has a pure encoder to fuzz.
 function annotationCommand(row: RankedChange): string {
     const firstEvidence = row.evidence?.[0];
-    const message = firstEvidence ? `${row.summary}\n${firstEvidence}` : row.summary;
+    // WHERE attribution (D-WHERE-7/12): the functional location appended to the summary
+    // line (plain text — annotations are not markdown). The whole message, WHERE
+    // included, is encodeCommandData'd below — the surface's one encoder.
+    const summaryLine = row.where ? `${row.summary} · in ${row.where}` : row.summary;
+    const message = firstEvidence ? `${summaryLine}\n${firstEvidence}` : summaryLine;
     return `::${mapKind(row.polarity)}::${encodeCommandData(message)}`;
 }
 

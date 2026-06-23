@@ -24,6 +24,10 @@ export interface RankedChange {
     polarity?: 'regression' | 'recovery';
     template_id?: string;
     phase?: string;
+    // WHERE attribution (D-WHERE-6): the finding's functional location (canon
+    // `component`, e.g. "src/auth"). Omitted when the window carried no admissible
+    // location. Engine CONTENT — escaped per surface (escapeInline / encodeCommandData).
+    where?: string;
     evidence?: string[];
     baseline_line_refs?: number[];
     changed_line_refs?: number[];

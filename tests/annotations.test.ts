@@ -93,6 +93,21 @@ test('a row with no evidence emits the summary alone (no trailing separator)', (
     assert.deepEqual(buildAnnotationCommands(report([row]), 'always'), ['::warning::shape shifted']);
 });
 
+// WHERE attribution (D-WHERE-7/12): the functional location appended to the summary line.
+test('a row with WHERE appends the location to the summary line', () => {
+    const row: RankedChange = { kind: 'new_error_pattern', severity: 'high', significance: 0.9, summary: 'new error', polarity: 'regression', where: 'src/auth' };
+    assert.deepEqual(buildAnnotationCommands(report([row]), 'always'), ['::error::new error · in src/auth']);
+});
+
+// The WHERE rides the SAME encoder as the rest of the message — a forged location
+// cannot inject a workflow command (the § B.5 encoder boundary covers it too).
+test('a forged WHERE is encodeCommandData-encoded (no command breakout)', () => {
+    const row: RankedChange = { kind: 'drift', severity: 'medium', significance: 0.3, summary: 'shape shifted', where: 'x\n::set-output name=evil::pwned' };
+    const cmd = buildAnnotationCommands(report([row]), 'always')[0]!;
+    assert.ok(!cmd.includes('\n::set-output'), cmd); // the newline is encoded → single line, inert
+    assert.ok(cmd.startsWith('::warning::shape shifted · in x%0A'), cmd);
+});
+
 // ── Level-gating (reuses shouldComment) + cold start ─────────────────────────
 
 test('cold start (report null) emits nothing, even at always', () => {
