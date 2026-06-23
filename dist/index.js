@@ -98488,6 +98488,7 @@ async function run() {
   };
   let gateExit = 0;
   let report = null;
+  const reportJsonPath = path8.join(workDir, "report.json");
   if (baseline) {
     const siftBin = await resolveSift(getInput("sift-binary"), workDir);
     const explain = getBooleanInput("explain");
@@ -98502,7 +98503,7 @@ async function run() {
       baselineLabel: baseline.meta.sha.slice(0, 7),
       changedLabel: headSha.slice(0, 7),
       failOn,
-      outputPath: path8.join(workDir, "report.json"),
+      outputPath: reportJsonPath,
       explain,
       explainModel
     });
@@ -98515,6 +98516,12 @@ async function run() {
   const state3 = selectState(report);
   await summary.addRaw(body3).write();
   setSiftOutputs(state3, report);
+  let reportPathOut = "";
+  if (report) {
+    reportPathOut = path8.join(process.env.RUNNER_TEMP || os8.tmpdir(), "sift-report.json");
+    await fs13.copyFile(reportJsonPath, reportPathOut);
+  }
+  setOutput("report-path", reportPathOut);
   const annotationsLevel = readCommentLevel("annotations", "significant");
   for (const command of buildAnnotationCommands(report, annotationsLevel)) {
     process.stdout.write(`${command}

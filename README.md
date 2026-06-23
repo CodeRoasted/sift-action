@@ -238,6 +238,7 @@ Set on **every** run, whatever the comment config — branch on them in a later 
 | `total-changes` | Total observed deltas (before significance suppression). |
 | `significant-changes` | Deltas that cleared the significance floor. |
 | `regression` | `true` when a regression was flagged, else `false`. |
+| `report-path` | Path to this run's `report.json` on a stable, cross-step location (empty on cold start). A later step on the **same runner** can narrate it with `sift explain --report <path>` — same content as the comment; no credential. |
 
 ## Architecture
 

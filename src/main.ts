@@ -155,6 +155,7 @@ async function run(): Promise<void> {
     // Diff — or cold start (contract § 3): no baseline ⇒ the engine is NOT invoked.
     let gateExit = 0;
     let report: SiftReport | null = null;
+    const reportJsonPath = path.join(workDir, 'report.json');
     if (baseline) {
         const siftBin = await resolveSift(core.getInput('sift-binary'), workDir);
         const explain = core.getBooleanInput('explain');
@@ -169,7 +170,7 @@ async function run(): Promise<void> {
             baselineLabel: baseline.meta.sha.slice(0, 7),
             changedLabel: headSha.slice(0, 7),
             failOn,
-            outputPath: path.join(workDir, 'report.json'),
+            outputPath: reportJsonPath,
             explain,
             explainModel,
         });
@@ -185,6 +186,19 @@ async function run(): Promise<void> {
     // before any comment decision — so the result is in the job info whatever the comment config.
     await core.summary.addRaw(body).write();
     setSiftOutputs(state, report);
+
+    // Expose the deterministic report.json on a STABLE, cross-step path (workDir is an
+    // mkdtemp that's gone after this step). A later step on the SAME runner can then
+    // narrate it via `sift explain --report` — so the narrative explains THIS run's real
+    // diff, not a re-diff against an empty baseline (the §3.6 decoupled-narration seam).
+    // §3.6-safe: report.json is exactly the content already in the comment/summary — no
+    // credential, no courtesy. Empty `report-path` on cold start (no report produced).
+    let reportPathOut = '';
+    if (report) {
+        reportPathOut = path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'sift-report.json');
+        await fs.copyFile(reportJsonPath, reportPathOut);
+    }
+    core.setOutput('report-path', reportPathOut);
 
     // Inline check-run annotations (contract § B / sift_conversion_surface § B.3): emit the
     // level-gated `::error|warning|notice::` workflow commands on stdout. They carry no write
