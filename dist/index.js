@@ -62640,8 +62640,9 @@ function mapKind(polarity) {
 }
 function annotationCommand(row) {
   const firstEvidence = row.evidence?.[0];
-  const message = firstEvidence ? `${row.summary}
-${firstEvidence}` : row.summary;
+  const summaryLine = row.where ? `${row.summary} \xB7 in ${row.where}` : row.summary;
+  const message = firstEvidence ? `${summaryLine}
+${firstEvidence}` : summaryLine;
   return `::${mapKind(row.polarity)}::${encodeCommandData(message)}`;
 }
 function buildAnnotationCommands(report, level) {
@@ -62779,7 +62780,8 @@ function escapeInline(text) {
 }
 function renderRow(index, row) {
   const badge = row.severity.toUpperCase() + (row.polarity ? ` \xB7 ${row.polarity}` : "");
-  return `${index}. ${statusGlyph(row)} **[${badge}]** ${escapeInline(row.summary)}`;
+  const where2 = row.where ? ` \xB7 in \`${escapeInline(row.where)}\`` : "";
+  return `${index}. ${statusGlyph(row)} **[${badge}]** ${escapeInline(row.summary)}${where2}`;
 }
 function renderRows(report) {
   const rows = report.ranked_changes;
@@ -98315,7 +98317,7 @@ import { promises as fs11 } from "fs";
 import * as path7 from "path";
 
 // src/sift-version.ts
-var SIFT_VERSION = "1.6.1";
+var SIFT_VERSION = "1.6.2";
 
 // src/resolve-sift.ts
 var RELEASE_REPO = "CodeRoasted/sift-action";
