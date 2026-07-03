@@ -119,5 +119,5 @@ outputs:
 # warning (the advisory gate still applies).
 
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'dist/index.js'
