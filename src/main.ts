@@ -13,6 +13,7 @@ import * as path from 'path';
 
 import { buildAnnotationCommands } from './annotations.js';
 import { parseBaselineSpec, resolveBaseline, type BaselineSpec } from './baseline.js';
+import { fetchTargetJobLog } from './joblog.js';
 import { upsertStickyComment, upsertCommitComment } from './comment.js';
 import { publishBaselineLog, writeRenderedComment } from './artifact.js';
 import { renderComment } from './frame.js';
@@ -144,7 +145,8 @@ async function run(): Promise<void> {
         return;
     }
 
-    const logInput = core.getInput('log', { required: true });
+    const targetJob = core.getInput('target-job');
+    const logInput = core.getInput('log', { required: !targetJob });
     const failOn = readFailOn();
     const buildStatus = readBuildStatus();
     const prComment = readCommentLevel('pr-comment', 'always');
@@ -155,7 +157,25 @@ async function run(): Promise<void> {
 
     const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-'));
     const changedLog = path.join(workDir, 'changed.log');
-    await fs.copyFile(logInput, changedLog); // the captured current-run log = changed.log
+    if (targetJob) {
+        // Zero-plumbing sourcing: pull the finished build job's log off the API
+        // (run Sift in a job that `needs:` it), timestamps stripped, capture
+        // sections applied. Load-bearing — a failure here fails the step (the
+        // caller's continue-on-error keeps the advisory guarantee).
+        const capture = core.getInput('capture') || 'auto';
+        const jobLog = await fetchTargetJobLog({
+            octokit,
+            owner,
+            repo,
+            runId: github.context.runId,
+            jobName: targetJob,
+            capture,
+        });
+        await fs.writeFile(changedLog, jobLog);
+        core.info(`Sift: sourced the log from job "${targetJob}" (capture: ${capture}).`);
+    } else {
+        await fs.copyFile(logInput, changedLog); // the captured current-run log = changed.log
+    }
 
     // PR vs push differ ONLY in the comment surface (sticky vs commit), its level, the baseline
     // branch, and the head sha. The diff, the job summary, the outputs, and the gate are shared.

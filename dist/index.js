@@ -62794,6 +62794,88 @@ async function extractBaseline(octokit, owner, repo, artifactId, workDir) {
   return logPath;
 }
 
+// src/joblog.ts
+var TIMESTAMP_PREFIX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z /;
+function stripRunnerTimestamps(raw) {
+  return raw.split(/\r?\n/).map((line) => line.replace(TIMESTAMP_PREFIX, ""));
+}
+function extractCaptureSections(lines) {
+  const sections = [];
+  let open2 = null;
+  for (const line of lines) {
+    if (line === "SIFT_CAPTURE" || line.startsWith("SIFT_CAPTURE ")) {
+      open2 = { name: line.slice("SIFT_CAPTURE".length).trim(), lines: [] };
+      continue;
+    }
+    if (line === "SIFT_CAPTURE_END") {
+      if (open2) sections.push(open2);
+      open2 = null;
+      continue;
+    }
+    if (open2) open2.lines.push(line);
+  }
+  if (open2) sections.push(open2);
+  return sections;
+}
+function sliceJobLog(raw, capture) {
+  const lines = stripRunnerTimestamps(raw);
+  const mode = capture || "auto";
+  if (mode === "off") {
+    return lines.join("\n");
+  }
+  const sections = extractCaptureSections(lines);
+  if (mode === "auto") {
+    if (sections.length === 0) {
+      return lines.join("\n");
+    }
+    return sections.map((section) => section.lines.join("\n")).join("\n");
+  }
+  const named = sections.filter((section) => section.name === mode);
+  if (named.length === 0) {
+    const seen = [...new Set(sections.map((s) => s.name || "(anonymous)"))];
+    throw new Error(
+      `capture section "${mode}" not found in the target job's log (sections seen: ${seen.length ? seen.join(", ") : "none"}). Emit it with \`echo "SIFT_CAPTURE ${mode}"\` \u2026 \`echo "SIFT_CAPTURE_END"\`.`
+    );
+  }
+  return named.map((section) => section.lines.join("\n")).join("\n");
+}
+async function fetchTargetJobLog(params) {
+  const { octokit, owner, repo, runId, jobName, capture } = params;
+  const jobs = await octokit.paginate(octokit.rest.actions.listJobsForWorkflowRun, {
+    owner,
+    repo,
+    run_id: runId,
+    per_page: 100
+  });
+  let matches = jobs.filter((job2) => job2.name === jobName);
+  if (matches.length === 0) {
+    matches = jobs.filter((job2) => job2.name.endsWith(`/ ${jobName}`));
+  }
+  if (matches.length === 0) {
+    throw new Error(
+      `target-job "${jobName}" not found in this run (jobs: ${jobs.map((j) => j.name).join(", ")})`
+    );
+  }
+  if (matches.length > 1) {
+    throw new Error(
+      `target-job "${jobName}" is ambiguous in this run (${matches.map((j) => j.name).join(" | ")}) \u2014 use the full job name`
+    );
+  }
+  const job = matches[0];
+  if (job.status !== "completed") {
+    throw new Error(
+      `target-job "${job.name}" has not completed (status: ${job.status}) \u2014 run Sift in a job that \`needs:\` it`
+    );
+  }
+  const download2 = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
+    owner,
+    repo,
+    job_id: job.id
+  });
+  const raw = typeof download2.data === "string" ? download2.data : Buffer.from(download2.data).toString("utf8");
+  return sliceJobLog(raw, capture);
+}
+
 // src/glyph.ts
 function severityGlyph(severity) {
   switch (severity.toLowerCase()) {
@@ -98558,7 +98640,8 @@ async function run() {
     await runPoster();
     return;
   }
-  const logInput = getInput("log", { required: true });
+  const targetJob = getInput("target-job");
+  const logInput = getInput("log", { required: !targetJob });
   const failOn = readFailOn();
   const buildStatus = readBuildStatus();
   const prComment = readCommentLevel("pr-comment", "always");
@@ -98568,7 +98651,21 @@ async function run() {
   const { owner, repo } = context2.repo;
   const workDir = await fs13.mkdtemp(path8.join(os8.tmpdir(), "sift-"));
   const changedLog = path8.join(workDir, "changed.log");
-  await fs13.copyFile(logInput, changedLog);
+  if (targetJob) {
+    const capture = getInput("capture") || "auto";
+    const jobLog = await fetchTargetJobLog({
+      octokit,
+      owner,
+      repo,
+      runId: context2.runId,
+      jobName: targetJob,
+      capture
+    });
+    await fs13.writeFile(changedLog, jobLog);
+    info(`Sift: sourced the log from job "${targetJob}" (capture: ${capture}).`);
+  } else {
+    await fs13.copyFile(logInput, changedLog);
+  }
   const pr = context2.payload.pull_request;
   const isTagRef = context2.ref.startsWith("refs/tags/");
   const defaultBranch = context2.payload.repository?.default_branch ?? "main";

@@ -103,9 +103,41 @@ or break an annotation (`src/annotations.ts`).
 
 ## Capturing the log
 
-`log:` just needs a file holding the build/test output you want diffed — capture it
-whichever way fits your job. Always with `set -o pipefail` (a bare `… | tee` masks the
-build's real exit code, so `build-status` would read green on a red build):
+**The zero-plumbing way — point Sift at the job.** Your build job stays untouched: run
+Sift in a later job (`needs:`) with `target-job: <job name>`, and the action downloads
+that finished job's log straight off the GitHub API (timestamps stripped). Optionally
+bracket the region you want diffed with capture markers — plain echoed lines:
+
+```yaml
+jobs:
+  build:
+    steps:
+      - run: |
+          echo "SIFT_CAPTURE ci"     # optional precision — no markers ⇒ the whole job log
+          make ci
+          echo "SIFT_CAPTURE_END"
+  sift:
+    needs: build
+    if: ${{ always() }}
+    permissions: { actions: write, pull-requests: write }
+    runs-on: ubuntu-latest
+    steps:
+      - uses: CodeRoasted/sift-action@v1
+        with:
+          target-job: build
+          build-status: ${{ needs.build.result == 'success' && 'green' || 'red' }}
+```
+
+`capture:` selects `auto` (marked sections if any, else the whole log) | `off` | a
+section name — several named sections (`SIFT_CAPTURE ci`, `SIFT_CAPTURE release`) give
+independent diffs/lineages from one job, one Sift step each. The full topology (named
+main baseline + per-PR previous-run diff) is
+[`examples/baselines/ci.yml`](examples/baselines/ci.yml).
+
+**The in-job way** — `log:` just needs a file holding the build/test output you want
+diffed — capture it whichever way fits your job. Always with `set -o pipefail` (a bare
+`… | tee` masks the build's real exit code, so `build-status` would read green on a red
+build):
 
 - **One command** (as in Usage above) — pipe it through `tee`:
   ```yaml
@@ -238,7 +270,9 @@ a local shell.
 
 | Input | Required | Default | Notes |
 |---|---|---|---|
-| `log` | yes | — | Path to the captured current-run log to diff. |
+| `target-job` | no | _(none)_ | Zero-plumbing sourcing: diff the log of this finished job (run Sift in a job that `needs:` it). Wins over `log`. See [Capturing the log](#capturing-the-log). |
+| `capture` | no | `auto` | With `target-job`: `auto` (SIFT_CAPTURE sections if any, else whole log) \| `off` \| `<name>` (that section only; absent ⇒ the run fails). |
+| `log` | unless `target-job` | — | Path to the captured current-run log to diff. |
 | `sift-binary` | no | _(auto)_ | Override path to a `sift` binary. Default: download + sha256-verify the version-pinned `sift-linux-x64` release asset. |
 | `fail-on` | no | `none` | `none` \| `significant` \| `regression` — advisory gate (exit code only; the comment never says "blocked"). |
 | `explain` | no | `false` | `true` opts into an AI narrative header: the Action provisions a pinned, checksum-verified **local** model + server (no credential, fork-safe — nothing leaves the runner) and adds a short plain-English story. Advisory + fail-soft — never blocks or changes the gate. Adds a ~2.4 GB model download (cache it — see [Explain](#explain-opt-in-ai-narrative)) + a few seconds of CPU. |

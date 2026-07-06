@@ -6,8 +6,25 @@ branding:
   color: 'purple'
 
 inputs:
+  target-job:
+    description: >-
+      Zero-plumbing log sourcing: the NAME of a finished job in this run whose log Sift diffs — no
+      tee/capture shell needed in the build job. Run Sift in a separate job that `needs:` the target
+      (the API serves logs for completed jobs only; `needs.<job>.result` then also gives you
+      `build-status` for free). The runner's per-line timestamps are stripped; `capture` selects
+      marked sections. Mutually exclusive with `log` (target-job wins).
+    required: false
+    default: ''
+  capture:
+    description: >-
+      With `target-job`: which part of the job log to diff. `auto` (default) — if the log contains
+      SIFT_CAPTURE sections use them all, else the whole job log. `off` — the whole job log always.
+      `<name>` — only the sections opened with `SIFT_CAPTURE <name>` (absent ⇒ the run fails: config
+      error). Sections are plain echoed lines: `echo "SIFT_CAPTURE ci"` … `echo "SIFT_CAPTURE_END"`.
+    required: false
+    default: 'auto'
   log:
-    description: 'Path to the current run''s captured log to diff (the build/CI log). Required for mode comment|render; unused for mode post.'
+    description: 'Path to the current run''s captured log to diff (the build/CI log). Required for mode comment|render unless `target-job` is set; unused for mode post.'
     required: false
     # Override only. By default the Action downloads + sha256-verifies the
     # version-pinned `sift-linux-x64` release asset (resolve-sift.ts). Set this to
