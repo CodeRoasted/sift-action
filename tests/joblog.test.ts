@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    deriveBuildStatus,
     extractCaptureSections,
     fetchTargetJobLog,
     sliceJobLog,
@@ -93,19 +94,27 @@ function fetchParams(jobs: unknown[], log: string, over: Partial<FetchJobLogPara
     };
 }
 
-test('fetchTargetJobLog: exact name match, completed job, cleaned log returned', async () => {
-    const jobs = [{ id: 7, name: 'build', status: 'completed' }];
+test('fetchTargetJobLog: exact name match, completed job, cleaned log + conclusion returned', async () => {
+    const jobs = [{ id: 7, name: 'build', status: 'completed', conclusion: 'success' }];
     const out = await fetchTargetJobLog(fetchParams(jobs, `${T}hello\n${T}world`));
-    assert.equal(out, 'hello\nworld');
+    assert.equal(out.text, 'hello\nworld');
+    assert.equal(out.conclusion, 'success');
+});
+
+test('deriveBuildStatus: success ⇒ green, any other conclusion ⇒ red, none ⇒ unknown', () => {
+    assert.equal(deriveBuildStatus('success'), 'green');
+    assert.equal(deriveBuildStatus('failure'), 'red');
+    assert.equal(deriveBuildStatus('cancelled'), 'red');
+    assert.equal(deriveBuildStatus(null), 'unknown');
 });
 
 test('fetchTargetJobLog: reusable-workflow "caller / name" suffix matches uniquely', async () => {
     const jobs = [
-        { id: 7, name: 'ci / build', status: 'completed' },
-        { id: 8, name: 'lint', status: 'completed' },
+        { id: 7, name: 'ci / build', status: 'completed', conclusion: 'success' },
+        { id: 8, name: 'lint', status: 'completed', conclusion: 'success' },
     ];
     const out = await fetchTargetJobLog(fetchParams(jobs, `${T}ok`));
-    assert.equal(out, 'ok');
+    assert.equal(out.text, 'ok');
 });
 
 test('fetchTargetJobLog: missing, ambiguous, and not-completed jobs all THROW with actionable messages', async () => {

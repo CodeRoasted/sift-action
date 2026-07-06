@@ -62839,6 +62839,10 @@ function sliceJobLog(raw, capture) {
   }
   return named.map((section) => section.lines.join("\n")).join("\n");
 }
+function deriveBuildStatus(conclusion) {
+  if (conclusion === "success") return "green";
+  return conclusion ? "red" : "unknown";
+}
 async function fetchTargetJobLog(params) {
   const { octokit, owner, repo, runId, jobName, capture } = params;
   const jobs = await octokit.paginate(octokit.rest.actions.listJobsForWorkflowRun, {
@@ -62873,7 +62877,7 @@ async function fetchTargetJobLog(params) {
     job_id: job.id
   });
   const raw = typeof download2.data === "string" ? download2.data : Buffer.from(download2.data).toString("utf8");
-  return sliceJobLog(raw, capture);
+  return { text: sliceJobLog(raw, capture), conclusion: job.conclusion ?? null };
 }
 
 // src/glyph.ts
@@ -98584,8 +98588,8 @@ function readMode() {
   return raw === "render" || raw === "post" ? raw : "comment";
 }
 function readBuildStatus() {
-  const raw = (getInput("build-status") || "unknown").toLowerCase();
-  return raw === "green" || raw === "red" ? raw : "unknown";
+  const raw = (getInput("build-status") || "auto").toLowerCase();
+  return raw === "green" || raw === "red" || raw === "auto" ? raw : "unknown";
 }
 function readFailOn() {
   const raw = (getInput("fail-on") || "none").toLowerCase();
@@ -98641,9 +98645,15 @@ async function run() {
     return;
   }
   const targetJob = getInput("target-job");
-  const logInput = getInput("log", { required: !targetJob });
+  const logInput = getInput("log");
+  if (!targetJob && !logInput) {
+    setFailed(
+      "Sift needs a log to diff: set `target-job: <job name>` (zero-plumbing \u2014 run Sift in a job that `needs:` it) or `log: <file>` (a log you captured yourself)."
+    );
+    return;
+  }
   const failOn = readFailOn();
-  const buildStatus = readBuildStatus();
+  const rawBuildStatus = readBuildStatus();
   const prComment = readCommentLevel("pr-comment", "always");
   const commitComment = readCommentLevel("commit-comment", "never");
   const token = getInput("github-token") || process.env.GITHUB_TOKEN || "";
@@ -98651,6 +98661,7 @@ async function run() {
   const { owner, repo } = context2.repo;
   const workDir = await fs13.mkdtemp(path8.join(os8.tmpdir(), "sift-"));
   const changedLog = path8.join(workDir, "changed.log");
+  let buildStatus = rawBuildStatus === "auto" ? "unknown" : rawBuildStatus;
   if (targetJob) {
     const capture = getInput("capture") || "auto";
     const jobLog = await fetchTargetJobLog({
@@ -98661,8 +98672,13 @@ async function run() {
       jobName: targetJob,
       capture
     });
-    await fs13.writeFile(changedLog, jobLog);
-    info(`Sift: sourced the log from job "${targetJob}" (capture: ${capture}).`);
+    await fs13.writeFile(changedLog, jobLog.text);
+    if (rawBuildStatus === "auto") {
+      buildStatus = deriveBuildStatus(jobLog.conclusion);
+    }
+    info(
+      `Sift: sourced the log from job "${targetJob}" (capture: ${capture}, build-status: ${buildStatus}).`
+    );
   } else {
     await fs13.copyFile(logInput, changedLog);
   }

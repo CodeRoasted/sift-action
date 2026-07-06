@@ -13,7 +13,7 @@ import * as path from 'path';
 
 import { buildAnnotationCommands } from './annotations.js';
 import { parseBaselineSpec, resolveBaseline, type BaselineSpec } from './baseline.js';
-import { fetchTargetJobLog } from './joblog.js';
+import { deriveBuildStatus, fetchTargetJobLog } from './joblog.js';
 import { upsertStickyComment, upsertCommitComment } from './comment.js';
 import { publishBaselineLog, writeRenderedComment } from './artifact.js';
 import { renderComment } from './frame.js';
@@ -48,9 +48,12 @@ function readMode(): Mode {
     return raw === 'render' || raw === 'post' ? raw : 'comment';
 }
 
-function readBuildStatus(): BuildStatus {
-    const raw = (core.getInput('build-status') || 'unknown').toLowerCase();
-    return raw === 'green' || raw === 'red' ? raw : 'unknown';
+// `auto` (the default) derives green/red from the target job's own conclusion
+// when `target-job` is set — the lazy default needs zero caller plumbing.
+// Without a target job, `auto` degrades to `unknown` (nothing to derive from).
+function readBuildStatus(): BuildStatus | 'auto' {
+    const raw = (core.getInput('build-status') || 'auto').toLowerCase();
+    return raw === 'green' || raw === 'red' || raw === 'auto' ? raw : 'unknown';
 }
 
 function readFailOn(): FailOn {
@@ -146,9 +149,16 @@ async function run(): Promise<void> {
     }
 
     const targetJob = core.getInput('target-job');
-    const logInput = core.getInput('log', { required: !targetJob });
+    const logInput = core.getInput('log');
+    if (!targetJob && !logInput) {
+        core.setFailed(
+            'Sift needs a log to diff: set `target-job: <job name>` (zero-plumbing — run Sift in a ' +
+                'job that `needs:` it) or `log: <file>` (a log you captured yourself).',
+        );
+        return;
+    }
     const failOn = readFailOn();
-    const buildStatus = readBuildStatus();
+    const rawBuildStatus = readBuildStatus();
     const prComment = readCommentLevel('pr-comment', 'always');
     const commitComment = readCommentLevel('commit-comment', 'never');
     const token = core.getInput('github-token') || process.env.GITHUB_TOKEN || '';
@@ -157,6 +167,7 @@ async function run(): Promise<void> {
 
     const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-'));
     const changedLog = path.join(workDir, 'changed.log');
+    let buildStatus: BuildStatus = rawBuildStatus === 'auto' ? 'unknown' : rawBuildStatus;
     if (targetJob) {
         // Zero-plumbing sourcing: pull the finished build job's log off the API
         // (run Sift in a job that `needs:` it), timestamps stripped, capture
@@ -171,8 +182,13 @@ async function run(): Promise<void> {
             jobName: targetJob,
             capture,
         });
-        await fs.writeFile(changedLog, jobLog);
-        core.info(`Sift: sourced the log from job "${targetJob}" (capture: ${capture}).`);
+        await fs.writeFile(changedLog, jobLog.text);
+        if (rawBuildStatus === 'auto') {
+            buildStatus = deriveBuildStatus(jobLog.conclusion);
+        }
+        core.info(
+            `Sift: sourced the log from job "${targetJob}" (capture: ${capture}, build-status: ${buildStatus}).`,
+        );
     } else {
         await fs.copyFile(logInput, changedLog); // the captured current-run log = changed.log
     }

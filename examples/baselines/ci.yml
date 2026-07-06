@@ -73,7 +73,7 @@ jobs:
           baseline: artifact=sift-baseline-main-ci
           baseline-name: sift-baseline-main-ci       # publish back under the same name
           # publish-baseline: auto → green-gated re-seed (a red push keeps the old baseline)
-          build-status: ${{ needs.build.result == 'success' && 'green' || 'red' }}
+          # build-status: auto → derived from the build job's own conclusion
 
       # ── PR: ① this build vs main (the headline sticky comment) ──
       - name: Sift — vs main baseline
@@ -83,7 +83,6 @@ jobs:
           target-job: build
           baseline: artifact=sift-baseline-main-ci
           publish-baseline: never                    # ② below owns this PR's seeding
-          build-status: ${{ needs.build.result == 'success' && 'green' || 'red' }}
 
       # ── PR: ② this build vs this PR's previous run (its own tagged comment),
       #        then seed the per-PR baseline for the next push ──
@@ -96,4 +95,3 @@ jobs:
           baseline-name: sift-baseline-ci-pr-${{ github.event.number }}
           comment-tag: vs-previous-run
           pr-comment: significant                    # quiet unless something moved since the last push
-          build-status: ${{ needs.build.result == 'success' && 'green' || 'red' }}

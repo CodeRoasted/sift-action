@@ -5,38 +5,86 @@ the **last green run on your base branch** and posts **one sticky comment** —
 ranked by what matters, with the noise suppressed — plus an optional advisory
 gate. Deterministic; runs entirely in your CI (your logs never leave it).
 
-> Design: [`technical_docs/architecture/sift_action_contract.md`](../technical_docs/architecture/sift_action_contract.md).
-> Comment copy: [`technical_docs/product/web_copy.md` § "Surface: Sift PR comment"](../technical_docs/product/web_copy.md).
+The whole integration:
+
+```yaml
+- name: Sift Log Diff
+  uses: CodeRoasted/sift-action@v1
+  with:
+    target-job: build
+```
+
+Your build job stays untouched — Sift pulls its log straight off the GitHub API,
+reads green/red from the job's own conclusion, diffs, comments, and seeds the
+next baseline. Full hello world: [`examples/simple/ci.yml`](examples/simple/ci.yml).
 
 ## Usage
 
-```yaml
-permissions:
-  contents: read
-  actions: write          # upload + read the baseline-log artifact
-  pull-requests: write    # post/update the sticky comment
+The step above runs in a small job that `needs:` your build job:
 
+```yaml
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - id: build
-        run: |
-          set -o pipefail                          # `| tee` must not mask the build's real exit code,
-                                                   # or build-status below is always (wrongly) green
-          ./ci/build.sh 2>&1 | tee build.log       # capture the log you want diffed
-      - uses: CodeRoasted/sift-action@v1
-        if: ${{ !cancelled() }}                    # still diff + comment when the build went red — that's the point
+      - uses: actions/checkout@v5
+      - run: make ci    # your build — untouched, nothing to capture
+
+  sift:
+    needs: build
+    if: ${{ !cancelled() }}   # still diff when the build went red — that's the point
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write          # read the build job's log + baselines; upload this run's baseline
+      pull-requests: write    # post/update the sticky comment
+    steps:
+      - name: Sift Log Diff
+        uses: CodeRoasted/sift-action@v1
         with:
-          log: build.log
-          fail-on: regression                      # advisory gate (none | significant | regression)
-          build-status: ${{ steps.build.outcome == 'success' && 'green' || 'red' }}
+          target-job: build
 ```
 
 The first green run on the base branch seeds the baseline; every PR gets a diff
 automatically thereafter (self-bootstrapping). No prior green run ⇒ an honest
 "no baseline yet" comment.
+
+## Advanced usage
+
+Every default is overridable — the annotated tour (all knobs optional):
+
+```yaml
+- uses: CodeRoasted/sift-action@v1
+  with:
+    # ── Log sourcing ─────────────────────────────────────────────────────
+    target-job: build                # diff a finished job's log (run Sift in a job that `needs:` it)
+    capture: ci                      # auto (SIFT_CAPTURE sections if any, else whole log) | off | <name>
+    # log: build.log                 # OR a file you captured yourself (tee) — see "Capturing the log"
+
+    # ── Baseline — you are King ──────────────────────────────────────────
+    baseline: artifact=sift-baseline-main-ci   # auto | branch=<name> | artifact=<name> | path=<file> | none
+    baseline-name: sift-baseline-main-ci       # the artifact name THIS run publishes its log under
+    publish-baseline: auto                     # auto (PRs always; pushes/tags green-gated) | always | never
+
+    # ── Verdict surfaces (each its own level: never|regression|significant|always) ──
+    fail-on: regression              # the advisory gate — exit code only (none | significant | regression)
+    pr-comment: always               # sticky PR comment level
+    commit-comment: never            # commit comment on push runs (needs contents: write)
+    annotations: significant         # inline ::error/::warning/::notice on the Checks tab (token-free)
+    comment-tag: vs-main             # namespace for a SECOND sticky comment in the same job
+    build-status: auto               # auto (derived from target-job's conclusion) | green | red | unknown
+
+    # ── Extras ───────────────────────────────────────────────────────────
+    explain: false                   # opt-in local-model AI narrative (~2.4 GB, fail-soft) — see "Explain"
+    # explain-model: <name>          # advanced: override the pinned model
+    # sift-binary: /path/to/sift     # self-hosted/in-image override (default: pinned, sha256-verified download)
+    github-token: ${{ github.token }}
+```
+
+The fork-safe two-workflow topology adds `mode` / `run-id` / `build-workflow`
+(the render → post pair) — see [Fork PRs](#fork-prs) and
+[`examples/fork-safe/`](examples/fork-safe/). The named-baseline topology
+(main lineage + per-PR previous-run diff) is
+[`examples/baselines/ci.yml`](examples/baselines/ci.yml).
 
 ## On a push vs a PR
 
@@ -103,43 +151,28 @@ or break an annotation (`src/annotations.ts`).
 
 ## Capturing the log
 
-**The zero-plumbing way — point Sift at the job.** Your build job stays untouched: run
-Sift in a later job (`needs:`) with `target-job: <job name>`, and the action downloads
-that finished job's log straight off the GitHub API (timestamps stripped). Optionally
-bracket the region you want diffed with capture markers — plain echoed lines:
+**The default (`target-job`) needs no capture at all** — Sift downloads the finished
+job's log from the GitHub API, timestamps stripped. For precision, bracket the
+region(s) you want diffed with capture markers — plain echoed lines in any step:
 
 ```yaml
-jobs:
-  build:
-    steps:
-      - run: |
-          echo "SIFT_CAPTURE ci"     # optional precision — no markers ⇒ the whole job log
-          make ci
-          echo "SIFT_CAPTURE_END"
-  sift:
-    needs: build
-    if: ${{ always() }}
-    permissions: { actions: write, pull-requests: write }
-    runs-on: ubuntu-latest
-    steps:
-      - uses: CodeRoasted/sift-action@v1
-        with:
-          target-job: build
-          build-status: ${{ needs.build.result == 'success' && 'green' || 'red' }}
+- run: |
+    echo "SIFT_CAPTURE ci"     # optional — no markers ⇒ the whole job log
+    make ci
+    echo "SIFT_CAPTURE_END"
 ```
 
 `capture:` selects `auto` (marked sections if any, else the whole log) | `off` | a
 section name — several named sections (`SIFT_CAPTURE ci`, `SIFT_CAPTURE release`) give
-independent diffs/lineages from one job, one Sift step each. The full topology (named
-main baseline + per-PR previous-run diff) is
-[`examples/baselines/ci.yml`](examples/baselines/ci.yml).
+independent diffs/lineages from one job, one Sift step each, each with its own
+`baseline-name` (+ `comment-tag`).
 
-**The in-job way** — `log:` just needs a file holding the build/test output you want
-diffed — capture it whichever way fits your job. Always with `set -o pipefail` (a bare
-`… | tee` masks the build's real exit code, so `build-status` would read green on a red
-build):
+**The in-job way** (`log:`) — a file holding the output you want diffed, captured
+however fits your job; Sift then runs as a step of the build job itself. Always with
+`set -o pipefail` (a bare `… | tee` masks the build's real exit code), and set
+`build-status` explicitly (there is no target job to derive it from):
 
-- **One command** (as in Usage above) — pipe it through `tee`:
+- **One command** — pipe it through `tee`:
   ```yaml
   - id: build
     run: |
@@ -161,7 +194,8 @@ build):
     run: truncate --size 0 "$GITHUB_WORKSPACE/build.log"
   - run: cmake --build build   2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
   - run: ctest --test-dir build 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
-  # … then point Sift at it:  with: { log: build.log }
+  # … then point Sift at it:
+  #   with: { log: build.log, build-status: "${{ steps.build.outcome == 'success' && 'green' || 'red' }}" }
   ```
 
 ## Explain (opt-in AI narrative)
@@ -181,7 +215,7 @@ standard step — the engine caches under `~/.cache/coderoast`:
       - uses: actions/cache@v4
         with:
           path: ~/.cache/coderoast          # the pinned model + server (~2.4 GB)
-          key: sift-explain-${{ runner.os }}-v1.5.4   # bump with the Sift engine version
+          key: sift-explain-${{ runner.os }}-v<ENGINE_VERSION>   # bump with the Sift engine version
       - uses: CodeRoasted/sift-action@v1
         with:
           log: build.log
@@ -225,8 +259,9 @@ alternative to `pull_request_target`) — see [`examples/fork-safe/`](examples/f
 > fork-controlled code with a write token — RCE + secret exfiltration. Build only in the
 > unprivileged `pull_request` job; the privileged job consumes only the rendered artifact.
 
-Fork-comment posting (the `render`/`post` modes + this pattern) **arms with contract §6.1**,
-gated on the parser's **Fuzz/ASan gate** being green — keep `post.yml` disabled until then.
+Fork-comment posting (the `render`/`post` modes + this pattern) is **live** — the parser
+runs fork-controlled input only under the unprivileged job, and its fuzz/ASan gate is part
+of the engine's release train.
 
 ## Other CI / Jenkins
 
@@ -237,16 +272,16 @@ This Action is a thin adapter over a **CI-agnostic substrate**: the `sift` engin
 **No GitHub Actions? Install the CLI** — one line, downloads + sha256-verifies the latest binary:
 
 ```sh
-# Linux / macOS shell (macOS asset is a fast-follow — see ROADMAP §1.5.5):
+# Linux / macOS shell (macOS asset is a fast-follow):
 curl -fsSL https://raw.githubusercontent.com/CodeRoasted/sift-action/main/install.sh | sh
-# pin a version:          ...install.sh | sh -s -- 1.5.5
+# pin a version:          ...install.sh | sh -s -- <X.Y.Z>
 # choose the location:    SIFT_INSTALL_DIR="$HOME/bin"  (default: /usr/local/bin, else ~/.local/bin)
 ```
 
 ```powershell
 # Windows (PowerShell) — diff + `--explain` via a BYO endpoint (local model pull is Linux-only):
 irm https://raw.githubusercontent.com/CodeRoasted/sift-action/main/install.ps1 | iex
-# pin a version:   & ([scriptblock]::Create((irm .../install.ps1))) -Version 1.5.5
+# pin a version:   & ([scriptblock]::Create((irm .../install.ps1))) -Version <X.Y.Z>
 # choose location: $env:SIFT_INSTALL_DIR = 'C:\tools\sift'  (default: %LOCALAPPDATA%\Programs\sift)
 ```
 
@@ -281,7 +316,7 @@ a local shell.
 | `baseline-name` | no | `sift-baseline-log` | Artifact name this run **publishes** its log under (and what `auto`/`branch=` resolvers look for). |
 | `publish-baseline` | no | `auto` | `auto` (PRs always seed; pushes/tags green-gated) \| `always` \| `never`. |
 | `comment-tag` | no | _(none)_ | Namespaces the sticky comment (marker + title) so two sift invocations in one job keep separate comments. |
-| `build-status` | no | `unknown` | `green` \| `red` \| `unknown` — enhancer; drives the green-build headline. |
+| `build-status` | no | `auto` | `auto` (derived from `target-job`'s own conclusion; `unknown` without one) \| `green` \| `red` \| `unknown` — drives the green-build headline + the green-gated re-seed. |
 | `pr-comment` | no | `always` | `never` \| `regression` \| `significant` \| `always` — sticky PR comment at/above this verdict. |
 | `commit-comment` | no | `never` | `never` \| `regression` \| `significant` \| `always` — commit comment on push at/above this verdict (needs `contents: write`). |
 | `annotations` | no | `significant` | `never` \| `regression` \| `significant` \| `always` — inline check-run annotations (`::error`/`::warning`/`::notice`) at/above this verdict. Fork-safe (stdout workflow commands, no token); fires on green. See [Inline annotations](#inline-annotations). |
@@ -311,7 +346,8 @@ root — never re-authored here.
 - `src/frame.ts` — the pure, deterministic comment renderer (the governed copy).
 - `src/annotations.ts` — the pure check-run annotation builder + the workflow-command encoder (the stdout-surface trust boundary, the `escapeInline` analogue).
 - `src/verdict.ts` — the four-state machine (cold-start / clean / drift / regression).
-- `src/baseline.ts` — last-green-on-base resolution via the GitHub API.
+- `src/baseline.ts` — baseline source selection (auto / branch= / artifact= / path= / none) via the GitHub API.
+- `src/joblog.ts` — `target-job` log sourcing: job lookup, timestamp strip, SIFT_CAPTURE slicing, build-status derivation.
 - `src/sift.ts` — engine invocation (`--format both`, `--fail-on`).
 - `src/comment.ts` — sticky-comment upsert. `src/artifact.ts` — baseline publish.
 - `src/main.ts` — orchestration.
@@ -325,7 +361,7 @@ npm test            # tsc → lib/ then node --test (ESM)
 npm run package     # esbuild ESM bundle → dist/index.js + dist/licenses.txt (esbuild.config.mjs)
 ```
 
-The Action is **ESM** (`"type": "module"`, `runs: using: node20`): the `@actions`
+The Action is **ESM** (`"type": "module"`, `runs: using: node24`): the `@actions`
 toolchain (core@3 / github@9 / artifact@6) and octokit@7 are ESM-only, so `dist/index.js`
 is an ESM bundle built by esbuild (ncc only emits CJS). `dist/licenses.txt` is regenerated
 from the build metafile (the exact bundled set) on every package.

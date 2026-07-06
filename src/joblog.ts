@@ -91,10 +91,24 @@ export interface FetchJobLogParams {
     capture: string; // 'auto' | 'off' | <section name>
 }
 
+export interface TargetJobLog {
+    text: string;
+    /** The target job's conclusion ('success' | 'failure' | …) — lets `build-status: auto` derive green/red with zero caller plumbing. */
+    conclusion: string | null;
+}
+
+// build-status derivation for `auto`: the target job's own conclusion IS the
+// build status the lazy default expects — success ⇒ green, anything else that
+// concluded ⇒ red, no conclusion ⇒ unknown.
+export function deriveBuildStatus(conclusion: string | null): 'green' | 'red' | 'unknown' {
+    if (conclusion === 'success') return 'green';
+    return conclusion ? 'red' : 'unknown';
+}
+
 // Resolve the job by name within THIS run and download its log. The current log
 // is load-bearing (no log ⇒ no diff at all), so failures here THROW — unlike
 // baseline resolution, which degrades to a cold start.
-export async function fetchTargetJobLog(params: FetchJobLogParams): Promise<string> {
+export async function fetchTargetJobLog(params: FetchJobLogParams): Promise<TargetJobLog> {
     const { octokit, owner, repo, runId, jobName, capture } = params;
 
     const jobs = await octokit.paginate(octokit.rest.actions.listJobsForWorkflowRun, {
@@ -135,5 +149,5 @@ export async function fetchTargetJobLog(params: FetchJobLogParams): Promise<stri
         typeof download.data === 'string'
             ? download.data
             : Buffer.from(download.data as ArrayBuffer).toString('utf8');
-    return sliceJobLog(raw, capture);
+    return { text: sliceJobLog(raw, capture), conclusion: job.conclusion ?? null };
 }

@@ -1,0 +1,37 @@
+# Sift hello world — the whole integration is the last four lines.
+#
+# Your build job stays exactly as it is. The `sift` job pulls the finished
+# build job's log off the GitHub API (`target-job`), diffs it against the last
+# green run on your base branch, posts one sticky PR comment, and seeds the
+# next baseline. Green/red is read from the build job's own conclusion.
+
+name: CI
+
+on:
+  push:
+    branches: [main]   # green main runs seed the baseline PRs diff against
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: make ci    # your build — untouched, nothing to capture
+
+  sift:
+    needs: build
+    if: ${{ !cancelled() }}   # still diff when the build went red — that's the point
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write          # read the build job's log + baselines; upload this run's baseline
+      pull-requests: write    # post/update the sticky comment
+    steps:
+      - name: Sift Log Diff
+        uses: CodeRoasted/sift-action@v1
+        with:
+          target-job: build

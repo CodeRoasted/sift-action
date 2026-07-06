@@ -86,9 +86,13 @@ inputs:
     required: false
     default: ''
   build-status:
-    description: 'Optional enhancer: the current run''s suite result (green | red | unknown). Set it from your build/test job result — green on success, else red (README shows the exact expression). Drives the green-build headline; degrades gracefully when unknown.'
+    description: >-
+      The current run's suite result — drives the green-build headline and the green-gated baseline
+      re-seed. `auto` (default): derived from the target job's own conclusion when `target-job` is
+      set (success ⇒ green, else red) — zero plumbing; without `target-job` it degrades to unknown,
+      so set it explicitly from your build step/job result (green | red | unknown).
     required: false
-    default: 'unknown'
+    default: 'auto'
   pr-comment:
     description: >-
       PR runs: post the sticky comment when the verdict is at least this level —
