@@ -55,6 +55,28 @@ Each surface has its **own** level (no shared floor), so you can keep the reassu
 staying silent on routine pushes. `fail-on` is a separate axis — it gates the **build** (exit code),
 not the comment. The first run on a fresh branch is a cold start (seed only); every run after diffs.
 
+## Choosing the baseline — you are King
+
+By default (`baseline: auto`) Sift diffs against the last green run of **this workflow** on the PR's
+base branch (push: the pushed branch; **tag: the repo's default branch** — so a tag build diffs
+against `main`'s last green out of the box). Every part of that is overridable:
+
+- **`baseline`** selects the source: `auto` · `branch=<name>` · `artifact=<name>` (a **named
+  baseline** — the newest non-expired artifact with that exact name, repo-wide) · `path=<file>`
+  (bring your own) · `none` (forced cold start / seed-only).
+- **`baseline-name`** names the artifact this run **publishes** its log under (and what
+  `auto`/`branch=` look for on the resolved run). Compose per-job / per-PR names with expressions.
+- **`publish-baseline`** controls seeding: `auto` (PRs always; pushes/tags green-gated) ·
+  `always` · `never`.
+- **`comment-tag`** namespaces the sticky comment, so two diffs in one job (vs `main` **and** vs
+  the PR's previous run) each keep their own comment.
+
+Named baselines decouple the diff from "this workflow ran on that branch": a `push`-to-`main` job
+seeds `sift-baseline-main-build`; PRs and tag builds resolve it by name from any event. The
+canonical topology — main/tag runs diff vs the main baseline and re-seed it; PR runs diff vs main
+**and** vs their own previous run — is in
+[`examples/baselines/ci.yml`](examples/baselines/ci.yml).
+
 ## Inline annotations
 
 Sift also emits the significant rows as native **check-run annotations** (`::error` / `::warning` /
@@ -221,6 +243,10 @@ a local shell.
 | `fail-on` | no | `none` | `none` \| `significant` \| `regression` — advisory gate (exit code only; the comment never says "blocked"). |
 | `explain` | no | `false` | `true` opts into an AI narrative header: the Action provisions a pinned, checksum-verified **local** model + server (no credential, fork-safe — nothing leaves the runner) and adds a short plain-English story. Advisory + fail-soft — never blocks or changes the gate. Adds a ~2.4 GB model download (cache it — see [Explain](#explain-opt-in-ai-narrative)) + a few seconds of CPU. |
 | `explain-model` | no | _(pinned)_ | Advanced: override the model name passed to `sift --explain`. Leave unset for the auto-provisioned default. |
+| `baseline` | no | `auto` | Baseline **selection**: `auto` \| `branch=<name>` \| `artifact=<name>` (named baseline, repo-wide) \| `path=<file>` \| `none`. Malformed values fail the run — never a silent fallback. See [Choosing the baseline](#choosing-the-baseline--you-are-king). |
+| `baseline-name` | no | `sift-baseline-log` | Artifact name this run **publishes** its log under (and what `auto`/`branch=` resolvers look for). |
+| `publish-baseline` | no | `auto` | `auto` (PRs always seed; pushes/tags green-gated) \| `always` \| `never`. |
+| `comment-tag` | no | _(none)_ | Namespaces the sticky comment (marker + title) so two sift invocations in one job keep separate comments. |
 | `build-status` | no | `unknown` | `green` \| `red` \| `unknown` — enhancer; drives the green-build headline. |
 | `pr-comment` | no | `always` | `never` \| `regression` \| `significant` \| `always` — sticky PR comment at/above this verdict. |
 | `commit-comment` | no | `never` | `never` \| `regression` \| `significant` \| `always` — commit comment on push at/above this verdict (needs `contents: write`). |

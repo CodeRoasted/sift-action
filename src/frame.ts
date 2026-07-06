@@ -14,8 +14,14 @@ import { statusGlyph } from './glyph.js';
 import { State, selectState } from './verdict.js';
 
 // Hidden sticky-comment key (contract § 4): list comments, PATCH the marked one
-// or POST a new one — one comment per PR, updated in place.
+// or POST a new one — one comment per PR (per tag), updated in place. A
+// `comment-tag` namespaces the marker so two sift invocations in one job (e.g.
+// vs-main and vs-previous) each keep their own sticky comment; the untagged
+// marker is NOT a substring of a tagged one (`:` vs ` `), so lookups stay exact.
 export const STICKY_MARKER = '<!-- sift:pr-comment -->';
+export function stickyMarker(tag?: string): string {
+    return tag ? `<!-- sift:pr-comment:${tag} -->` : STICKY_MARKER;
+}
 
 // Shared header, every state (web_copy § "The four states", verbatim).
 const HEADER = '### 🔬 Sift — structural diff of your CI logs';
@@ -136,11 +142,13 @@ function renderDetails(report: SiftReport): string {
 // ── State bodies (web_copy § "The four states") ─────────────────────────────
 
 // ① No baseline yet. web_copy hardcodes `main`; we substitute the PR's actual
-// base branch (the contract's baseline = the base branch, which may be master/
-// develop) — the only deviation from the literal copy, and the correct one.
+// baseline SOURCE — the base branch by default (which may be master/develop),
+// or the configured named source (`baseline_source`) when the user overrode
+// selection — the only deviation from the literal copy, and the correct one.
 function coldStartBody(context: SiftCommentContext): string {
+    const source = context.baseline_source ?? `the last green run on \`${context.base_branch}\``;
     return (
-        `🔬 No baseline yet. Sift diffs each run against the last green run on \`${context.base_branch}\`.\n` +
+        `🔬 No baseline yet. Sift diffs each run against ${source}.\n` +
         'Once one lands, every PR gets a structural diff here — nothing to compare this time.'
     );
 }
@@ -209,13 +217,26 @@ function footer(context: SiftCommentContext): string {
         `[What is this?](${SIFT_URL})`,
     ];
     if (context.baseline) {
-        const sha = shortSha(context.baseline.sha);
-        parts.push(
-            `Baseline: last green run on \`${context.baseline.branch}\` @ [\`${sha}\`](${context.baseline.run_url})`,
-        );
+        parts.push(baselineFootnote(context.baseline));
     }
     parts.push(`as of \`${shortSha(context.head_sha)}\``);
     return `<sub>${parts.join(' · ')}</sub>`;
+}
+
+// The provenance footnote adapts to how the baseline was SELECTED (the user is
+// King of the baseline): a branch's last green run (the turnkey default), a
+// named baseline artifact, or a local file.
+function baselineFootnote(baseline: NonNullable<SiftCommentContext['baseline']>): string {
+    const sha = shortSha(baseline.sha);
+    const linkedSha = baseline.run_url ? `[\`${sha}\`](${baseline.run_url})` : `\`${sha}\``;
+    switch (baseline.kind) {
+        case 'artifact':
+            return `Baseline: artifact \`${baseline.label ?? ''}\`${sha ? ` @ ${linkedSha}` : ''}`;
+        case 'path':
+            return `Baseline: local file \`${baseline.label ?? ''}\``;
+        case 'run':
+            return `Baseline: last green run on \`${baseline.branch}\` @ ${linkedSha}`;
+    }
 }
 
 // ── The renderer ────────────────────────────────────────────────────────────
@@ -233,8 +254,10 @@ function body(report: SiftReport | null, context: SiftCommentContext, state: Sta
     }
 }
 
-// The full sticky-comment markdown. `report === null` ⇒ cold start.
+// The full sticky-comment markdown. `report === null` ⇒ cold start. A
+// comment-tag suffixes the header so two tagged comments are visually distinct.
 export function renderComment(report: SiftReport | null, context: SiftCommentContext): string {
     const state = selectState(report);
-    return `${STICKY_MARKER}\n${HEADER}\n\n${body(report, context, state)}\n\n${footer(context)}`;
+    const header = context.comment_tag ? `${HEADER} (${context.comment_tag})` : HEADER;
+    return `${stickyMarker(context.comment_tag)}\n${header}\n\n${body(report, context, state)}\n\n${footer(context)}`;
 }

@@ -64,15 +64,22 @@ export interface SiftReport {
 export type BuildStatus = 'green' | 'red' | 'unknown';
 
 export interface BaselineProvenance {
+    /** How the baseline was selected: a branch's last green run, a named artifact, or a local file. */
+    kind: 'run' | 'artifact' | 'path';
     sha: string;
     run_id: string;
     run_url: string;
     branch: string;
     created_at: string;
+    /** artifact: the artifact name; path: the file path. Absent for kind 'run'. */
+    label?: string;
 }
 
 // Versioned envelope handed to the frame renderer alongside the report. When
 // `baseline` is absent the run is a cold start (state ①) and no report exists.
+// `baseline_source` is the human label of the CONFIGURED source (cold-start copy);
+// `comment_tag` namespaces the sticky marker + title so two sift invocations in
+// one job (e.g. vs-main and vs-previous) can hold two distinct comments.
 export interface SiftCommentContext {
     context_version: string;
     head_sha: string;
@@ -80,6 +87,8 @@ export interface SiftCommentContext {
     base_branch: string;        // the PR's base, or the pushed branch — needed for the cold-start copy
     build_status: BuildStatus;  // OPTIONAL enhancer; "unknown" degrades gracefully
     baseline?: BaselineProvenance; // absent ⇒ cold start
+    baseline_source?: string;   // human label of a non-default configured source (cold-start copy)
+    comment_tag?: string;       // namespaces the sticky marker + title (multi-diff jobs)
 }
 
 export const CONTEXT_VERSION = '0.1.0';

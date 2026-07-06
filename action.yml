@@ -20,6 +20,39 @@ inputs:
     description: 'Advisory gate: exit non-zero when the condition holds. One of none | significant | regression.'
     required: false
     default: 'none'
+  baseline:
+    description: >-
+      Baseline SELECTION — you are King of the baseline. One of:
+      `auto` (default) — the last green run of this workflow on the PR's base branch (push: the pushed
+      branch; tag: the repo default branch), pulling its `baseline-name` artifact — the turnkey
+      zero-config path. `branch=<name>` — same resolver, explicit branch. `artifact=<name>` — the
+      newest non-expired artifact with that exact name, repo-wide: NAMED baselines (a main-seeded
+      `sift-baseline-main-build`, a per-PR `sift-baseline-build-pr-123`) resolve from ANY event — tags
+      and PRs included, no need for this workflow to have run on that branch. `path=<file>` — a local
+      file (self-hosted / bring-your-own). `none` — forced cold start (seed-only runs). A malformed
+      value fails the run (config error), never falls back silently.
+    required: false
+    default: 'auto'
+  baseline-name:
+    description: >-
+      The artifact name this run PUBLISHES its ingested log under (the `create_baseline` half), and
+      the artifact name the `auto`/`branch=` resolvers look for on the resolved run. Compose per-job /
+      per-PR names with expressions, e.g. `sift-baseline-build-pr-123`.
+    required: false
+    default: 'sift-baseline-log'
+  publish-baseline:
+    description: >-
+      When this run publishes `baseline-name`: `auto` (default — PRs always seed; pushes/tags are
+      green-gated: a red build never overwrites the last-green baseline) | `always` | `never`.
+    required: false
+    default: 'auto'
+  comment-tag:
+    description: >-
+      Optional namespace for the sticky PR comment (appended to the hidden marker and the title), so
+      two sift invocations in one job — e.g. vs-main and vs-previous-run — each keep their own
+      comment. Leave unset for the single-comment default.
+    required: false
+    default: ''
   explain:
     description: >-
       Opt-in AI narrative header (false default | true). When true, the Action provisions a pinned,

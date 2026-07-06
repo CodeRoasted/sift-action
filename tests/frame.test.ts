@@ -34,6 +34,7 @@ function ctx(over: Partial<SiftCommentContext> = {}): SiftCommentContext {
         base_branch: 'main',
         build_status: 'unknown',
         baseline: {
+            kind: 'run',
             sha: BASE_SHA,
             run_id: '7654321',
             run_url: 'https://github.com/o/r/actions/runs/7654321',
@@ -347,4 +348,38 @@ test('shouldComment honours each level; only `always` fires on clean / cold-star
     assert.equal(shouldComment(State.Clean, 'regression'), false);
     assert.equal(shouldComment(State.Drift, 'regression'), false, 'drift alone is below the regression bar');
     assert.equal(shouldComment(State.Regression, 'regression'), true);
+});
+
+// ── Baseline selection surfaces (user King of the baseline) ─────────────────
+
+test('comment-tag: tagged marker + title suffix; untagged marker is NOT a substring of it', () => {
+    const out = renderComment(null, ctx({ baseline: undefined, comment_tag: 'vs-prev' }));
+    assert.ok(out.startsWith('<!-- sift:pr-comment:vs-prev -->'));
+    assert.ok(out.includes(`${HEADER} (vs-prev)`));
+    assert.ok(!out.includes('<!-- sift:pr-comment -->'));
+});
+
+test('artifact provenance: the footnote names the baseline artifact, not a branch run', () => {
+    const out = renderComment(load('drift.json'), ctx({
+        baseline: {
+            kind: 'artifact',
+            sha: BASE_SHA,
+            run_id: '80',
+            run_url: 'https://github.com/o/r/actions/runs/80',
+            branch: 'main',
+            created_at: '2026-07-01T00:00:00Z',
+            label: 'sift-baseline-main-build',
+        },
+    }));
+    assert.ok(out.includes('Baseline: artifact `sift-baseline-main-build` @'));
+    assert.ok(!out.includes('last green run on'));
+});
+
+test('cold start with a configured source: the copy names the source, not the base branch', () => {
+    const out = renderComment(null, ctx({
+        baseline: undefined,
+        baseline_source: 'the `sift-baseline-main-build` baseline artifact',
+    }));
+    assert.ok(out.includes('Sift diffs each run against the `sift-baseline-main-build` baseline artifact.'));
+    assert.ok(!out.includes('last green run on `main`'));
 });

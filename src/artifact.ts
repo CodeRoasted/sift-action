@@ -27,9 +27,12 @@ import {
 // base runs fall back to cold start (contract § 3, "Retention caveat").
 const RETENTION_DAYS = 90;
 
-export async function publishBaselineLog(logPath: string): Promise<void> {
+export async function publishBaselineLog(
+    logPath: string,
+    name: string = BASELINE_ARTIFACT_NAME,
+): Promise<void> {
     const client = new DefaultArtifactClient();
-    await client.uploadArtifact(BASELINE_ARTIFACT_NAME, [logPath], path.dirname(logPath), {
+    await client.uploadArtifact(name, [logPath], path.dirname(logPath), {
         retentionDays: RETENTION_DAYS,
     });
 }

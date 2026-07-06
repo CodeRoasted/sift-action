@@ -1,11 +1,23 @@
-// Sticky comment transport (sift_action_contract.md § 4). ONE comment per PR,
-// updated in place: list the PR's comments, find the one carrying the hidden
-// marker, PATCH it — else POST a new one. Never one comment per push.
+// Sticky comment transport (sift_action_contract.md § 4). ONE comment per PR
+// (per comment-tag), updated in place: list the PR's comments, find the one
+// carrying the hidden marker, PATCH it — else POST a new one. Never one comment
+// per push.
 
 import type { getOctokit } from '@actions/github';
 import { STICKY_MARKER } from './frame.js';
 
 type Octokit = ReturnType<typeof getOctokit>;
+
+// The body's own first-line marker is the upsert key. renderComment always leads
+// with it — tagged (`<!-- sift:pr-comment:vs-prev -->`) or not — so both the
+// inline path and the fork-artifact poster (which receives a pre-rendered body)
+// patch exactly the comment this body belongs to, tag included, with no extra
+// plumbing. `includes` stays exact: the ` -->` / `:tag -->` suffixes make no
+// marker a substring of another.
+function markerOf(body: string): string {
+    const match = body.match(/^<!-- sift:pr-comment[^>]*? -->/);
+    return match ? match[0] : STICKY_MARKER;
+}
 
 export interface UpsertParams {
     octokit: Octokit;
@@ -24,7 +36,8 @@ export async function upsertStickyComment(params: UpsertParams): Promise<number>
         issue_number: prNumber,
         per_page: 100,
     });
-    const mine = existing.find((comment) => (comment.body ?? '').includes(STICKY_MARKER));
+    const marker = markerOf(body);
+    const mine = existing.find((comment) => (comment.body ?? '').includes(marker));
     if (mine) {
         await octokit.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
         return mine.id;
@@ -58,7 +71,8 @@ export async function upsertCommitComment(params: UpsertCommitParams): Promise<n
         commit_sha: commitSha,
         per_page: 100,
     });
-    const mine = existing.find((comment) => (comment.body ?? '').includes(STICKY_MARKER));
+    const marker = markerOf(body);
+    const mine = existing.find((comment) => (comment.body ?? '').includes(marker));
     if (mine) {
         await octokit.rest.repos.updateCommitComment({ owner, repo, comment_id: mine.id, body });
         return mine.id;

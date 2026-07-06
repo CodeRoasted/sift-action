@@ -12,7 +12,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { buildAnnotationCommands } from './annotations.js';
-import { resolveBaseline } from './baseline.js';
+import { parseBaselineSpec, resolveBaseline, type BaselineSpec } from './baseline.js';
 import { upsertStickyComment, upsertCommitComment } from './comment.js';
 import { publishBaselineLog, writeRenderedComment } from './artifact.js';
 import { renderComment } from './frame.js';
@@ -21,6 +21,7 @@ import { resolveSift } from './resolve-sift.js';
 import { runSift, runExplainSetup, type FailOn } from './sift.js';
 import { selectState, shouldComment, State, type CommentLevel } from './verdict.js';
 import {
+    BASELINE_ARTIFACT_NAME,
     CONTEXT_VERSION,
     SIFT_COMMENT_DIR,
     type BuildStatus,
@@ -64,6 +65,34 @@ function readCommentLevel(input: string, fallback: CommentLevel): CommentLevel {
     return raw === 'never' || raw === 'regression' || raw === 'significant' || raw === 'always'
         ? (raw as CommentLevel)
         : fallback;
+}
+
+// When (whether) this run PUBLISHES its log as the next baseline (the
+// `create_baseline` half of "user King of the baseline"):
+//   auto (default) — PRs always seed; pushes are GREEN-GATED (a red build never
+//                    overwrites the last-green baseline — it still diffs against
+//                    the prior green).
+//   always | never — the explicit overrides.
+type PublishMode = 'auto' | 'always' | 'never';
+function readPublishMode(): PublishMode {
+    const raw = (core.getInput('publish-baseline') || 'auto').toLowerCase();
+    return raw === 'always' || raw === 'never' ? raw : 'auto';
+}
+
+// The human label of a non-default configured source, for the cold-start copy
+// ("Sift diffs each run against <source>"). Undefined for auto — the frame's
+// default base-branch copy stays.
+function baselineSourceLabel(spec: BaselineSpec): string | undefined {
+    switch (spec.kind) {
+        case 'branch':
+            return `the last green run on \`${spec.branch}\``;
+        case 'artifact':
+            return `the \`${spec.name}\` baseline artifact`;
+        case 'path':
+            return `the local baseline file \`${spec.file}\``;
+        default:
+            return undefined;
+    }
 }
 
 // Opt-in `--explain` provisioning (adr/0009 §6.2). Runs the engine's idempotent `explain-setup`:
@@ -131,15 +160,34 @@ async function run(): Promise<void> {
     // PR vs push differ ONLY in the comment surface (sticky vs commit), its level, the baseline
     // branch, and the head sha. The diff, the job summary, the outputs, and the gate are shared.
     const pr = github.context.payload.pull_request;
-    const baseBranch = pr ? (pr.base.ref as string) : github.context.ref.replace(/^refs\/heads\//, '');
+    const isTagRef = github.context.ref.startsWith('refs/tags/');
+    // The contextual branch for `auto` baseline resolution: the PR's base, the pushed
+    // branch — or, on a TAG ref (no branch to resolve against), the repo's default
+    // branch, so a tag-on-main run diffs against main's last green out of the box.
+    const defaultBranch =
+        (github.context.payload.repository?.default_branch as string | undefined) ?? 'main';
+    const baseBranch = pr
+        ? (pr.base.ref as string)
+        : isTagRef
+          ? defaultBranch
+          : github.context.ref.replace(/^refs\/heads\//, '');
     const headSha = pr ? (pr.head.sha as string) : github.context.sha;
+
+    // Baseline selection + publication — the user is King of the baseline. A malformed
+    // selector throws here (config error → failed run), never a silent auto fallback.
+    const baselineSpec = parseBaselineSpec(core.getInput('baseline'));
+    const baselineName = core.getInput('baseline-name') || BASELINE_ARTIFACT_NAME;
+    const publishMode = readPublishMode();
+    const commentTag = core.getInput('comment-tag') || undefined;
 
     const baseline = await resolveBaseline({
         octokit,
         owner,
         repo,
         runId: github.context.runId,
-        baseBranch,
+        spec: baselineSpec,
+        contextBranch: baseBranch,
+        artifactName: baselineName,
         workDir,
     });
 
@@ -150,6 +198,8 @@ async function run(): Promise<void> {
         base_branch: baseBranch,
         build_status: buildStatus,
         baseline: baseline?.meta,
+        baseline_source: baselineSourceLabel(baselineSpec),
+        comment_tag: commentTag,
     };
 
     // Diff — or cold start (contract § 3): no baseline ⇒ the engine is NOT invoked.
@@ -212,6 +262,13 @@ async function run(): Promise<void> {
         process.stdout.write(`${command}\n`);
     }
 
+    // One seeding rule for BOTH modes (the `create_baseline` half): `auto` keeps
+    // the proven semantics — PRs always seed, pushes/tags are GREEN-GATED (a red
+    // build never overwrites the last-green baseline — it still diffed against
+    // the prior green); `always`/`never` are the explicit overrides.
+    const shouldSeed =
+        publishMode === 'always' ? true : publishMode === 'never' ? false : pr ? true : buildStatus !== 'red';
+
     if (mode === 'render') {
         // Fork build job (contract § 6.1): write the escaped body for the workflow_run poster; NEVER
         // post or fail the build from here. The fork build is always a PR, so gate on `pr-comment` and
@@ -223,7 +280,11 @@ async function run(): Promise<void> {
         const commentDir = path.join(runnerTemp, SIFT_COMMENT_DIR);
         await writeRenderedComment(body, headSha, commentDir, shouldPost);
         core.info(`Sift: render mode — wrote the comment body (pr-comment=${prComment} ⇒ post=${shouldPost}); the workflow uploads it.`);
-        await tryWrite('publish the baseline artifact', () => publishBaselineLog(changedLog));
+        if (shouldSeed) {
+            await tryWrite('publish the baseline artifact', () => publishBaselineLog(changedLog, baselineName));
+        } else {
+            core.info(`Sift: publish-baseline=${publishMode}${buildStatus === 'red' ? ' (red build)' : ''} — did not re-seed \`${baselineName}\`.`);
+        }
         return;
     }
 
@@ -246,12 +307,11 @@ async function run(): Promise<void> {
         core.info(`Sift: push — commit-comment=${commitComment}, verdict ${state} below threshold (result in the job summary).`);
     }
 
-    // Seed the next baseline. A push is GREEN-GATED (a red build never overwrites the last-green
-    // baseline — it still diffs against the prior green); a PR seeds as before.
-    if (!pr && buildStatus === 'red') {
-        core.info('Sift: red build — kept the previous green baseline (did not re-seed).');
+    // Seed the next baseline under `baseline-name` (rule computed above).
+    if (shouldSeed) {
+        await tryWrite('publish the baseline artifact', () => publishBaselineLog(changedLog, baselineName));
     } else {
-        await tryWrite('publish the baseline artifact', () => publishBaselineLog(changedLog));
+        core.info(`Sift: publish-baseline=${publishMode}${buildStatus === 'red' ? ' (red build)' : ''} — kept the previous \`${baselineName}\` baseline (did not re-seed).`);
     }
 
     // Advisory gate (contract § 8): the exit code carries the verdict; the comment never says "we

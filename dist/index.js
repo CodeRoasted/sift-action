@@ -62659,44 +62659,97 @@ function buildAnnotationCommands(report, level) {
 var import_adm_zip = __toESM(require_adm_zip(), 1);
 import { promises as fs3 } from "fs";
 import * as path from "path";
-
-// src/types.ts
-var CONTEXT_VERSION = "0.1.0";
-var BASELINE_ARTIFACT_NAME = "sift-baseline-log";
-var SIFT_COMMENT_ARTIFACT_NAME = "sift-comment";
-var SIFT_COMMENT_DIR = "sift-comment";
-var RENDERED_BODY_FILE = "comment-body.md";
-var RENDERED_META_FILE = "comment-meta.json";
-var MAX_RENDERED_ARTIFACT_BYTES = 1024 * 1024;
-var MAX_RENDERED_BODY_BYTES = 65536;
-
-// src/baseline.ts
+function parseBaselineSpec(raw) {
+  const value = (raw || "auto").trim();
+  if (value === "auto") return { kind: "auto" };
+  if (value === "none") return { kind: "none" };
+  const eq = value.indexOf("=");
+  if (eq > 0) {
+    const key = value.slice(0, eq).trim();
+    const arg = value.slice(eq + 1).trim();
+    if (arg) {
+      if (key === "branch") return { kind: "branch", branch: arg };
+      if (key === "artifact") return { kind: "artifact", name: arg };
+      if (key === "path") return { kind: "path", file: arg };
+    }
+  }
+  throw new Error(
+    `invalid \`baseline\` input "${raw}" \u2014 expected auto | none | branch=<name> | artifact=<name> | path=<file>`
+  );
+}
 async function resolveBaseline(params) {
+  if (params.spec.kind === "none") {
+    info("Sift: baseline=none \u2014 forced cold start (seed-only run).");
+    return null;
+  }
+  if (params.spec.kind === "path") {
+    const logPath = path.join(params.workDir, "baseline.log");
+    await fs3.copyFile(params.spec.file, logPath);
+    return {
+      logPath,
+      meta: {
+        kind: "path",
+        sha: "",
+        run_id: "",
+        run_url: "",
+        branch: "",
+        created_at: "",
+        label: params.spec.file
+      }
+    };
+  }
   try {
-    return await resolveBaselineStrict(params);
+    return await resolveRemoteStrict(params);
   } catch (error2) {
     const reason = error2 instanceof Error ? error2.message : String(error2);
     warning(
-      `Sift: baseline lookup failed (${reason}) \u2014 proceeding cold start (current log only, no diff). On a fork PR this is expected: the read-only token cannot read the base branch's run history.`
+      `Sift: baseline lookup failed (${reason}) \u2014 proceeding cold start (current log only, no diff). On a fork PR this is expected: the read-only token cannot read the repo's run/artifact history.`
     );
     return null;
   }
 }
-async function resolveBaselineStrict(params) {
-  const { octokit, owner, repo, runId, baseBranch, workDir } = params;
+async function resolveRemoteStrict(params) {
+  const { octokit, owner, repo, runId, spec, contextBranch, artifactName, workDir } = params;
+  if (spec.kind === "artifact") {
+    const listed = await octokit.rest.actions.listArtifactsForRepo({
+      owner,
+      repo,
+      name: spec.name,
+      per_page: 20
+    });
+    const artifact2 = listed.data.artifacts.find(
+      (candidate) => !candidate.expired && candidate.workflow_run?.id !== runId
+    );
+    if (!artifact2) {
+      info(`Sift: no live \`${spec.name}\` baseline artifact in the repo yet \u2014 cold start.`);
+      return null;
+    }
+    const producerRun = artifact2.workflow_run;
+    const meta2 = {
+      kind: "artifact",
+      sha: producerRun?.head_sha ?? "",
+      run_id: producerRun ? String(producerRun.id) : "",
+      run_url: producerRun ? `https://github.com/${owner}/${repo}/actions/runs/${producerRun.id}` : "",
+      branch: producerRun?.head_branch ?? "",
+      created_at: artifact2.created_at ?? "",
+      label: spec.name
+    };
+    return { logPath: await extractBaseline(octokit, owner, repo, artifact2.id, workDir), meta: meta2 };
+  }
+  const branch = spec.kind === "branch" ? spec.branch : contextBranch;
   const thisRun = await octokit.rest.actions.getWorkflowRun({ owner, repo, run_id: runId });
   const workflowId = thisRun.data.workflow_id;
   const runs = await octokit.rest.actions.listWorkflowRuns({
     owner,
     repo,
     workflow_id: workflowId,
-    branch: baseBranch,
+    branch,
     status: "success",
     per_page: 1
   });
   const baseRun = runs.data.workflow_runs[0];
   if (!baseRun) {
-    info(`Sift: no green run of this workflow on \`${baseBranch}\` yet \u2014 cold start.`);
+    info(`Sift: no green run of this workflow on \`${branch}\` yet \u2014 cold start.`);
     return null;
   }
   const artifacts = await octokit.rest.actions.listWorkflowRunArtifacts({
@@ -62706,38 +62759,39 @@ async function resolveBaselineStrict(params) {
     per_page: 100
   });
   const artifact = artifacts.data.artifacts.find(
-    (candidate) => candidate.name === BASELINE_ARTIFACT_NAME && !candidate.expired
+    (candidate) => candidate.name === artifactName && !candidate.expired
   );
   if (!artifact) {
     info(
-      `Sift: green base run ${baseRun.id} has no live \`${BASELINE_ARTIFACT_NAME}\` artifact (first adoption, or aged past retention) \u2014 cold start.`
+      `Sift: green base run ${baseRun.id} has no live \`${artifactName}\` artifact (first adoption, or aged past retention) \u2014 cold start.`
     );
     return null;
   }
+  const meta = {
+    kind: "run",
+    sha: baseRun.head_sha,
+    run_id: String(baseRun.id),
+    run_url: baseRun.html_url,
+    branch,
+    created_at: baseRun.created_at
+  };
+  return { logPath: await extractBaseline(octokit, owner, repo, artifact.id, workDir), meta };
+}
+async function extractBaseline(octokit, owner, repo, artifactId, workDir) {
   const download2 = await octokit.rest.actions.downloadArtifact({
     owner,
     repo,
-    artifact_id: artifact.id,
+    artifact_id: artifactId,
     archive_format: "zip"
   });
   const zip = new import_adm_zip.default(Buffer.from(download2.data));
   const entry = zip.getEntries().find((candidate) => !candidate.isDirectory);
   if (!entry) {
-    warning(
-      `Sift: \`${BASELINE_ARTIFACT_NAME}\` artifact ${artifact.id} is empty \u2014 cold start.`
-    );
-    return null;
+    throw new Error(`baseline artifact ${artifactId} is empty`);
   }
   const logPath = path.join(workDir, "baseline.log");
   await fs3.writeFile(logPath, entry.getData());
-  const meta = {
-    sha: baseRun.head_sha,
-    run_id: String(baseRun.id),
-    run_url: baseRun.html_url,
-    branch: baseBranch,
-    created_at: baseRun.created_at
-  };
-  return { logPath, meta };
+  return logPath;
 }
 
 // src/glyph.ts
@@ -62760,6 +62814,9 @@ function statusGlyph(row) {
 
 // src/frame.ts
 var STICKY_MARKER = "<!-- sift:pr-comment -->";
+function stickyMarker(tag) {
+  return tag ? `<!-- sift:pr-comment:${tag} -->` : STICKY_MARKER;
+}
 var HEADER = "### \u{1F52C} Sift \u2014 structural diff of your CI logs";
 var SIFT_URL = "https://coderoast.fr/sift";
 var MAX_INLINE_ROWS = 20;
@@ -62805,7 +62862,8 @@ ${escapeInline(report.markdown ?? "")}
 </details>`;
 }
 function coldStartBody(context5) {
-  return `\u{1F52C} No baseline yet. Sift diffs each run against the last green run on \`${context5.base_branch}\`.
+  const source = context5.baseline_source ?? `the last green run on \`${context5.base_branch}\``;
+  return `\u{1F52C} No baseline yet. Sift diffs each run against ${source}.
 Once one lands, every PR gets a structural diff here \u2014 nothing to compare this time.`;
 }
 function cleanBody(report) {
@@ -62865,13 +62923,22 @@ function footer(context5) {
     `[What is this?](${SIFT_URL})`
   ];
   if (context5.baseline) {
-    const sha = shortSha(context5.baseline.sha);
-    parts.push(
-      `Baseline: last green run on \`${context5.baseline.branch}\` @ [\`${sha}\`](${context5.baseline.run_url})`
-    );
+    parts.push(baselineFootnote(context5.baseline));
   }
   parts.push(`as of \`${shortSha(context5.head_sha)}\``);
   return `<sub>${parts.join(" \xB7 ")}</sub>`;
+}
+function baselineFootnote(baseline) {
+  const sha = shortSha(baseline.sha);
+  const linkedSha = baseline.run_url ? `[\`${sha}\`](${baseline.run_url})` : `\`${sha}\``;
+  switch (baseline.kind) {
+    case "artifact":
+      return `Baseline: artifact \`${baseline.label ?? ""}\`${sha ? ` @ ${linkedSha}` : ""}`;
+    case "path":
+      return `Baseline: local file \`${baseline.label ?? ""}\``;
+    case "run":
+      return `Baseline: last green run on \`${baseline.branch}\` @ ${linkedSha}`;
+  }
 }
 function body(report, context5, state3) {
   switch (state3) {
@@ -62887,8 +62954,9 @@ function body(report, context5, state3) {
 }
 function renderComment(report, context5) {
   const state3 = selectState(report);
-  return `${STICKY_MARKER}
-${HEADER}
+  const header = context5.comment_tag ? `${HEADER} (${context5.comment_tag})` : HEADER;
+  return `${stickyMarker(context5.comment_tag)}
+${header}
 
 ${body(report, context5, state3)}
 
@@ -62896,6 +62964,10 @@ ${footer(context5)}`;
 }
 
 // src/comment.ts
+function markerOf(body3) {
+  const match = body3.match(/^<!-- sift:pr-comment[^>]*? -->/);
+  return match ? match[0] : STICKY_MARKER;
+}
 async function upsertStickyComment(params) {
   const { octokit, owner, repo, prNumber, body: body3 } = params;
   const existing = await octokit.paginate(octokit.rest.issues.listComments, {
@@ -62904,7 +62976,8 @@ async function upsertStickyComment(params) {
     issue_number: prNumber,
     per_page: 100
   });
-  const mine = existing.find((comment) => (comment.body ?? "").includes(STICKY_MARKER));
+  const marker2 = markerOf(body3);
+  const mine = existing.find((comment) => (comment.body ?? "").includes(marker2));
   if (mine) {
     await octokit.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body: body3 });
     return mine.id;
@@ -62925,7 +62998,8 @@ async function upsertCommitComment(params) {
     commit_sha: commitSha,
     per_page: 100
   });
-  const mine = existing.find((comment) => (comment.body ?? "").includes(STICKY_MARKER));
+  const marker2 = markerOf(body3);
+  const mine = existing.find((comment) => (comment.body ?? "").includes(marker2));
   if (mine) {
     await octokit.rest.repos.updateCommitComment({ owner, repo, comment_id: mine.id, body: body3 });
     return mine.id;
@@ -98154,10 +98228,22 @@ var client = new DefaultArtifactClient();
 // src/artifact.ts
 import { promises as fs9 } from "fs";
 import * as path5 from "path";
+
+// src/types.ts
+var CONTEXT_VERSION = "0.1.0";
+var BASELINE_ARTIFACT_NAME = "sift-baseline-log";
+var SIFT_COMMENT_ARTIFACT_NAME = "sift-comment";
+var SIFT_COMMENT_DIR = "sift-comment";
+var RENDERED_BODY_FILE = "comment-body.md";
+var RENDERED_META_FILE = "comment-meta.json";
+var MAX_RENDERED_ARTIFACT_BYTES = 1024 * 1024;
+var MAX_RENDERED_BODY_BYTES = 65536;
+
+// src/artifact.ts
 var RETENTION_DAYS = 90;
-async function publishBaselineLog(logPath) {
+async function publishBaselineLog(logPath, name = BASELINE_ARTIFACT_NAME) {
   const client2 = new DefaultArtifactClient();
-  await client2.uploadArtifact(BASELINE_ARTIFACT_NAME, [logPath], path5.dirname(logPath), {
+  await client2.uploadArtifact(name, [logPath], path5.dirname(logPath), {
     retentionDays: RETENTION_DAYS
   });
 }
@@ -98427,6 +98513,22 @@ function readCommentLevel(input, fallback) {
   const raw = (getInput(input) || fallback).toLowerCase();
   return raw === "never" || raw === "regression" || raw === "significant" || raw === "always" ? raw : fallback;
 }
+function readPublishMode() {
+  const raw = (getInput("publish-baseline") || "auto").toLowerCase();
+  return raw === "always" || raw === "never" ? raw : "auto";
+}
+function baselineSourceLabel(spec) {
+  switch (spec.kind) {
+    case "branch":
+      return `the last green run on \`${spec.branch}\``;
+    case "artifact":
+      return `the \`${spec.name}\` baseline artifact`;
+    case "path":
+      return `the local baseline file \`${spec.file}\``;
+    default:
+      return void 0;
+  }
+}
 async function provisionExplain(siftBin) {
   if (!await runExplainSetup(siftBin)) {
     warning(
@@ -98468,14 +98570,22 @@ async function run() {
   const changedLog = path8.join(workDir, "changed.log");
   await fs13.copyFile(logInput, changedLog);
   const pr = context2.payload.pull_request;
-  const baseBranch = pr ? pr.base.ref : context2.ref.replace(/^refs\/heads\//, "");
+  const isTagRef = context2.ref.startsWith("refs/tags/");
+  const defaultBranch = context2.payload.repository?.default_branch ?? "main";
+  const baseBranch = pr ? pr.base.ref : isTagRef ? defaultBranch : context2.ref.replace(/^refs\/heads\//, "");
   const headSha = pr ? pr.head.sha : context2.sha;
+  const baselineSpec = parseBaselineSpec(getInput("baseline"));
+  const baselineName = getInput("baseline-name") || BASELINE_ARTIFACT_NAME;
+  const publishMode = readPublishMode();
+  const commentTag = getInput("comment-tag") || void 0;
   const baseline = await resolveBaseline({
     octokit,
     owner,
     repo,
     runId: context2.runId,
-    baseBranch,
+    spec: baselineSpec,
+    contextBranch: baseBranch,
+    artifactName: baselineName,
     workDir
   });
   const context5 = {
@@ -98484,7 +98594,9 @@ async function run() {
     pr_number: pr ? pr.number : void 0,
     base_branch: baseBranch,
     build_status: buildStatus,
-    baseline: baseline?.meta
+    baseline: baseline?.meta,
+    baseline_source: baselineSourceLabel(baselineSpec),
+    comment_tag: commentTag
   };
   let gateExit = 0;
   let report = null;
@@ -98527,13 +98639,18 @@ async function run() {
     process.stdout.write(`${command}
 `);
   }
+  const shouldSeed = publishMode === "always" ? true : publishMode === "never" ? false : pr ? true : buildStatus !== "red";
   if (mode === "render") {
     const shouldPost = shouldComment(state3, prComment);
     const runnerTemp = process.env.RUNNER_TEMP || os8.tmpdir();
     const commentDir = path8.join(runnerTemp, SIFT_COMMENT_DIR);
     await writeRenderedComment(body3, headSha, commentDir, shouldPost);
     info(`Sift: render mode \u2014 wrote the comment body (pr-comment=${prComment} \u21D2 post=${shouldPost}); the workflow uploads it.`);
-    await tryWrite("publish the baseline artifact", () => publishBaselineLog(changedLog));
+    if (shouldSeed) {
+      await tryWrite("publish the baseline artifact", () => publishBaselineLog(changedLog, baselineName));
+    } else {
+      info(`Sift: publish-baseline=${publishMode}${buildStatus === "red" ? " (red build)" : ""} \u2014 did not re-seed \`${baselineName}\`.`);
+    }
     return;
   }
   if (pr) {
@@ -98554,10 +98671,10 @@ async function run() {
   } else {
     info(`Sift: push \u2014 commit-comment=${commitComment}, verdict ${state3} below threshold (result in the job summary).`);
   }
-  if (!pr && buildStatus === "red") {
-    info("Sift: red build \u2014 kept the previous green baseline (did not re-seed).");
+  if (shouldSeed) {
+    await tryWrite("publish the baseline artifact", () => publishBaselineLog(changedLog, baselineName));
   } else {
-    await tryWrite("publish the baseline artifact", () => publishBaselineLog(changedLog));
+    info(`Sift: publish-baseline=${publishMode}${buildStatus === "red" ? " (red build)" : ""} \u2014 kept the previous \`${baselineName}\` baseline (did not re-seed).`);
   }
   if (gateExit !== 0) {
     setFailed(`Sift gate (--fail-on ${failOn}) tripped \u2014 see the comment / job summary for what changed.`);

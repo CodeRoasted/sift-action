@@ -1,0 +1,80 @@
+# The canonical baseline topology — "you are King of the baseline", with a
+# sensible default already wired. Copy, rename the job, done.
+#
+# What it does:
+#   * push to main / tag on main  → diff vs the NAMED main baseline
+#                                   (`sift-baseline-main-build`), then re-seed it
+#                                   (green-gated: a red build never overwrites it).
+#   * PR into main                → TWO diffs: this build vs the main baseline
+#                                   (the sticky comment), AND this build vs the
+#                                   PR's own previous run (its own tagged
+#                                   comment); then seed the per-PR baseline for
+#                                   the next push to this PR.
+#
+# Named baselines resolve repo-wide by artifact name, so the tag/PR diffs work
+# even though tags have no branch and PRs never ran on main. Every knob —
+# source, names, seeding, run-conditions — is an input; override at will.
+#
+# Multiple build jobs? Duplicate the three sift steps per job with a job-suffixed
+# name (…-main-build2, …) — each job keeps its own baseline lineage.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write        # resolve baselines + upload this run's baseline artifact
+  pull-requests: write  # the sticky PR comment(s)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Your real build — capture everything Sift should diff into one log.
+      - name: Build + test (captured)
+        id: build
+        run: |
+          set -o pipefail
+          make ci 2>&1 | tee build.log
+
+      # ── main push / tag: diff vs the named main baseline, then re-seed it ──
+      - name: Sift — vs main baseline (and re-seed it)
+        if: ${{ always() && github.event_name == 'push' }}
+        uses: CodeRoasted/sift-action@v1
+        with:
+          log: build.log
+          baseline: artifact=sift-baseline-main-build
+          baseline-name: sift-baseline-main-build   # publish back under the same name
+          # publish-baseline: auto → green-gated re-seed (a red push keeps the old baseline)
+          build-status: ${{ steps.build.outcome == 'success' && 'green' || 'red' }}
+
+      # ── PR: ① this build vs main (the headline sticky comment) ──
+      - name: Sift — vs main baseline
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        uses: CodeRoasted/sift-action@v1
+        with:
+          log: build.log
+          baseline: artifact=sift-baseline-main-build
+          publish-baseline: never                    # ② below owns this PR's seeding
+          build-status: ${{ steps.build.outcome == 'success' && 'green' || 'red' }}
+
+      # ── PR: ② this build vs this PR's previous run (its own tagged comment),
+      #        then seed the per-PR baseline for the next push ──
+      - name: Sift — vs previous run of this PR
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        uses: CodeRoasted/sift-action@v1
+        with:
+          log: build.log
+          baseline: artifact=sift-baseline-build-pr-${{ github.event.number }}
+          baseline-name: sift-baseline-build-pr-${{ github.event.number }}
+          comment-tag: vs-previous-run
+          pr-comment: significant                    # quiet unless something moved since the last push
+          build-status: ${{ steps.build.outcome == 'success' && 'green' || 'red' }}
