@@ -1,0 +1,96 @@
+name: Samples Showcase
+
+# CLIENT-FACING TRANSPARENCY — install the PUBLIC, sha256-verified `sift` engine (the exact binary a
+# user gets from install.sh) and run it over our PUBLIC Jenkins Pipeline sample logs, fetched from the
+# public coderoast-hub. It renders the honest two-part story: **silent-on-green** (an unchanged log
+# raises nothing) and **regression-catch** (a green build vs a failing one surfaces the structural
+# regression). NOT a gate — it never blocks a release; it is evidence a prospective user can inspect.
+#
+# Deliberately runs the PLAIN structural diff — no `--explain`. Narration in CI is a PRIVATE dogfood
+# (the glibc-floor + narration-exposure boundary); a public showcase shows the engine's structural
+# verdict, not the LLM narrative. An `--explain` variant would be a separate, privately-gated job.
+#
+# PUBLIC + anonymous: sift-action, the engine asset, and coderoast-hub are all public — no secret to
+# install the engine or fetch the samples.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sift_version:
+        description: 'Published sift engine version to install (engine-v<X.Y.Z>)'
+        required: false
+        default: '1.7.5'
+      samples_ref:
+        description: 'coderoast-hub ref holding the samples'
+        required: false
+        default: main
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag to attach the showcase bundle to'
+        type: string
+        required: false
+      sift_version:
+        type: string
+        required: false
+        default: '1.7.5'
+      samples_ref:
+        type: string
+        required: false
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  showcase:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # attach the bundle to the Release (only when a tag is passed)
+    steps:
+      - uses: actions/checkout@v5   # sift-action itself — install.sh + scripts/samples_showcase.sh
+
+      - name: Fetch the PUBLIC samples from coderoast-hub (public, anonymous)
+        uses: actions/checkout@v5
+        with:
+          repository: CodeRoasted/coderoast-hub
+          path: hub
+          ref: ${{ inputs.samples_ref || 'main' }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install the public sift engine (download + sha256-verify — the honest client path)
+        run: |
+          set -euo pipefail
+          SIFT_INSTALL_DIR="$PWD/bin" sh install.sh "${{ inputs.sift_version || '1.7.5' }}"
+          echo "SIFT=$PWD/bin/sift" >> "$GITHUB_ENV"
+          "$PWD/bin/sift" --version || true
+
+      - name: Render the Sift-over-Jenkins showcase
+        run: bash scripts/samples_showcase.sh "$SIFT" hub/samples showcase
+
+      - name: Bundle + step summary
+        run: |
+          set -euo pipefail
+          tar --sort=name --mtime='2026-01-01 00:00:00Z' --owner=0 --group=0 --numeric-owner \
+              -C showcase -czf sift-samples-showcase.tar.gz .
+          {
+            echo "## Sift over our public Jenkins samples"
+            echo
+            cat showcase/README.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sift-samples-showcase
+          path: showcase
+          if-no-files-found: error
+
+      # Only in the release path (workflow_call with a tag): attach the bundle to the Release.
+      - name: Attach the showcase bundle to the Release
+        if: ${{ inputs.tag }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: gh release upload "$TAG" sift-samples-showcase.tar.gz --clobber
