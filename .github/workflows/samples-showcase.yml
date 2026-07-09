@@ -62,6 +62,9 @@ jobs:
       - name: Install the public sift engine (download + sha256-verify — the honest client path)
         run: |
           set -euo pipefail
+          # install.sh falls back to ~/.local/bin unless SIFT_INSTALL_DIR already EXISTS + is writable —
+          # so create it first, else the binary lands elsewhere than where we look for it.
+          mkdir -p "$PWD/bin"
           SIFT_INSTALL_DIR="$PWD/bin" sh install.sh "${{ inputs.sift_version || '1.7.5' }}"
           echo "SIFT=$PWD/bin/sift" >> "$GITHUB_ENV"
           "$PWD/bin/sift" --version || true
