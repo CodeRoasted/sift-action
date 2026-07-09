@@ -38,6 +38,11 @@ on:
         type: string
         required: false
         default: main
+  # "or release" — fires however a release is published (the engine-v* ceremony is external to this
+  # repo, so the `release` event is the robust hook; a git-tag `push` trigger would miss a gh-created
+  # release). On an engine-v<X> release the showcase installs THAT engine; the bundle attaches to it.
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -60,12 +65,23 @@ jobs:
           persist-credentials: false
 
       - name: Install the public sift engine (download + sha256-verify — the honest client path)
+        env:
+          # dispatch/call → the input (1.7.5 default); release → derived from the tag below.
+          SIFT_VERSION_INPUT: ${{ inputs.sift_version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
+          # Resolve the engine version: explicit input wins; else an engine-v<X> release installs THAT
+          # engine; else fall back to the current cut (1.7.5).
+          VER="$SIFT_VERSION_INPUT"
+          if [ -z "$VER" ]; then
+            case "$RELEASE_TAG" in engine-v*) VER="${RELEASE_TAG#engine-v}" ;; *) VER="1.7.5" ;; esac
+          fi
+          echo "sift engine version: $VER"
           # install.sh falls back to ~/.local/bin unless SIFT_INSTALL_DIR already EXISTS + is writable —
           # so create it first, else the binary lands elsewhere than where we look for it.
           mkdir -p "$PWD/bin"
-          SIFT_INSTALL_DIR="$PWD/bin" sh install.sh "${{ inputs.sift_version || '1.7.5' }}"
+          SIFT_INSTALL_DIR="$PWD/bin" sh install.sh "$VER"
           echo "SIFT=$PWD/bin/sift" >> "$GITHUB_ENV"
           "$PWD/bin/sift" --version || true
 
@@ -89,11 +105,11 @@ jobs:
           path: showcase
           if-no-files-found: error
 
-      # Only in the release path (workflow_call with a tag): attach the bundle to the Release.
+      # Release path (workflow_call with a tag, or the `release` event): attach the bundle to the Release.
       - name: Attach the showcase bundle to the Release
-        if: ${{ inputs.tag }}
+        if: ${{ inputs.tag || github.event.release.tag_name }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
         run: gh release upload "$TAG" sift-samples-showcase.tar.gz --clobber
