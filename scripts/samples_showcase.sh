@@ -69,14 +69,20 @@ fi
 echo "baseline=$BASE_ID  changed=$CHANGED_ID" >&2
 
 # run_diff <name> <baseline-log> <baseline-label> <changed-log> <changed-label>
-# --format both: JSON report to -o, human render to stdout. A non-zero exit is the ADVISORY verdict
-# (significant/regression), never a script error — capture it, don't abort.
+# --format both: JSON report to -o, human render to stdout. --fail-on significant makes the exit code
+# a REAL verdict signal: 0 when nothing significant changed, non-zero when it did — so silent-on-green
+# stays 0 and regression-catch fires. A non-zero exit is that ADVISORY verdict, never a script error
+# (capture it, don't abort). The verdict line (`N changes, M significant`) is pulled for the summary.
 run_diff() {
     local name="$1" blog="$2" blabel="$3" clog="$4" clabel="$5" rc=0
     "$SIFT" "$blog" "$clog" --format both -o "$OUT/$name.report.json" \
-        --baseline-label "$blabel" --changed-label "$clabel" > "$OUT/$name.render.txt" 2>&1 || rc=$?
+        --baseline-label "$blabel" --changed-label "$clabel" --fail-on significant \
+        > "$OUT/$name.render.txt" 2>&1 || rc=$?
     echo "$rc" > "$OUT/$name.exit"
-    echo "  $name: sift exit $rc → $name.report.json + $name.render.txt" >&2
+    # The engine's one-line verdict (e.g. "35 changes, 12 significant"); '—' if absent.
+    grep -oE '[0-9]+ changes?, [0-9]+ significant' "$OUT/$name.render.txt" | tail -1 > "$OUT/$name.verdict" || true
+    [ -s "$OUT/$name.verdict" ] || echo "—" > "$OUT/$name.verdict"
+    echo "  $name: sift exit $rc · $(cat "$OUT/$name.verdict") → $name.report.json + $name.render.txt" >&2
 }
 
 run_diff "silent-on-green" \
@@ -86,8 +92,8 @@ run_diff "regression-catch" \
     "$BASE"    "last green ($BASE_ID)" \
     "$CHANGED" "failing build ($CHANGED_ID)"
 
-sig="$(cat "$OUT/silent-on-green.exit")"
-reg="$(cat "$OUT/regression-catch.exit")"
+sig_exit="$(cat "$OUT/silent-on-green.exit")";    sig_v="$(cat "$OUT/silent-on-green.verdict")"
+reg_exit="$(cat "$OUT/regression-catch.exit")";   reg_v="$(cat "$OUT/regression-catch.verdict")"
 
 {
   echo "# Sift over our public Jenkins samples"
@@ -97,15 +103,22 @@ reg="$(cat "$OUT/regression-catch.exit")"
   echo "page is the real \`sift\` engine run over the **public Jenkins Pipeline sample logs** we ship in"
   echo "[coderoast-hub](https://github.com/CodeRoasted/coderoast-hub) under \`samples/marker_corpus/\`."
   echo
-  echo "It is an **honest showcase, not a gate**. Two runs tell the whole story:"
+  echo "It is an **honest showcase, not a gate**. Two runs tell the whole story (each run uses"
+  echo "\`--fail-on significant\`, so the exit code corroborates the verdict):"
   echo
-  echo "| run | baseline → changed | sift exit | what it shows |"
-  echo "| --- | --- | --- | --- |"
-  echo "| **silent-on-green** | \`$BASE_ID\` → itself | \`$sig\` | an unchanged log must raise **nothing** (exit 0) — Sift does not cry wolf |"
-  echo "| **regression-catch** | \`$BASE_ID\` → \`$CHANGED_ID\` | \`$reg\` | a green build vs a failing one — Sift surfaces the structural regression |"
+  echo "| run | baseline → changed | sift verdict | exit | what it shows |"
+  echo "| --- | --- | --- | --- | --- |"
+  echo "| **silent-on-green** | \`$BASE_ID\` → itself | $sig_v | \`$sig_exit\` | an unchanged log raises **nothing** — Sift does not cry wolf |"
+  echo "| **regression-catch** | \`$BASE_ID\` → \`$CHANGED_ID\` | $reg_v | \`$reg_exit\` | a green build vs a failing one — Sift surfaces the structural regression |"
   echo
-  echo "> Sift's advisory exit code: \`0\` = no significant change · non-zero = significant / regression."
-  echo "> Each run's machine-readable \`*.report.json\` and human render \`*.render.txt\` are alongside this file."
+  echo "> The **verdict** (\`N changes, M significant\`) is Sift's own summary line; the exit is the"
+  echo "> advisory gate (\`0\` = nothing significant, non-zero = fires). Each run's machine-readable"
+  echo "> \`*.report.json\` and human render \`*.render.txt\` are alongside this file."
+  echo
+  echo "> **Note (pre-1.7.6):** the canon core is still Jenkins-dialect-unaware, so the timestamper"
+  echo "> prefix isn't stripped and each line is its own template — the diff is coarser than it will be"
+  echo "> once the 1.7.6 Jenkins semantic package lands. Even so, Sift already stays silent on green and"
+  echo "> fires on the regression."
   echo
   echo "## The renders"
   echo
@@ -124,4 +137,4 @@ reg="$(cat "$OUT/regression-catch.exit")"
   echo "> crawled Jenkins corpus stays private."
 } > "$OUT/README.md"
 
-echo "sift showcase rendered → $OUT (silent-on-green exit $sig · regression-catch exit $reg)" >&2
+echo "sift showcase rendered → $OUT (silent-on-green $sig_v exit $sig_exit · regression-catch $reg_v exit $reg_exit)" >&2
