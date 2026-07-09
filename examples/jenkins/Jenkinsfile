@@ -14,7 +14,7 @@
 //
 // Asset URL (stable, unauthenticated): the only varying segment is the version tag;
 // the asset names are fixed. Pin SIFT_VERSION to a PUBLISHED release tag.
-//   https://github.com/CodeRoasted/sift-action/releases/download/v<VERSION>/sift-linux-x64
+//   https://github.com/CodeRoasted/sift-action/releases/download/engine-v<VERSION>/sift-linux-x64
 //
 // Prereqs: a Linux agent with curl + sha256sum; the Copy Artifact plugin (optional,
 // for the baseline); optionally the HTML Publisher plugin to surface the report.
@@ -27,7 +27,7 @@ pipeline {
       steps {
         sh '''
           set -euo pipefail
-          base="https://github.com/CodeRoasted/sift-action/releases/download/v${SIFT_VERSION}"
+          base="https://github.com/CodeRoasted/sift-action/releases/download/engine-v${SIFT_VERSION}"
           curl -fsSL "$base/sift-linux-x64"        -o sift-linux-x64
           curl -fsSL "$base/sift-linux-x64.sha256" -o sift-linux-x64.sha256
           sha256sum -c sift-linux-x64.sha256                # FATAL on mismatch
