@@ -57,7 +57,7 @@ jobs:
           log: build.log
           fail-on: none
           commit-comment: regression
-          build-status: ${{ job.status == 'success' && 'green' || 'red' }}
+          changed-outcome: ${{ job.status }}   # the NATIVE token — the engine maps it four-class (ADR 0025)
 
   actionlint:
     runs-on: ubuntu-latest
