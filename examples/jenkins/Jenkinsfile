@@ -21,7 +21,7 @@
 
 pipeline {
   agent any
-  environment { SIFT_VERSION = '1.7.6' }                 // pin the engine version (kept in lock-step with the Action's src/sift-version.ts by `malf bump` + pin_coherence INV-8)
+  environment { SIFT_VERSION = '1.7.7' }                 // pin the engine version (kept in lock-step with the Action's src/sift-version.ts by `malf bump` + pin_coherence INV-8)
   stages {
     stage('Sift — structural log diff') {
       steps {
