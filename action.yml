@@ -92,7 +92,7 @@ inputs:
       through its dialect vocabulary — this drives the verdict headline, the outcome-regression
       check, and the verdict-gated baseline re-seed. `auto` (default): the target job's own API
       conclusion when `target-job` is set — zero plumbing; without `target-job` set it explicitly
-      from `${{ needs.<job>.result }}`, else the engine falls back to the log's console tail /
+      from a needs.<job>.result expression, else the engine falls back to the log's console tail /
       no verdict.
     required: false
     default: 'auto'
