@@ -62597,17 +62597,17 @@ import * as path8 from "path";
 
 // src/verdict.ts
 function hasRegression(report) {
-  return report.ranked_changes.some((row) => row.polarity === "regression");
+  return report.summary.outcome_regressed === true || report.ranked_changes.some((row) => row.polarity === "regression");
 }
 function selectState(report) {
   if (report === null) {
     return "cold-start" /* ColdStart */;
   }
-  if (report.summary.significant_changes === 0) {
-    return "clean" /* Clean */;
-  }
   if (hasRegression(report)) {
     return "regression" /* Regression */;
+  }
+  if (report.summary.significant_changes === 0) {
+    return "clean" /* Clean */;
   }
   return "drift" /* Drift */;
 }
@@ -62659,6 +62659,19 @@ function buildAnnotationCommands(report, level) {
 var import_adm_zip = __toESM(require_adm_zip(), 1);
 import { promises as fs3 } from "fs";
 import * as path from "path";
+
+// src/types.ts
+var CONTEXT_VERSION = "0.2.0";
+var BASELINE_ARTIFACT_NAME = "sift-baseline-log";
+var BASELINE_META_FILE = "sift-baseline-meta.json";
+var SIFT_COMMENT_ARTIFACT_NAME = "sift-comment";
+var SIFT_COMMENT_DIR = "sift-comment";
+var RENDERED_BODY_FILE = "comment-body.md";
+var RENDERED_META_FILE = "comment-meta.json";
+var MAX_RENDERED_ARTIFACT_BYTES = 1024 * 1024;
+var MAX_RENDERED_BODY_BYTES = 65536;
+
+// src/baseline.ts
 function parseBaselineSpec(raw) {
   const value = (raw || "auto").trim();
   if (value === "auto") return { kind: "auto" };
@@ -62695,7 +62708,9 @@ async function resolveBaseline(params) {
         branch: "",
         created_at: "",
         label: params.spec.file
-      }
+      },
+      outcomeToken: ""
+      // no provenance sidecar for a local file — console tail / Unknown
     };
   }
   try {
@@ -62734,7 +62749,7 @@ async function resolveRemoteStrict(params) {
       created_at: artifact2.created_at ?? "",
       label: spec.name
     };
-    return { logPath: await extractBaseline(octokit, owner, repo, artifact2.id, workDir), meta: meta2 };
+    return { ...await extractBaseline(octokit, owner, repo, artifact2.id, workDir), meta: meta2 };
   }
   const branch = spec.kind === "branch" ? spec.branch : contextBranch;
   const thisRun = await octokit.rest.actions.getWorkflowRun({ owner, repo, run_id: runId });
@@ -62775,7 +62790,7 @@ async function resolveRemoteStrict(params) {
     branch,
     created_at: baseRun.created_at
   };
-  return { logPath: await extractBaseline(octokit, owner, repo, artifact.id, workDir), meta };
+  return { ...await extractBaseline(octokit, owner, repo, artifact.id, workDir), meta };
 }
 async function extractBaseline(octokit, owner, repo, artifactId, workDir) {
   const download2 = await octokit.rest.actions.downloadArtifact({
@@ -62785,13 +62800,26 @@ async function extractBaseline(octokit, owner, repo, artifactId, workDir) {
     archive_format: "zip"
   });
   const zip = new import_adm_zip.default(Buffer.from(download2.data));
-  const entry = zip.getEntries().find((candidate) => !candidate.isDirectory);
-  if (!entry) {
-    throw new Error(`baseline artifact ${artifactId} is empty`);
+  const files = zip.getEntries().filter((candidate) => !candidate.isDirectory);
+  const logEntry = files.find((candidate) => path.basename(candidate.entryName) !== BASELINE_META_FILE);
+  if (!logEntry) {
+    throw new Error(`baseline artifact ${artifactId} carries no log file`);
   }
   const logPath = path.join(workDir, "baseline.log");
-  await fs3.writeFile(logPath, entry.getData());
-  return logPath;
+  await fs3.writeFile(logPath, logEntry.getData());
+  let outcomeToken = "";
+  const metaEntry = files.find((candidate) => path.basename(candidate.entryName) === BASELINE_META_FILE);
+  if (metaEntry) {
+    try {
+      const meta = JSON.parse(metaEntry.getData().toString("utf8"));
+      outcomeToken = typeof meta.outcome_token === "string" ? meta.outcome_token : "";
+    } catch {
+      warning(
+        `Sift: baseline artifact ${artifactId} has an unreadable ${BASELINE_META_FILE} \u2014 proceeding without a baseline verdict (console tail / Unknown).`
+      );
+    }
+  }
+  return { logPath, outcomeToken };
 }
 
 // src/joblog.ts
@@ -62838,10 +62866,6 @@ function sliceJobLog(raw, capture) {
     );
   }
   return named.map((section) => section.lines.join("\n")).join("\n");
-}
-function deriveBuildStatus(conclusion) {
-  if (conclusion === "success") return "green";
-  return conclusion ? "red" : "unknown";
 }
 async function fetchTargetJobLog(params) {
   const { octokit, owner, repo, runId, jobName, capture } = params;
@@ -62964,11 +62988,14 @@ function cleanBody(report) {
   return `${headline}
 Sift weighed ${grouped} surface diffs and dropped all ${grouped} as noise \u2014 counts, ordering, IDs that carry no signal.`;
 }
-function driftBody(report, context5) {
+function changedRunSucceeded(report) {
+  return report.summary.changed_outcome === "SUCCESS";
+}
+function driftBody(report) {
   const significant = report.summary.significant_changes;
   const suppressed = report.summary.total_changes - significant;
-  const headline = context5.build_status === "green" ? (
-    // build green — the hero
+  const headline = changedRunSucceeded(report) ? (
+    // run verdict SUCCESS — the hero
     `\u{1F50D} Green build, changed behaviour. Your tests passed; the shape of your logs didn't.
 ${significant} ${plural(significant, "change", "changes")} worth a look, ${groupThousands(
       suppressed
@@ -62989,19 +63016,25 @@ ${renderRows(report)}
 
 ${renderDetails(report)}`;
 }
-function regressionBody(report, context5) {
-  const headline = context5.build_status === "green" ? (
-    // build green — the strongest hero (founder-LOCKED line)
+function regressionBody(report) {
+  const { baseline_outcome, changed_outcome, outcome_regressed } = report.summary;
+  const headline = changedRunSucceeded(report) ? (
+    // run verdict SUCCESS — the strongest hero (founder-LOCKED line)
     "\u{1F6A8} Green tests. Real regression. It slipped through:"
+  ) : outcome_regressed ? (
+    // the run verdict itself regressed (§6.1 — typed, UNSTABLE never folded).
+    // The pair is engine ENUM output (trusted), not log content.
+    `\u{1F6A8} Run verdict regressed: **${baseline_outcome ?? "UNKNOWN"} \u2192 ${changed_outcome ?? "UNKNOWN"}**.`
   ) : (
-    // build unknown / red
+    // structural regression on a non-green run
     "\u{1F6A8} Regression flagged. A new error-level pattern that wasn't in the baseline:"
   );
+  const rows = report.ranked_changes.length > 0 ? `${renderRows(report)}
+
+` : "";
   return `${headline}
 
-${renderRows(report)}
-
-${renderDetails(report)}`;
+${rows}${renderDetails(report)}`;
 }
 function footer(context5) {
   const parts = [
@@ -63033,9 +63066,9 @@ function body(report, context5, state3) {
     case "clean" /* Clean */:
       return cleanBody(report);
     case "drift" /* Drift */:
-      return driftBody(report, context5);
+      return driftBody(report);
     case "regression" /* Regression */:
-      return regressionBody(report, context5);
+      return regressionBody(report);
   }
 }
 function renderComment(report, context5) {
@@ -98314,22 +98347,13 @@ var client = new DefaultArtifactClient();
 // src/artifact.ts
 import { promises as fs9 } from "fs";
 import * as path5 from "path";
-
-// src/types.ts
-var CONTEXT_VERSION = "0.1.0";
-var BASELINE_ARTIFACT_NAME = "sift-baseline-log";
-var SIFT_COMMENT_ARTIFACT_NAME = "sift-comment";
-var SIFT_COMMENT_DIR = "sift-comment";
-var RENDERED_BODY_FILE = "comment-body.md";
-var RENDERED_META_FILE = "comment-meta.json";
-var MAX_RENDERED_ARTIFACT_BYTES = 1024 * 1024;
-var MAX_RENDERED_BODY_BYTES = 65536;
-
-// src/artifact.ts
 var RETENTION_DAYS = 90;
-async function publishBaselineLog(logPath, name = BASELINE_ARTIFACT_NAME) {
+async function publishBaselineLog(logPath, outcomeToken, name = BASELINE_ARTIFACT_NAME) {
+  const meta = { context_version: CONTEXT_VERSION, outcome_token: outcomeToken };
+  const metaPath = path5.join(path5.dirname(logPath), BASELINE_META_FILE);
+  await fs9.writeFile(metaPath, JSON.stringify(meta), "utf8");
   const client2 = new DefaultArtifactClient();
-  await client2.uploadArtifact(name, [logPath], path5.dirname(logPath), {
+  await client2.uploadArtifact(name, [logPath, metaPath], path5.dirname(logPath), {
     retentionDays: RETENTION_DAYS
   });
 }
@@ -98554,6 +98578,12 @@ function siftArgs(invocation) {
     "--changed-label",
     invocation.changedLabel
   ];
+  if (invocation.baselineOutcome) {
+    args.push("--baseline-outcome", invocation.baselineOutcome);
+  }
+  if (invocation.changedOutcome) {
+    args.push("--changed-outcome", invocation.changedOutcome);
+  }
   if (invocation.failOn !== "none") {
     args.push("--fail-on", invocation.failOn);
   }
@@ -98587,9 +98617,8 @@ function readMode() {
   const raw = (getInput("mode") || "comment").toLowerCase();
   return raw === "render" || raw === "post" ? raw : "comment";
 }
-function readBuildStatus() {
-  const raw = (getInput("build-status") || "auto").toLowerCase();
-  return raw === "green" || raw === "red" || raw === "auto" ? raw : "unknown";
+function readChangedOutcome() {
+  return (getInput("changed-outcome") || "auto").trim();
 }
 function readFailOn() {
   const raw = (getInput("fail-on") || "none").toLowerCase();
@@ -98627,6 +98656,9 @@ function setSiftOutputs(state3, report) {
   setOutput("total-changes", report?.summary.total_changes ?? 0);
   setOutput("significant-changes", report?.summary.significant_changes ?? 0);
   setOutput("regression", state3 === "regression" /* Regression */);
+  setOutput("baseline-outcome", report?.summary.baseline_outcome ?? "UNKNOWN");
+  setOutput("changed-outcome", report?.summary.changed_outcome ?? "UNKNOWN");
+  setOutput("outcome-regressed", report?.summary.outcome_regressed === true);
 }
 async function tryWrite(label, write) {
   try {
@@ -98653,7 +98685,7 @@ async function run() {
     return;
   }
   const failOn = readFailOn();
-  const rawBuildStatus = readBuildStatus();
+  const rawChangedOutcome = readChangedOutcome();
   const prComment = readCommentLevel("pr-comment", "always");
   const commitComment = readCommentLevel("commit-comment", "never");
   const token = getInput("github-token") || process.env.GITHUB_TOKEN || "";
@@ -98661,7 +98693,7 @@ async function run() {
   const { owner, repo } = context2.repo;
   const workDir = await fs13.mkdtemp(path8.join(os8.tmpdir(), "sift-"));
   const changedLog = path8.join(workDir, "changed.log");
-  let buildStatus = rawBuildStatus === "auto" ? "unknown" : rawBuildStatus;
+  let changedOutcome = rawChangedOutcome === "auto" ? "" : rawChangedOutcome;
   if (targetJob) {
     const capture = getInput("capture") || "auto";
     const jobLog = await fetchTargetJobLog({
@@ -98673,11 +98705,11 @@ async function run() {
       capture
     });
     await fs13.writeFile(changedLog, jobLog.text);
-    if (rawBuildStatus === "auto") {
-      buildStatus = deriveBuildStatus(jobLog.conclusion);
+    if (rawChangedOutcome === "auto") {
+      changedOutcome = jobLog.conclusion ?? "";
     }
     info(
-      `Sift: sourced the log from job "${targetJob}" (capture: ${capture}, build-status: ${buildStatus}).`
+      `Sift: sourced the log from job "${targetJob}" (capture: ${capture}, changed-outcome: ${changedOutcome || "(none)"}).`
     );
   } else {
     await fs13.copyFile(logInput, changedLog);
@@ -98706,7 +98738,6 @@ async function run() {
     head_sha: headSha,
     pr_number: pr ? pr.number : void 0,
     base_branch: baseBranch,
-    build_status: buildStatus,
     baseline: baseline?.meta,
     baseline_source: baselineSourceLabel(baselineSpec),
     comment_tag: commentTag
@@ -98727,6 +98758,8 @@ async function run() {
       changedLog,
       baselineLabel: baseline.meta.sha.slice(0, 7),
       changedLabel: headSha.slice(0, 7),
+      baselineOutcome: baseline.outcomeToken,
+      changedOutcome,
       failOn,
       outputPath: reportJsonPath,
       explain,
@@ -98752,7 +98785,10 @@ async function run() {
     process.stdout.write(`${command}
 `);
   }
-  const shouldSeed = publishMode === "always" ? true : publishMode === "never" ? false : pr ? true : buildStatus !== "red";
+  const badResolvedOutcome = report != null && (report.summary.changed_outcome === "FAILURE" || report.summary.changed_outcome === "UNSTABLE" || report.summary.changed_outcome === "ABORTED");
+  const badColdStartToken = report == null && changedOutcome !== "" && changedOutcome.toLowerCase() !== "success";
+  const runOutcomeBad = badResolvedOutcome || badColdStartToken;
+  const shouldSeed = publishMode === "always" ? true : publishMode === "never" ? false : pr ? true : !runOutcomeBad;
   if (mode === "render") {
     const shouldPost = shouldComment(state3, prComment);
     const runnerTemp = process.env.RUNNER_TEMP || os8.tmpdir();
@@ -98760,9 +98796,12 @@ async function run() {
     await writeRenderedComment(body3, headSha, commentDir, shouldPost);
     info(`Sift: render mode \u2014 wrote the comment body (pr-comment=${prComment} \u21D2 post=${shouldPost}); the workflow uploads it.`);
     if (shouldSeed) {
-      await tryWrite("publish the baseline artifact", () => publishBaselineLog(changedLog, baselineName));
+      await tryWrite(
+        "publish the baseline artifact",
+        () => publishBaselineLog(changedLog, changedOutcome, baselineName)
+      );
     } else {
-      info(`Sift: publish-baseline=${publishMode}${buildStatus === "red" ? " (red build)" : ""} \u2014 did not re-seed \`${baselineName}\`.`);
+      info(`Sift: publish-baseline=${publishMode}${runOutcomeBad ? " (run verdict not SUCCESS)" : ""} \u2014 did not re-seed \`${baselineName}\`.`);
     }
     return;
   }
@@ -98785,9 +98824,12 @@ async function run() {
     info(`Sift: push \u2014 commit-comment=${commitComment}, verdict ${state3} below threshold (result in the job summary).`);
   }
   if (shouldSeed) {
-    await tryWrite("publish the baseline artifact", () => publishBaselineLog(changedLog, baselineName));
+    await tryWrite(
+      "publish the baseline artifact",
+      () => publishBaselineLog(changedLog, changedOutcome, baselineName)
+    );
   } else {
-    info(`Sift: publish-baseline=${publishMode}${buildStatus === "red" ? " (red build)" : ""} \u2014 kept the previous \`${baselineName}\` baseline (did not re-seed).`);
+    info(`Sift: publish-baseline=${publishMode}${runOutcomeBad ? " (run verdict not SUCCESS)" : ""} \u2014 kept the previous \`${baselineName}\` baseline (did not re-seed).`);
   }
   if (gateExit !== 0) {
     setFailed(`Sift gate (--fail-on ${failOn}) tripped \u2014 see the comment / job summary for what changed.`);

@@ -6,7 +6,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-    deriveBuildStatus,
     extractCaptureSections,
     fetchTargetJobLog,
     sliceJobLog,
@@ -99,13 +98,6 @@ test('fetchTargetJobLog: exact name match, completed job, cleaned log + conclusi
     const out = await fetchTargetJobLog(fetchParams(jobs, `${T}hello\n${T}world`));
     assert.equal(out.text, 'hello\nworld');
     assert.equal(out.conclusion, 'success');
-});
-
-test('deriveBuildStatus: success ⇒ green, any other conclusion ⇒ red, none ⇒ unknown', () => {
-    assert.equal(deriveBuildStatus('success'), 'green');
-    assert.equal(deriveBuildStatus('failure'), 'red');
-    assert.equal(deriveBuildStatus('cancelled'), 'red');
-    assert.equal(deriveBuildStatus(null), 'unknown');
 });
 
 test('fetchTargetJobLog: reusable-workflow "caller / name" suffix matches uniquely', async () => {

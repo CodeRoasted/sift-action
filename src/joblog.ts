@@ -17,7 +17,7 @@
 //
 // The target job must be COMPLETED (the API serves logs for finished jobs), so
 // the Sift invocation lives in a job that `needs:` it — which is also what makes
-// `build-status: needs.<job>.result` trivial for the caller.
+// `changed-outcome: ${{ needs.<job>.result }}` trivial for the caller.
 
 import type { getOctokit } from '@actions/github';
 
@@ -93,16 +93,13 @@ export interface FetchJobLogParams {
 
 export interface TargetJobLog {
     text: string;
-    /** The target job's conclusion ('success' | 'failure' | …) — lets `build-status: auto` derive green/red with zero caller plumbing. */
+    /**
+     * The target job's conclusion ('success' | 'failure' | 'cancelled' | …) — GitHub's
+     * NATIVE verdict token. `changed-outcome: auto` forwards it verbatim to the engine
+     * (`--changed-outcome`), which maps it through the GitHub semantic package
+     * (ADR 0025 §3.1) — the adapter never translates (SP-2).
+     */
     conclusion: string | null;
-}
-
-// build-status derivation for `auto`: the target job's own conclusion IS the
-// build status the lazy default expects — success ⇒ green, anything else that
-// concluded ⇒ red, no conclusion ⇒ unknown.
-export function deriveBuildStatus(conclusion: string | null): 'green' | 'red' | 'unknown' {
-    if (conclusion === 'success') return 'green';
-    return conclusion ? 'red' : 'unknown';
 }
 
 // Resolve the job by name within THIS run and download its log. The current log

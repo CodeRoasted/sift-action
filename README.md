@@ -15,8 +15,9 @@ The whole integration:
 ```
 
 Your build job stays untouched — Sift pulls its log straight off the GitHub API,
-reads green/red from the job's own conclusion, diffs, comments, and seeds the
-next baseline. Full hello world: [`examples/simple/ci.yml`](examples/simple/ci.yml).
+forwards the job's own verdict to the engine (four-class: SUCCESS / FAILURE /
+UNSTABLE / ABORTED), diffs, comments, and seeds the next baseline. Full hello
+world: [`examples/simple/ci.yml`](examples/simple/ci.yml).
 
 ## Usage
 
@@ -63,7 +64,7 @@ Every default is overridable — the annotated tour (all knobs optional):
     # ── Baseline — you are King ──────────────────────────────────────────
     baseline: artifact=sift-baseline-main-ci   # auto | branch=<name> | artifact=<name> | path=<file> | none
     baseline-name: sift-baseline-main-ci       # the artifact name THIS run publishes its log under
-    publish-baseline: auto                     # auto (PRs always; pushes/tags green-gated) | always | never
+    publish-baseline: auto                     # auto (PRs always; pushes/tags verdict-gated) | always | never
 
     # ── Verdict surfaces (each its own level: never|regression|significant|always) ──
     fail-on: regression              # the advisory gate — exit code only (none | significant | regression)
@@ -71,7 +72,8 @@ Every default is overridable — the annotated tour (all knobs optional):
     commit-comment: never            # commit comment on push runs (needs contents: write)
     annotations: significant         # inline ::error/::warning/::notice on the Checks tab (token-free)
     comment-tag: vs-main             # namespace for a SECOND sticky comment in the same job
-    build-status: auto               # auto (derived from target-job's conclusion) | green | red | unknown
+    changed-outcome: auto            # this run's NATIVE verdict token, forwarded verbatim to the engine
+                                     # (auto = target-job's own conclusion; else ${{ needs.<job>.result }})
 
     # ── Extras ───────────────────────────────────────────────────────────
     explain: false                   # opt-in local-model AI narrative (~2.4 GB, fail-soft) — see "Explain"
@@ -170,7 +172,7 @@ independent diffs/lineages from one job, one Sift step each, each with its own
 **The in-job way** (`log:`) — a file holding the output you want diffed, captured
 however fits your job; Sift then runs as a step of the build job itself. Always with
 `set -o pipefail` (a bare `… | tee` masks the build's real exit code), and set
-`build-status` explicitly (there is no target job to derive it from):
+`changed-outcome` explicitly (there is no target job to derive it from):
 
 - **One command** — pipe it through `tee`:
   ```yaml
@@ -195,7 +197,7 @@ however fits your job; Sift then runs as a step of the build job itself. Always 
   - run: cmake --build build   2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
   - run: ctest --test-dir build 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
   # … then point Sift at it:
-  #   with: { log: build.log, build-status: "${{ steps.build.outcome == 'success' && 'green' || 'red' }}" }
+  #   with: { log: build.log, changed-outcome: "${{ steps.build.outcome }}" }
   ```
 
 ## Explain (opt-in AI narrative)
@@ -314,9 +316,9 @@ a local shell.
 | `explain-model` | no | _(pinned)_ | Advanced: override the model name passed to `sift --explain`. Leave unset for the auto-provisioned default. |
 | `baseline` | no | `auto` | Baseline **selection**: `auto` \| `branch=<name>` \| `artifact=<name>` (named baseline, repo-wide) \| `path=<file>` \| `none`. Malformed values fail the run — never a silent fallback. See [Choosing the baseline](#choosing-the-baseline--you-are-king). |
 | `baseline-name` | no | `sift-baseline-log` | Artifact name this run **publishes** its log under (and what `auto`/`branch=` resolvers look for). |
-| `publish-baseline` | no | `auto` | `auto` (PRs always seed; pushes/tags green-gated) \| `always` \| `never`. |
+| `publish-baseline` | no | `auto` | `auto` (PRs always seed; pushes/tags verdict-gated: FAILURE/UNSTABLE/ABORTED never re-seeds) \| `always` \| `never`. |
 | `comment-tag` | no | _(none)_ | Namespaces the sticky comment (marker + title) so two sift invocations in one job keep separate comments. |
-| `build-status` | no | `auto` | `auto` (derived from `target-job`'s own conclusion; `unknown` without one) \| `green` \| `red` \| `unknown` — drives the green-build headline + the green-gated re-seed. |
+| `changed-outcome` | no | `auto` | This run's **native** CI verdict token, forwarded verbatim to the engine (four-class-aware: UNSTABLE is never folded into FAILURE). `auto` = `target-job`'s own conclusion; set `${{ needs.<job>.result }}` when sourcing via `log:`, else the engine reads the log's console tail / no verdict. |
 | `pr-comment` | no | `always` | `never` \| `regression` \| `significant` \| `always` — sticky PR comment at/above this verdict. |
 | `commit-comment` | no | `never` | `never` \| `regression` \| `significant` \| `always` — commit comment on push at/above this verdict (needs `contents: write`). |
 | `annotations` | no | `significant` | `never` \| `regression` \| `significant` \| `always` — inline check-run annotations (`::error`/`::warning`/`::notice`) at/above this verdict. Fork-safe (stdout workflow commands, no token); fires on green. See [Inline annotations](#inline-annotations). |
@@ -332,7 +334,10 @@ Set on **every** run, whatever the comment config — branch on them in a later 
 | `state` | `cold-start` \| `clean` \| `drift` \| `regression` |
 | `total-changes` | Total observed deltas (before significance suppression). |
 | `significant-changes` | Deltas that cleared the significance floor. |
-| `regression` | `true` when a regression was flagged, else `false`. |
+| `regression` | `true` when a regression was flagged (a regression row **or** a run-verdict regression), else `false`. |
+| `baseline-outcome` | The baseline run's engine-resolved verdict: `SUCCESS` \| `FAILURE` \| `UNSTABLE` \| `ABORTED` \| `UNKNOWN`. |
+| `changed-outcome` | This run's engine-resolved verdict (same values). |
+| `outcome-regressed` | `true` when the run verdict got strictly worse (`Success < Unstable < Failure`; Aborted/Unknown excluded). |
 | `report-path` | Path to this run's `report.json` on a stable, cross-step location (empty on cold start). A later step on the **same runner** can narrate it with `sift explain --report <path>` — same content as the comment; no credential. |
 
 ## Architecture
@@ -347,7 +352,7 @@ root — never re-authored here.
 - `src/annotations.ts` — the pure check-run annotation builder + the workflow-command encoder (the stdout-surface trust boundary, the `escapeInline` analogue).
 - `src/verdict.ts` — the four-state machine (cold-start / clean / drift / regression).
 - `src/baseline.ts` — baseline source selection (auto / branch= / artifact= / path= / none) via the GitHub API.
-- `src/joblog.ts` — `target-job` log sourcing: job lookup, timestamp strip, SIFT_CAPTURE slicing, build-status derivation.
+- `src/joblog.ts` — `target-job` log sourcing: job lookup, timestamp strip, SIFT_CAPTURE slicing, the native-conclusion token for `changed-outcome: auto`.
 - `src/sift.ts` — engine invocation (`--format both`, `--fail-on`).
 - `src/comment.ts` — sticky-comment upsert. `src/artifact.ts` — baseline publish.
 - `src/main.ts` — orchestration.

@@ -72,8 +72,8 @@ jobs:
           target-job: build
           baseline: artifact=sift-baseline-main-ci
           baseline-name: sift-baseline-main-ci       # publish back under the same name
-          # publish-baseline: auto → green-gated re-seed (a red push keeps the old baseline)
-          # build-status: auto → derived from the build job's own conclusion
+          # publish-baseline: auto → verdict-gated re-seed (a FAILURE/UNSTABLE/ABORTED push keeps the old baseline)
+          # changed-outcome: auto → the build job's own native conclusion, forwarded to the engine
 
       # ── PR: ① this build vs main (the headline sticky comment) ──
       - name: Sift — vs main baseline

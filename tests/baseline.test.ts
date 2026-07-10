@@ -134,10 +134,17 @@ test('branch=<name>: the run resolver targets the EXPLICIT branch, not the conte
     assert.equal(asked, 'release');
 });
 
-// A named-baseline zip the artifact source can inflate.
-function baselineZip(content: string): { data: ArrayBuffer } {
+// A named-baseline zip the artifact source can inflate. `outcomeToken` adds the
+// stamped provenance sidecar (ADR 0025 §3.1); undefined = a sidecar-less artifact.
+function baselineZip(content: string, outcomeToken?: string): { data: ArrayBuffer } {
     const zip = new AdmZip();
     zip.addFile('baseline.log', Buffer.from(content, 'utf8'));
+    if (outcomeToken !== undefined) {
+        zip.addFile(
+            'sift-baseline-meta.json',
+            Buffer.from(JSON.stringify({ context_version: '0.2.0', outcome_token: outcomeToken }), 'utf8'),
+        );
+    }
     const buffer = zip.toBuffer();
     return { data: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) };
 }
@@ -183,6 +190,43 @@ test('artifact=<name>: newest live artifact resolves repo-wide; expired + own-ru
     assert.equal(resolved.meta.label, 'sift-baseline-main-build');
     assert.equal(resolved.meta.sha, 'abc1234def');
     assert.equal(await fs.readFile(resolved.logPath, 'utf8'), 'hello baseline\n');
+    assert.equal(resolved.outcomeToken, '', 'a sidecar-less artifact resolves with NO token — the ladder falls to the console tail');
+});
+
+test('the stamped sidecar rides back: outcome token verbatim, log entry selected past the sidecar', async () => {
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const octokit = {
+        rest: {
+            actions: {
+                getWorkflowRun: unreached,
+                listWorkflowRuns: unreached,
+                listWorkflowRunArtifacts: unreached,
+                listArtifactsForRepo: async () => ({
+                    data: {
+                        artifacts: [
+                            {
+                                id: 1,
+                                expired: false,
+                                created_at: '2026-07-01T00:00:00Z',
+                                workflow_run: { id: 80, head_sha: 'abc1234def', head_branch: 'main' },
+                            },
+                        ],
+                    },
+                }),
+                downloadArtifact: async () => baselineZip('stamped baseline\n', 'success'),
+            },
+        },
+    };
+    const resolved = await resolveBaseline(
+        params(octokit, { spec: { kind: 'artifact', name: 'sift-baseline-main-build' }, workDir }),
+    );
+    assert.ok(resolved);
+    assert.equal(resolved.outcomeToken, 'success', 'the native token must ride back verbatim');
+    assert.equal(
+        await fs.readFile(resolved.logPath, 'utf8'),
+        'stamped baseline\n',
+        'the LOG entry must be selected, never the sidecar',
+    );
 });
 
 test('artifact=<name>: no live artifact is a normal cold start (null)', async () => {
@@ -214,6 +258,7 @@ test('path=<file>: local baseline resolves with path provenance; a MISSING file 
     assert.ok(resolved);
     assert.equal(resolved.meta.kind, 'path');
     assert.equal(resolved.meta.label, file);
+    assert.equal(resolved.outcomeToken, '', 'a local file carries no provenance sidecar');
     assert.equal(await fs.readFile(resolved.logPath, 'utf8'), 'local\n');
 
     await assert.rejects(

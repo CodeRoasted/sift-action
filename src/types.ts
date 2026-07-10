@@ -33,11 +33,24 @@ export interface RankedChange {
     changed_line_refs?: number[];
 }
 
+// The run verdicts (ADR 0025 §5 — the diff-layer home of the four classes). Uppercase
+// enum strings on the wire ("SUCCESS"|"FAILURE"|"UNSTABLE"|"ABORTED"), OMITTED when
+// Unknown; `outcome_regressed` (strictly worse on Success < Unstable < Failure;
+// Aborted/Unknown excluded) is emitted only when true. The frame, the verdict state,
+// and the green-gated re-seed read THESE — the engine-resolved verdict, never a
+// render-side binary (the retired `build_status`).
+export type RunOutcome = 'SUCCESS' | 'FAILURE' | 'UNSTABLE' | 'ABORTED';
+
 export interface ReportSummary {
     total_changes: number;        // every observed delta — the "of 851" suppression number
     significant_changes: number;  // the subset that cleared the floor — the "3 that matter"
     js_divergence?: number;
     stability_score?: number;
+    baseline_outcome?: RunOutcome;   // absent = Unknown (no verdict observed)
+    changed_outcome?: RunOutcome;    // absent = Unknown
+    outcome_regressed?: boolean;     // present only when true
+    baseline_outcome_note?: string;  // fail-closed note (unmapped token) — surfaced, never silent
+    changed_outcome_note?: string;
 }
 
 export interface InputProvenance {
@@ -61,8 +74,6 @@ export interface SiftReport {
 
 // ── Action side: the CI envelope (contract § 2.2) ───────────────────────────
 
-export type BuildStatus = 'green' | 'red' | 'unknown';
-
 export interface BaselineProvenance {
     /** How the baseline was selected: a branch's last green run, a named artifact, or a local file. */
     kind: 'run' | 'artifact' | 'path';
@@ -85,18 +96,32 @@ export interface SiftCommentContext {
     head_sha: string;
     pr_number?: number;         // absent on a PUSH (trunk commit) — there is no PR (contract § 3)
     base_branch: string;        // the PR's base, or the pushed branch — needed for the cold-start copy
-    build_status: BuildStatus;  // OPTIONAL enhancer; "unknown" degrades gracefully
     baseline?: BaselineProvenance; // absent ⇒ cold start
     baseline_source?: string;   // human label of a non-default configured source (cold-start copy)
     comment_tag?: string;       // namespaces the sticky marker + title (multi-diff jobs)
 }
 
-export const CONTEXT_VERSION = '0.1.0';
+// 0.2.0: the render-side `build_status` binary is RETIRED (ADR 0025 §5) — the run verdict
+// now flows THROUGH the engine (`--changed-outcome`) and the frame reads the four-class
+// pair off `ReportSummary`, never a CI envelope flag.
+export const CONTEXT_VERSION = '0.2.0';
 
 // The self-published baseline store (contract § 3): every run uploads its ingested
 // log under this name; a PR resolves its baseline by pulling the same-named
 // artifact off the base branch's last green run. One name, both sides.
 export const BASELINE_ARTIFACT_NAME = 'sift-baseline-log';
+
+// The baseline artifact's stamped provenance sidecar (ADR 0025 §3.1): the publishing
+// run stamps its NATIVE CI verdict token (verbatim — the adapter never translates,
+// SP-2) so the next run can forward it as `--baseline-outcome`. Absent sidecar /
+// empty token ⇒ no flag ⇒ the engine's D-OUT-RUN-1 ladder falls to the console
+// tail, then Unknown — absence is the designed degenerate path, never an error.
+export const BASELINE_META_FILE = 'sift-baseline-meta.json';
+export interface BaselineMeta {
+    context_version: string;
+    /** The publishing run's native CI verdict token, verbatim (e.g. "success"). */
+    outcome_token: string;
+}
 
 // ── Fork-PR render → workflow_run post boundary (contract § 6.1) ─────────────
 //

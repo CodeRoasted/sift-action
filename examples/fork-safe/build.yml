@@ -28,14 +28,14 @@ jobs:
                                                      # or the workflow_run poster (2 of 2) never fires
         run: |
           set -o pipefail                            # `| tee` must not mask the build's real exit code,
-                                                     # or build-status below is always (wrongly) green
+                                                     # or changed-outcome below is always (wrongly) success
           ./ci/build.sh 2>&1 | tee build.log         # your build; produces the log to diff
 
       - uses: CodeRoasted/sift-action@v1
         with:
           log: build.log
           mode: render                               # compute the body to an artifact dir; never post
-          build-status: ${{ steps.build.outcome == 'success' && 'green' || 'red' }}
+          changed-outcome: ${{ steps.build.outcome }} # the NATIVE step token, verbatim — the engine maps it
           # Inline check-run annotations surface from THIS unprivileged job — they are stdout
           # workflow commands (no write token), so they appear on the fork PR's checks even though
           # the sticky comment waits for the privileged poster (2 of 2). Default `significant`;

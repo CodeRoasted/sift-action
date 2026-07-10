@@ -1,8 +1,9 @@
 // Verdict logic — the pure state machine behind the comment headline.
 //
-// The state is a pure function of three inputs the Action holds (web_copy
+// The state is a pure function of the report the Action holds (web_copy
 // § "Verdict logic"): `significant_changes`, whether any ranked row is
-// `polarity == "regression"`, and the optional CI `build_status`. No I/O.
+// `polarity == "regression"`, and the engine-resolved run-verdict pair
+// (`summary.outcome_regressed`, ADR 0025 §6.1). No I/O.
 
 import type { SiftReport } from './types.js';
 
@@ -15,24 +16,31 @@ export enum State {
     Regression = 'regression', // ④ a row has polarity === "regression"
 }
 
-// A regression is "a row whose polarity is regression". Read directly from the
-// engine's per-row polarity (contract § 7: the optional
-// `summary.regression_flagged` field is not required — this single predicate is
-// the canonical source the headline, the rows, and the gate all agree on).
+// A regression is "a row whose polarity is regression" OR "the run verdict got
+// strictly worse" (`summary.outcome_regressed`, the engine-derived §6.1 predicate:
+// Success < Unstable < Failure, Aborted/Unknown excluded). One canonical pair the
+// headline, the rows, and the gate all agree on — a SUCCESS→UNSTABLE run with no
+// new structural row is still loud (UNSTABLE never folds, ADR 0025).
 export function hasRegression(report: SiftReport): boolean {
-    return report.ranked_changes.some((row) => row.polarity === 'regression');
+    return (
+        report.summary.outcome_regressed === true ||
+        report.ranked_changes.some((row) => row.polarity === 'regression')
+    );
 }
 
 // `report === null` ⟺ cold start (no baseline ⇒ engine not invoked).
+// Regression is checked BEFORE Clean: a verdict regression (SUCCESS→UNSTABLE) can
+// arrive with zero significant structural rows — steady templates, worse verdict —
+// and must not render as "✅ no structural change".
 export function selectState(report: SiftReport | null): State {
     if (report === null) {
         return State.ColdStart;
     }
-    if (report.summary.significant_changes === 0) {
-        return State.Clean;
-    }
     if (hasRegression(report)) {
         return State.Regression;
+    }
+    if (report.summary.significant_changes === 0) {
+        return State.Clean;
     }
     return State.Drift;
 }

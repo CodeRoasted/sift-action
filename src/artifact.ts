@@ -14,12 +14,14 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import {
     BASELINE_ARTIFACT_NAME,
+    BASELINE_META_FILE,
     CONTEXT_VERSION,
     MAX_RENDERED_ARTIFACT_BYTES,
     MAX_RENDERED_BODY_BYTES,
     RENDERED_BODY_FILE,
     RENDERED_META_FILE,
     SIFT_COMMENT_ARTIFACT_NAME,
+    type BaselineMeta,
     type RenderedCommentMeta,
 } from './types.js';
 
@@ -27,12 +29,19 @@ import {
 // base runs fall back to cold start (contract § 3, "Retention caveat").
 const RETENTION_DAYS = 90;
 
+// Publishes the ingested log PLUS the stamped provenance sidecar (BASELINE_META_FILE)
+// carrying this run's native CI verdict token — what the NEXT run forwards as
+// `--baseline-outcome` (ADR 0025 §3.1: the outcome-bearing fixture pins its side-input).
 export async function publishBaselineLog(
     logPath: string,
+    outcomeToken: string,
     name: string = BASELINE_ARTIFACT_NAME,
 ): Promise<void> {
+    const meta: BaselineMeta = { context_version: CONTEXT_VERSION, outcome_token: outcomeToken };
+    const metaPath = path.join(path.dirname(logPath), BASELINE_META_FILE);
+    await fs.writeFile(metaPath, JSON.stringify(meta), 'utf8');
     const client = new DefaultArtifactClient();
-    await client.uploadArtifact(name, [logPath], path.dirname(logPath), {
+    await client.uploadArtifact(name, [logPath, metaPath], path.dirname(logPath), {
         retentionDays: RETENTION_DAYS,
     });
 }

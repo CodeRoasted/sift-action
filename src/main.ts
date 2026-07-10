@@ -13,7 +13,7 @@ import * as path from 'path';
 
 import { buildAnnotationCommands } from './annotations.js';
 import { parseBaselineSpec, resolveBaseline, type BaselineSpec } from './baseline.js';
-import { deriveBuildStatus, fetchTargetJobLog } from './joblog.js';
+import { fetchTargetJobLog } from './joblog.js';
 import { upsertStickyComment, upsertCommitComment } from './comment.js';
 import { publishBaselineLog, writeRenderedComment } from './artifact.js';
 import { renderComment } from './frame.js';
@@ -25,7 +25,6 @@ import {
     BASELINE_ARTIFACT_NAME,
     CONTEXT_VERSION,
     SIFT_COMMENT_DIR,
-    type BuildStatus,
     type SiftCommentContext,
     type SiftReport,
 } from './types.js';
@@ -48,12 +47,14 @@ function readMode(): Mode {
     return raw === 'render' || raw === 'post' ? raw : 'comment';
 }
 
-// `auto` (the default) derives green/red from the target job's own conclusion
-// when `target-job` is set — the lazy default needs zero caller plumbing.
-// Without a target job, `auto` degrades to `unknown` (nothing to derive from).
-function readBuildStatus(): BuildStatus | 'auto' {
-    const raw = (core.getInput('build-status') || 'auto').toLowerCase();
-    return raw === 'green' || raw === 'red' || raw === 'auto' ? raw : 'unknown';
+// The current run's NATIVE CI verdict token, verbatim (ADR 0025 §3.1 — forwarded as
+// `--changed-outcome`; the engine's dialect package maps it, the adapter never
+// translates). `auto` (the default) uses the target job's own API `conclusion`
+// ('success'|'failure'|'cancelled'|…) — zero caller plumbing; without a target job it
+// degrades to no token (the engine's ladder falls to the console tail, then Unknown).
+// Set it explicitly from `${{ needs.<job>.result }}` when sourcing via `log:`.
+function readChangedOutcome(): string {
+    return (core.getInput('changed-outcome') || 'auto').trim();
 }
 
 function readFailOn(): FailOn {
@@ -116,12 +117,17 @@ async function provisionExplain(siftBin: string): Promise<void> {
 }
 
 // Machine-readable verdict — set on EVERY run (PR or push), before any comment decision, so a
-// later step can branch on Sift's result without parsing a comment (contract § 3).
+// later step can branch on Sift's result without parsing a comment (contract § 3). The run
+// verdicts are the engine-resolved four-class pair (UNKNOWN when unresolved) + the §6.1
+// strictly-worse predicate — the same canonical fields the frame and the gate read.
 function setSiftOutputs(state: State, report: SiftReport | null): void {
     core.setOutput('state', state); // cold-start | clean | drift | regression
     core.setOutput('total-changes', report?.summary.total_changes ?? 0);
     core.setOutput('significant-changes', report?.summary.significant_changes ?? 0);
     core.setOutput('regression', state === State.Regression);
+    core.setOutput('baseline-outcome', report?.summary.baseline_outcome ?? 'UNKNOWN');
+    core.setOutput('changed-outcome', report?.summary.changed_outcome ?? 'UNKNOWN');
+    core.setOutput('outcome-regressed', report?.summary.outcome_regressed === true);
 }
 
 // A GitHub write that may be denied on a fork PR (read-only token, contract § 6) or for a missing
@@ -158,7 +164,7 @@ async function run(): Promise<void> {
         return;
     }
     const failOn = readFailOn();
-    const rawBuildStatus = readBuildStatus();
+    const rawChangedOutcome = readChangedOutcome();
     const prComment = readCommentLevel('pr-comment', 'always');
     const commitComment = readCommentLevel('commit-comment', 'never');
     const token = core.getInput('github-token') || process.env.GITHUB_TOKEN || '';
@@ -167,7 +173,9 @@ async function run(): Promise<void> {
 
     const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-'));
     const changedLog = path.join(workDir, 'changed.log');
-    let buildStatus: BuildStatus = rawBuildStatus === 'auto' ? 'unknown' : rawBuildStatus;
+    // The native verdict token this run forwards to the engine ('' = none — the
+    // engine's D-OUT-RUN-1 ladder falls to the console tail, then Unknown).
+    let changedOutcome = rawChangedOutcome === 'auto' ? '' : rawChangedOutcome;
     if (targetJob) {
         // Zero-plumbing sourcing: pull the finished build job's log off the API
         // (run Sift in a job that `needs:` it), timestamps stripped, capture
@@ -183,11 +191,11 @@ async function run(): Promise<void> {
             capture,
         });
         await fs.writeFile(changedLog, jobLog.text);
-        if (rawBuildStatus === 'auto') {
-            buildStatus = deriveBuildStatus(jobLog.conclusion);
+        if (rawChangedOutcome === 'auto') {
+            changedOutcome = jobLog.conclusion ?? ''; // GitHub's native token, verbatim
         }
         core.info(
-            `Sift: sourced the log from job "${targetJob}" (capture: ${capture}, build-status: ${buildStatus}).`,
+            `Sift: sourced the log from job "${targetJob}" (capture: ${capture}, changed-outcome: ${changedOutcome || '(none)'}).`,
         );
     } else {
         await fs.copyFile(logInput, changedLog); // the captured current-run log = changed.log
@@ -232,7 +240,6 @@ async function run(): Promise<void> {
         head_sha: headSha,
         pr_number: pr ? (pr.number as number) : undefined,
         base_branch: baseBranch,
-        build_status: buildStatus,
         baseline: baseline?.meta,
         baseline_source: baselineSourceLabel(baselineSpec),
         comment_tag: commentTag,
@@ -255,6 +262,8 @@ async function run(): Promise<void> {
             changedLog,
             baselineLabel: baseline.meta.sha.slice(0, 7),
             changedLabel: headSha.slice(0, 7),
+            baselineOutcome: baseline.outcomeToken,
+            changedOutcome,
             failOn,
             outputPath: reportJsonPath,
             explain,
@@ -299,11 +308,24 @@ async function run(): Promise<void> {
     }
 
     // One seeding rule for BOTH modes (the `create_baseline` half): `auto` keeps
-    // the proven semantics — PRs always seed, pushes/tags are GREEN-GATED (a red
-    // build never overwrites the last-green baseline — it still diffed against
-    // the prior green); `always`/`never` are the explicit overrides.
+    // the proven semantics — PRs always seed, pushes/tags are verdict-gated,
+    // now FOUR-CLASS (ADR 0025): a run the ENGINE resolved as FAILURE, UNSTABLE,
+    // or ABORTED never overwrites the last-good baseline. Unknown stays
+    // permissive (no signal ≠ bad — the `log:`-input path without outcome wiring
+    // must keep seeding, exactly as the old 'unknown' did). On a cold start (no
+    // report) the native token is the only signal: GitHub's own 'success' is the
+    // one token this GitHub adapter reads for its OWN seeding decision — the
+    // engine-facing verdict always goes through the engine.
+    const badResolvedOutcome =
+        report != null &&
+        (report.summary.changed_outcome === 'FAILURE' ||
+            report.summary.changed_outcome === 'UNSTABLE' ||
+            report.summary.changed_outcome === 'ABORTED');
+    const badColdStartToken =
+        report == null && changedOutcome !== '' && changedOutcome.toLowerCase() !== 'success';
+    const runOutcomeBad = badResolvedOutcome || badColdStartToken;
     const shouldSeed =
-        publishMode === 'always' ? true : publishMode === 'never' ? false : pr ? true : buildStatus !== 'red';
+        publishMode === 'always' ? true : publishMode === 'never' ? false : pr ? true : !runOutcomeBad;
 
     if (mode === 'render') {
         // Fork build job (contract § 6.1): write the escaped body for the workflow_run poster; NEVER
@@ -317,9 +339,11 @@ async function run(): Promise<void> {
         await writeRenderedComment(body, headSha, commentDir, shouldPost);
         core.info(`Sift: render mode — wrote the comment body (pr-comment=${prComment} ⇒ post=${shouldPost}); the workflow uploads it.`);
         if (shouldSeed) {
-            await tryWrite('publish the baseline artifact', () => publishBaselineLog(changedLog, baselineName));
+            await tryWrite('publish the baseline artifact', () =>
+                publishBaselineLog(changedLog, changedOutcome, baselineName),
+            );
         } else {
-            core.info(`Sift: publish-baseline=${publishMode}${buildStatus === 'red' ? ' (red build)' : ''} — did not re-seed \`${baselineName}\`.`);
+            core.info(`Sift: publish-baseline=${publishMode}${runOutcomeBad ? ' (run verdict not SUCCESS)' : ''} — did not re-seed \`${baselineName}\`.`);
         }
         return;
     }
@@ -345,9 +369,11 @@ async function run(): Promise<void> {
 
     // Seed the next baseline under `baseline-name` (rule computed above).
     if (shouldSeed) {
-        await tryWrite('publish the baseline artifact', () => publishBaselineLog(changedLog, baselineName));
+        await tryWrite('publish the baseline artifact', () =>
+            publishBaselineLog(changedLog, changedOutcome, baselineName),
+        );
     } else {
-        core.info(`Sift: publish-baseline=${publishMode}${buildStatus === 'red' ? ' (red build)' : ''} — kept the previous \`${baselineName}\` baseline (did not re-seed).`);
+        core.info(`Sift: publish-baseline=${publishMode}${runOutcomeBad ? ' (run verdict not SUCCESS)' : ''} — kept the previous \`${baselineName}\` baseline (did not re-seed).`);
     }
 
     // Advisory gate (contract § 8): the exit code carries the verdict; the comment never says "we

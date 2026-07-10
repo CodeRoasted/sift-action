@@ -1,7 +1,8 @@
 // Integration tests for the frame renderer: fixture report.json + a
 // SiftCommentContext → the expected comment markdown (sift_action_contract.md
-// § 8 / handoff). Covers all four states AND both build-green enhancer variants
-// (the two hero headlines). The governed-copy lines are asserted VERBATIM
+// § 8 / handoff). Covers all four states AND both verdict variants of the hero
+// headlines — the "green" predicate is the ENGINE-resolved `summary.changed_outcome`
+// (ADR 0025), never a context flag. The governed-copy lines are asserted VERBATIM
 // against web_copy § "Surface: Sift PR comment"; rows are asserted to appear
 // VERBATIM from the engine fixture (never re-authored).
 
@@ -28,11 +29,10 @@ const BASE_SHA = 'def4567abc1234';
 
 function ctx(over: Partial<SiftCommentContext> = {}): SiftCommentContext {
     return {
-        context_version: '0.1.0',
+        context_version: '0.2.0',
         head_sha: HEAD_SHA,
         pr_number: 42,
         base_branch: 'main',
-        build_status: 'unknown',
         baseline: {
             kind: 'run',
             sha: BASE_SHA,
@@ -43,6 +43,15 @@ function ctx(over: Partial<SiftCommentContext> = {}): SiftCommentContext {
         },
         ...over,
     };
+}
+
+// Stamp the engine-resolved run verdicts onto a fixture report (the fixtures are
+// outcome-free = Unknown; the wire omits the fields).
+function withOutcomes(
+    report: SiftReport,
+    outcomes: Partial<Pick<SiftReport['summary'], 'baseline_outcome' | 'changed_outcome' | 'outcome_regressed'>>,
+): SiftReport {
+    return { ...report, summary: { ...report.summary, ...outcomes } };
 }
 
 const HEADER = '### 🔬 Sift — structural diff of your CI logs';
@@ -106,12 +115,12 @@ test('② clean (no diffs at all): suppression line is omitted, not "dropped all
 
 // ── ③ Drift (significant > 0, no regression) ────────────────────────────────
 
-test('③ drift, build unknown: verbatim headline + rows verbatim + engine <details>', () => {
-    const report = load('drift.json');
+test('③ drift, verdict unknown: verbatim headline + rows verbatim + engine <details>', () => {
+    const report = load('drift.json'); // outcome-free fixture = Unknown verdict
     assert.equal(selectState(report), State.Drift);
     const significant = report.summary.significant_changes;
     const suppressed = report.summary.total_changes - significant;
-    const out = renderComment(report, ctx({ build_status: 'unknown' }));
+    const out = renderComment(report, ctx());
     assert.ok(
         out.includes(
             `🔍 ${significant} structural changes worth a look — ${suppressed} of ${report.summary.total_changes} diffs are noise.`,
@@ -126,11 +135,14 @@ test('③ drift, build unknown: verbatim headline + rows verbatim + engine <deta
     assert.ok(report.markdown && out.includes(escapeInline(report.markdown)), 'engine markdown body embedded (safely)');
 });
 
-test('③ drift, build GREEN: the cache-died hero headline (verbatim)', () => {
-    const report = load('drift.json');
+test('③ drift, verdict SUCCESS: the cache-died hero headline (verbatim)', () => {
+    const report = withOutcomes(load('drift.json'), {
+        baseline_outcome: 'SUCCESS',
+        changed_outcome: 'SUCCESS',
+    });
     const significant = report.summary.significant_changes;
     const suppressed = report.summary.total_changes - significant;
-    const out = renderComment(report, ctx({ build_status: 'green' }));
+    const out = renderComment(report, ctx());
     assert.ok(
         out.includes(
             "🔍 Green build, changed behaviour. Your tests passed; the shape of your logs didn't.\n" +
@@ -142,10 +154,10 @@ test('③ drift, build GREEN: the cache-died hero headline (verbatim)', () => {
 
 // ── ④ Regression (a row has polarity === regression) ────────────────────────
 
-test('④ regression, build unknown: verbatim headline + regression row carries · regression', () => {
+test('④ regression, verdict unknown: verbatim headline + regression row carries · regression', () => {
     const report = load('regression.json');
     assert.equal(selectState(report), State.Regression);
-    const out = renderComment(report, ctx({ build_status: 'unknown' }));
+    const out = renderComment(report, ctx());
     assert.ok(
         out.includes("🚨 Regression flagged. A new error-level pattern that wasn't in the baseline:"),
         out,
@@ -224,10 +236,47 @@ test('a forged WHERE is escapeInline-defanged (no HTML / inline-code breakout)',
     assert.ok(out.includes(escapeInline(attack)), out); // the WHERE rode escapeInline
 });
 
-test('④ regression, build GREEN: the strongest hero headline (founder-locked, verbatim)', () => {
-    const report = load('regression.json');
-    const out = renderComment(report, ctx({ build_status: 'green' }));
+test('④ regression, verdict SUCCESS: the strongest hero headline (founder-locked, verbatim)', () => {
+    const report = withOutcomes(load('regression.json'), { changed_outcome: 'SUCCESS' });
+    const out = renderComment(report, ctx());
     assert.ok(out.includes('🚨 Green tests. Real regression. It slipped through:'), out);
+});
+
+// ── ④bis Run-verdict regression (ADR 0025 §6.1 — UNSTABLE never folds) ───────
+
+test('④ a pure verdict regression (SUCCESS → UNSTABLE, zero rows) is Regression, not Clean', () => {
+    // Steady templates, worse verdict: the engine emits outcome_regressed with no
+    // regression row and possibly zero significant changes.
+    const report = withOutcomes(load('clean_suppressed.json'), {
+        baseline_outcome: 'SUCCESS',
+        changed_outcome: 'UNSTABLE',
+        outcome_regressed: true,
+    });
+    assert.equal(selectState(report), State.Regression, 'outcome_regressed must be loud, never ✅');
+    const out = renderComment(report, ctx());
+    assert.ok(out.includes('🚨 Run verdict regressed: **SUCCESS → UNSTABLE**.'), out);
+    assert.ok(!out.includes('✅ No structural change'), out);
+    // Zero ranked rows ⇒ no empty rows block; the <details> body still renders.
+    assert.ok(out.includes('<details>'), out);
+});
+
+test('④ an outcome regression alongside structural rows keeps the verdict-led headline', () => {
+    const report = withOutcomes(load('drift.json'), {
+        baseline_outcome: 'SUCCESS',
+        changed_outcome: 'FAILURE',
+        outcome_regressed: true,
+    });
+    assert.equal(selectState(report), State.Regression);
+    const out = renderComment(report, ctx());
+    assert.ok(out.includes('🚨 Run verdict regressed: **SUCCESS → FAILURE**.'), out);
+});
+
+test('recovery (FAILURE → SUCCESS) is NOT a regression — outcome_regressed absent', () => {
+    const report = withOutcomes(load('drift.json'), {
+        baseline_outcome: 'FAILURE',
+        changed_outcome: 'SUCCESS',
+    });
+    assert.equal(selectState(report), State.Drift, 'a recovery must not alarm');
 });
 
 test('④ regression rows come first (engine ranks regressions at the top tier)', () => {
@@ -241,8 +290,8 @@ test('④ regression rows come first (engine ranks regressions at the top tier)'
 // ── Determinism (contract § 4) ──────────────────────────────────────────────
 
 test('the comment body is deterministic: same (report, context) ⇒ same string', () => {
-    const report = load('regression.json');
-    const c = ctx({ build_status: 'green' });
+    const report = withOutcomes(load('regression.json'), { changed_outcome: 'SUCCESS' });
+    const c = ctx();
     assert.equal(renderComment(report, c), renderComment(report, c));
 });
 

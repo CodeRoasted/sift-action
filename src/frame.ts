@@ -171,13 +171,21 @@ function cleanBody(report: SiftReport): string {
     );
 }
 
+// The run-verdict predicate the Drift/Regression headlines branch on: the ENGINE-resolved
+// four-class verdict (`summary.changed_outcome`, ADR 0025 §5 — authoritative side-input →
+// console tail → Unknown), never a render-side CI flag (the retired `build_status`).
+// Absent (Unknown) degrades to the generic headline, exactly as 'unknown' did.
+function changedRunSucceeded(report: SiftReport): boolean {
+    return report.summary.changed_outcome === 'SUCCESS';
+}
+
 // ③ Drift — significant > 0, no regression. The cache-died hero lands here.
-function driftBody(report: SiftReport, context: SiftCommentContext): string {
+function driftBody(report: SiftReport): string {
     const significant = report.summary.significant_changes;
     const suppressed = report.summary.total_changes - significant;
     const headline =
-        context.build_status === 'green'
-            ? // build green — the hero
+        changedRunSucceeded(report)
+            ? // run verdict SUCCESS — the hero
               '🔍 Green build, changed behaviour. Your tests passed; the shape of your logs didn\'t.\n' +
               `${significant} ${plural(significant, 'change', 'changes')} worth a look, ${groupThousands(
                   suppressed,
@@ -193,16 +201,27 @@ function driftBody(report: SiftReport, context: SiftCommentContext): string {
     return `${headline}\n\n${renderRows(report)}\n\n${renderDetails(report)}`;
 }
 
-// ④ Regression — a row has polarity === regression. The loudest state. Regression
+// ④ Regression — a row has polarity === regression, or the run verdict got strictly
+// worse (`summary.outcome_regressed`, ADR 0025 §6.1). The loudest state. Regression
 // rows already sort first (the engine ranks NewError/Escalated at the top tier).
-function regressionBody(report: SiftReport, context: SiftCommentContext): string {
-    const headline =
-        context.build_status === 'green'
-            ? // build green — the strongest hero (founder-LOCKED line)
-              '🚨 Green tests. Real regression. It slipped through:'
-            : // build unknown / red
-              '🚨 Regression flagged. A new error-level pattern that wasn\'t in the baseline:';
-    return `${headline}\n\n${renderRows(report)}\n\n${renderDetails(report)}`;
+// The three headline branches are mutually exclusive by construction: a SUCCESS
+// changed run cannot be an outcome regression (SUCCESS is the axis floor).
+function regressionBody(report: SiftReport): string {
+    const { baseline_outcome, changed_outcome, outcome_regressed } = report.summary;
+    const headline = changedRunSucceeded(report)
+        ? // run verdict SUCCESS — the strongest hero (founder-LOCKED line)
+          '🚨 Green tests. Real regression. It slipped through:'
+        : outcome_regressed
+          ? // the run verdict itself regressed (§6.1 — typed, UNSTABLE never folded).
+            // The pair is engine ENUM output (trusted), not log content.
+            `🚨 Run verdict regressed: **${baseline_outcome ?? 'UNKNOWN'} → ${changed_outcome ?? 'UNKNOWN'}**.`
+          : // structural regression on a non-green run
+            '🚨 Regression flagged. A new error-level pattern that wasn\'t in the baseline:';
+    // A pure verdict regression can carry zero ranked rows (steady templates, worse
+    // verdict) — skip the empty rows block; the <details> body still carries the
+    // engine's §6.1 verdict framing.
+    const rows = report.ranked_changes.length > 0 ? `${renderRows(report)}\n\n` : '';
+    return `${headline}\n\n${rows}${renderDetails(report)}`;
 }
 
 // ── Footer (every state) ────────────────────────────────────────────────────
@@ -248,9 +267,9 @@ function body(report: SiftReport | null, context: SiftCommentContext, state: Sta
         case State.Clean:
             return cleanBody(report as SiftReport);
         case State.Drift:
-            return driftBody(report as SiftReport, context);
+            return driftBody(report as SiftReport);
         case State.Regression:
-            return regressionBody(report as SiftReport, context);
+            return regressionBody(report as SiftReport);
     }
 }
 

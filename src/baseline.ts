@@ -22,7 +22,7 @@ import type { getOctokit } from '@actions/github';
 import AdmZip from 'adm-zip';
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { type BaselineProvenance } from './types.js';
+import { BASELINE_META_FILE, type BaselineMeta, type BaselineProvenance } from './types.js';
 
 type Octokit = ReturnType<typeof getOctokit>;
 
@@ -59,6 +59,13 @@ export function parseBaselineSpec(raw: string): BaselineSpec {
 export interface ResolvedBaseline {
     logPath: string;
     meta: BaselineProvenance;
+    /**
+     * The baseline run's native CI verdict token, read from the artifact's stamped
+     * sidecar (ADR 0025 §3.1) — forwarded verbatim as `--baseline-outcome`. Empty when
+     * the sidecar is absent (a `path=` baseline, or an artifact stamped before the
+     * sidecar existed): the engine's ladder then falls to the console tail → Unknown.
+     */
+    outcomeToken: string;
 }
 
 export interface ResolveParams {
@@ -95,6 +102,7 @@ export async function resolveBaseline(params: ResolveParams): Promise<ResolvedBa
                 created_at: '',
                 label: params.spec.file,
             },
+            outcomeToken: '', // no provenance sidecar for a local file — console tail / Unknown
         };
     }
     // Remote resolution is ADVISORY (contract § 3, § 6 fork posture). A fork PR gets a
@@ -149,7 +157,7 @@ async function resolveRemoteStrict(params: ResolveParams): Promise<ResolvedBasel
             created_at: artifact.created_at ?? '',
             label: spec.name,
         };
-        return { logPath: await extractBaseline(octokit, owner, repo, artifact.id, workDir), meta };
+        return { ...(await extractBaseline(octokit, owner, repo, artifact.id, workDir)), meta };
     }
 
     // Branch-run resolution (auto / branch=<name>): the last green run of THE SAME
@@ -198,16 +206,20 @@ async function resolveRemoteStrict(params: ResolveParams): Promise<ResolvedBasel
         branch,
         created_at: baseRun.created_at,
     };
-    return { logPath: await extractBaseline(octokit, owner, repo, artifact.id, workDir), meta };
+    return { ...(await extractBaseline(octokit, owner, repo, artifact.id, workDir)), meta };
 }
 
+// Extracts the baseline LOG plus the stamped provenance sidecar. The log entry is
+// "the one file that is not the sidecar" — the artifact carries exactly the log and
+// (since the sidecar was introduced) BASELINE_META_FILE. A sidecar-less artifact
+// resolves with an empty token: the engine ladder's honest absence rung.
 async function extractBaseline(
     octokit: Octokit,
     owner: string,
     repo: string,
     artifactId: number,
     workDir: string,
-): Promise<string> {
+): Promise<{ logPath: string; outcomeToken: string }> {
     const download = await octokit.rest.actions.downloadArtifact({
         owner,
         repo,
@@ -215,11 +227,26 @@ async function extractBaseline(
         archive_format: 'zip',
     });
     const zip = new AdmZip(Buffer.from(download.data as ArrayBuffer));
-    const entry = zip.getEntries().find((candidate) => !candidate.isDirectory);
-    if (!entry) {
-        throw new Error(`baseline artifact ${artifactId} is empty`);
+    const files = zip.getEntries().filter((candidate) => !candidate.isDirectory);
+    const logEntry = files.find((candidate) => path.basename(candidate.entryName) !== BASELINE_META_FILE);
+    if (!logEntry) {
+        throw new Error(`baseline artifact ${artifactId} carries no log file`);
     }
     const logPath = path.join(workDir, 'baseline.log');
-    await fs.writeFile(logPath, entry.getData());
-    return logPath;
+    await fs.writeFile(logPath, logEntry.getData());
+
+    let outcomeToken = '';
+    const metaEntry = files.find((candidate) => path.basename(candidate.entryName) === BASELINE_META_FILE);
+    if (metaEntry) {
+        try {
+            const meta = JSON.parse(metaEntry.getData().toString('utf8')) as BaselineMeta;
+            outcomeToken = typeof meta.outcome_token === 'string' ? meta.outcome_token : '';
+        } catch {
+            core.warning(
+                `Sift: baseline artifact ${artifactId} has an unreadable ${BASELINE_META_FILE} — ` +
+                    'proceeding without a baseline verdict (console tail / Unknown).',
+            );
+        }
+    }
+    return { logPath, outcomeToken };
 }

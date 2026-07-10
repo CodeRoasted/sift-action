@@ -14,9 +14,27 @@ const baseInvocation: SiftInvocation = {
     changedLog: 'changed.log',
     baselineLabel: 'aaaaaaa',
     changedLabel: 'bbbbbbb',
+    baselineOutcome: '',
+    changedOutcome: '',
     failOn: 'none',
     outputPath: 'report.json',
 };
+
+// ── The native-verdict side-inputs (ADR 0025 §3.1) ──────────────────────────
+
+test('siftArgs: outcome flags are ABSENT when no token — the engine ladder must fall to the console tail', () => {
+    const args = siftArgs(baseInvocation);
+    assert.ok(!args.includes('--baseline-outcome'));
+    assert.ok(!args.includes('--changed-outcome'));
+});
+
+test('siftArgs: native tokens forward VERBATIM (no adapter-side translation — SP-2)', () => {
+    const args = siftArgs({ ...baseInvocation, baselineOutcome: 'success', changedOutcome: 'cancelled' });
+    const b = args.indexOf('--baseline-outcome');
+    const c = args.indexOf('--changed-outcome');
+    assert.ok(b >= 0 && args[b + 1] === 'success', 'baseline token must ride verbatim');
+    assert.ok(c >= 0 && args[c + 1] === 'cancelled', 'changed token must ride verbatim (never folded to red)');
+});
 
 test('siftArgs: --explain is absent by default (opt-in)', () => {
     assert.ok(!siftArgs(baseInvocation).includes('--explain'));

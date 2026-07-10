@@ -10,8 +10,8 @@ inputs:
     description: >-
       Zero-plumbing log sourcing: the NAME of a finished job in this run whose log Sift diffs — no
       tee/capture shell needed in the build job. Run Sift in a separate job that `needs:` the target
-      (the API serves logs for completed jobs only; `needs.<job>.result` then also gives you
-      `build-status` for free). The runner's per-line timestamps are stripped; `capture` selects
+      (the API serves logs for completed jobs only; the target's own conclusion then also gives you
+      `changed-outcome` for free). The runner's per-line timestamps are stripped; `capture` selects
       marked sections. Mutually exclusive with `log` (target-job wins).
     required: false
     default: ''
@@ -85,12 +85,15 @@ inputs:
     description: 'Advanced: override the pinned recommended model name passed to `sift --explain`. Leave unset for the default (the only model the Action auto-provisions).'
     required: false
     default: ''
-  build-status:
+  changed-outcome:
     description: >-
-      The current run's suite result — drives the green-build headline and the green-gated baseline
-      re-seed. `auto` (default): derived from the target job's own conclusion when `target-job` is
-      set (success ⇒ green, else red) — zero plumbing; without `target-job` it degrades to unknown,
-      so set it explicitly from your build step/job result (green | red | unknown).
+      The current run's NATIVE CI verdict token, forwarded VERBATIM to the engine
+      (`--changed-outcome`), which maps it four-class-aware (SUCCESS | FAILURE | UNSTABLE | ABORTED)
+      through its dialect vocabulary — this drives the verdict headline, the outcome-regression
+      check, and the verdict-gated baseline re-seed. `auto` (default): the target job's own API
+      conclusion when `target-job` is set — zero plumbing; without `target-job` set it explicitly
+      from `${{ needs.<job>.result }}`, else the engine falls back to the log's console tail /
+      no verdict.
     required: false
     default: 'auto'
   pr-comment:
@@ -154,7 +157,13 @@ outputs:
   significant-changes:
     description: 'Deltas that cleared the significance floor.'
   regression:
-    description: 'true when a regression was flagged, else false.'
+    description: 'true when a regression was flagged (a regression row OR a run-verdict regression), else false.'
+  baseline-outcome:
+    description: 'The baseline run''s engine-resolved verdict: SUCCESS | FAILURE | UNSTABLE | ABORTED | UNKNOWN.'
+  changed-outcome:
+    description: 'This run''s engine-resolved verdict: SUCCESS | FAILURE | UNSTABLE | ABORTED | UNKNOWN.'
+  outcome-regressed:
+    description: 'true when the run verdict got strictly worse (Success < Unstable < Failure; Aborted/Unknown excluded).'
   report-path:
     description: >-
       Filesystem path to this run's deterministic report.json on a stable, cross-step

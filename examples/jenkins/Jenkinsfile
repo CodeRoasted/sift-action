@@ -12,6 +12,15 @@
 //     Artifact plugin, or a committed known-good log). Base-branch-aware "last green"
 //     resolution is Tier-1 / Sift v2, not a per-CI adapter's job.
 //
+// RUN VERDICT (four-class, ADR 0025): the pipeline forwards Jenkins's NATIVE verdict
+// (`currentBuild.currentResult` — SUCCESS | FAILURE | UNSTABLE | ABORTED) to the
+// engine via `--changed-outcome`; the engine's Jenkins vocabulary maps it, keeping
+// UNSTABLE distinct from FAILURE at the diff layer. TIMING MATTERS: the verdict is
+// only FINAL after every stage has run, so Sift is invoked in the pipeline-level
+// `post { }` block below — inside a stage, `currentResult` still reads SUCCESS even
+// when a later stage is about to fail. The baseline's verdict rides the
+// `sift-outcome.txt` sidecar each build archives next to its log.
+//
 // Asset URL (stable, unauthenticated): the only varying segment is the version tag;
 // the asset names are fixed. Pin SIFT_VERSION to a PUBLISHED release tag.
 //   https://github.com/CodeRoasted/sift-action/releases/download/engine-v<VERSION>/sift-linux-x64
@@ -23,37 +32,53 @@ pipeline {
   agent any
   environment { SIFT_VERSION = '1.7.7' }                 // pin the engine version (kept in lock-step with the Action's src/sift-version.ts by `malf bump` + pin_coherence INV-8)
   stages {
-    stage('Sift — structural log diff') {
+    // … your build/test stages here — capture the log you want diffed as changed.log …
+    stage('Build') {
       steps {
-        sh '''
-          set -euo pipefail
-          base="https://github.com/CodeRoasted/sift-action/releases/download/engine-v${SIFT_VERSION}"
-          curl -fsSL "$base/sift-linux-x64"        -o sift-linux-x64
-          curl -fsSL "$base/sift-linux-x64.sha256" -o sift-linux-x64.sha256
-          sha256sum -c sift-linux-x64.sha256                # FATAL on mismatch
-          chmod +x sift-linux-x64
-        '''
-        // baseline.log = last green build's archived log (Copy Artifact plugin);
-        // changed.log  = this build's captured log.
-        copyArtifacts(projectName: env.JOB_NAME, selector: lastSuccessful(),
-                      filter: 'changed.log', target: 'baseline', optional: true)
-        sh '''
-          set -euo pipefail
-          if [ -f baseline/changed.log ]; then
-            ./sift-linux-x64 baseline/changed.log changed.log \
-              --format both -o sift-report.json --fail-on regression   # advisory gate
-          else
-            echo "Sift: no prior green build to diff against — cold start, skipping."
+        sh 'your-build-and-test-command 2>&1 | tee changed.log'
+      }
+    }
+  }
+  // Sift lives in the pipeline-level post block: this is the ONE place
+  // `currentBuild.currentResult` is the run's final verdict (§ timing above).
+  post {
+    always {
+      // baseline.log + its verdict sidecar = the last green build's archived pair.
+      copyArtifacts(projectName: env.JOB_NAME, selector: lastSuccessful(),
+                    filter: 'changed.log, sift-outcome.txt', target: 'baseline', optional: true)
+      sh '''
+        set -euo pipefail
+        base="https://github.com/CodeRoasted/sift-action/releases/download/engine-v${SIFT_VERSION}"
+        curl -fsSL "$base/sift-linux-x64"        -o sift-linux-x64
+        curl -fsSL "$base/sift-linux-x64.sha256" -o sift-linux-x64.sha256
+        sha256sum -c sift-linux-x64.sha256                # FATAL on mismatch
+        chmod +x sift-linux-x64
+      '''
+      // Forward the NATIVE verdict tokens, verbatim — the engine maps them
+      // (baseline sidecar absent ⇒ omit the flag: console-tail / Unknown fallback).
+      sh """
+        set -euo pipefail
+        echo "${currentBuild.currentResult}" > sift-outcome.txt
+        if [ -f baseline/changed.log ]; then
+          baseline_outcome_flag=""
+          if [ -f baseline/sift-outcome.txt ]; then
+            baseline_outcome_flag="--baseline-outcome \$(cat baseline/sift-outcome.txt)"
           fi
-        '''
-      }
-      post {
-        always {
-          archiveArtifacts artifacts: 'changed.log, sift-report.json', fingerprint: true,
-                           allowEmptyArchive: true
-          // optional: publishHTML the markdown body (HTML Publisher plugin) as the report surface
-        }
-      }
+          ./sift-linux-x64 baseline/changed.log changed.log \
+            --format both -o sift-report.json \
+            --changed-outcome "${currentBuild.currentResult}" \
+            \$baseline_outcome_flag \
+            --fail-on regression                            # advisory gate
+        else
+          echo "Sift: no prior green build to diff against — cold start, skipping."
+        fi
+      """
+      // The log + verdict sidecar seed the NEXT build's baseline; lastSuccessful()
+      // keeps the selection green-gated (an UNSTABLE/FAILURE/ABORTED build is
+      // never selected as a baseline — the four-class refinement of "last green").
+      archiveArtifacts artifacts: 'changed.log, sift-outcome.txt, sift-report.json',
+                       fingerprint: true, allowEmptyArchive: true
+      // optional: publishHTML the markdown body (HTML Publisher plugin) as the report surface
     }
   }
 }
