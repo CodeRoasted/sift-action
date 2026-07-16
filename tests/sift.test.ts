@@ -36,18 +36,19 @@ test('siftArgs: native tokens forward VERBATIM (no adapter-side translation — 
     assert.ok(c >= 0 && args[c + 1] === 'cancelled', 'changed token must ride verbatim (never folded to red)');
 });
 
-// ── The declared Sink (ADR 0028 D5) ─────────────────────────────────────────
+// ── The declared IntentChannel (ADR 0029 D5) ────────────────────────────────
 
-test('siftArgs: --sink=annotated is ALWAYS declared — this Action fetches the runner raw job log', () => {
+test('siftArgs: --channel=annotated is ALWAYS declared — this Action fetches the runner raw job log', () => {
     // Unconditional and not an input: joblog.ts fetches via octokit's downloadJobLogsForWorkflowRun,
     // which returns the ANNOTATED materialization (`##[group]Run <cmd>` banners). The Action is the
-    // caller that KNOWS, and ADR 0028 D2 says the Sink is declared by the caller, never guessed from
-    // content. Drop this flag and the engine fails closed on depth (D5) — the PR comment silently stops
-    // comparing step by step. Before ADR 0028 it was worse than silent: the bare `Run ` row fired on
-    // annotated prose and invented phantom steps (9.05% of 22030 real logs of exactly this form).
+    // caller that KNOWS, and ADR 0029 D2 says the IntentChannel is declared by the caller, never guessed
+    // from content. Drop this flag and the engine fails closed on depth (D5) — the PR comment silently
+    // stops comparing step by step. Before the coordinate existed it was worse than silent: the bare
+    // `Run ` row fired on annotated prose and invented phantom steps (9.05% of 22030 real logs of
+    // exactly this form).
     const args = siftArgs(baseInvocation);
-    const idx = args.indexOf('--sink');
-    assert.ok(idx >= 0, '--sink must always be declared');
+    const idx = args.indexOf('--channel');
+    assert.ok(idx >= 0, '--channel must always be declared');
     assert.equal(args[idx + 1], 'annotated', 'the Action fetches the runner RAW job log, not the stripped form');
 });
 
