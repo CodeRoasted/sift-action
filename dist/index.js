@@ -98576,7 +98576,19 @@ function siftArgs(invocation) {
     "--baseline-label",
     invocation.baselineLabel,
     "--changed-label",
-    invocation.changedLabel
+    invocation.changedLabel,
+    // ADR 0028 — the Sink is caller-declared provenance, and this Action IS the caller that knows:
+    // it fetches both logs with octokit's downloadJobLogsForWorkflowRun (joblog.ts), which returns
+    // the runner's RAW job log — the `annotated` materialization, where step banners are
+    // `##[group]Run <cmd>` and a line starting with a bare `Run ` is ordinary prose.
+    //
+    // Unconditional, not an input: it is a fact about how this Action acquires logs, not a knob a
+    // workflow author could know better than we do. Without it sift fails closed on DEPTH (D5) and
+    // would compare these logs without claiming step structure; WITH it, and before ADR 0028, the
+    // bare `Run ` row fired on that prose and minted phantom Step quanta — measured on 9.05% of
+    // 22030 real annotated logs, i.e. exactly the form this line declares.
+    "--sink",
+    "annotated"
   ];
   if (invocation.baselineOutcome) {
     args.push("--baseline-outcome", invocation.baselineOutcome);
