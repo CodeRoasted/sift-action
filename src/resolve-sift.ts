@@ -36,6 +36,36 @@ async function download(url: string, dest: string): Promise<void> {
     }
 }
 
+// Split out of resolveSift so the supply-chain decision is reachable without a network:
+// "did these bytes match this checksum file" is the security property, and it was the one
+// part of this module no test could drive. Pure, so it is exercised directly.
+//
+// A `.sha256` from sha256sum is `<hash>  <filename>`, so only the first field is the hash.
+// The shape is asserted rather than merely compared: a truncated or non-checksum file
+// (a proxy's error page that still got past curl -f) otherwise reports as a plain
+// "mismatch", which reads as a tampered binary and sends the reader hunting the wrong bug.
+// Comparison is case-insensitive because hex is — our publisher emits lowercase, so this
+// only ever turns a false REJECT into a correct accept, never the reverse.
+const SHA256_HEX = /^[0-9a-f]{64}$/i;
+
+export function verifySha256(shaFileContent: string, contents: Buffer, label: string): string {
+    const expected = shaFileContent.trim().split(/\s+/)[0] ?? '';
+    if (!SHA256_HEX.test(expected)) {
+        throw new Error(
+            `Sift: malformed checksum file for ${label} — expected a 64-char hex sha256, got ` +
+                `'${expected.slice(0, 80)}'. Refusing to run an unverified binary.`,
+        );
+    }
+    const actual = crypto.createHash('sha256').update(contents).digest('hex');
+    if (expected.toLowerCase() !== actual) {
+        throw new Error(
+            `Sift: sha256 mismatch for ${label} — refusing to run an unverified binary ` +
+                `(expected '${expected.toLowerCase()}', got '${actual}').`,
+        );
+    }
+    return actual;
+}
+
 export async function resolveSift(override: string, workDir: string): Promise<string> {
     if (override && override !== 'sift') {
         core.info(`Sift: using provided binary '${override}' (download skipped).`);
@@ -63,14 +93,10 @@ export async function resolveSift(override: string, workDir: string): Promise<st
     await download(`${base}/${ASSET}`, bin);
     await download(`${base}/${ASSET}.sha256`, shaFile);
 
-    const expected = (await fs.readFile(shaFile, 'utf8')).trim().split(/\s+/)[0];
-    const actual = crypto.createHash('sha256').update(await fs.readFile(bin)).digest('hex');
-    if (!expected || expected !== actual) {
-        throw new Error(
-            `Sift: sha256 mismatch for ${ASSET} (engine v${SIFT_VERSION}) — refusing to run an ` +
-                `unverified binary (expected '${expected}', got '${actual}').`,
-        );
-    }
+    // chmod +x happens ONLY after this returns — an unverified binary is never made
+    // executable, let alone run.
+    verifySha256(await fs.readFile(shaFile, 'utf8'), await fs.readFile(bin),
+                 `${ASSET} (engine v${SIFT_VERSION})`);
 
     await fs.chmod(bin, 0o755);
     core.info(`Sift: downloaded + sha256-verified ${ASSET} (engine v${SIFT_VERSION}).`);

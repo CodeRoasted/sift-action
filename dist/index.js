@@ -98524,6 +98524,22 @@ async function download(url2, dest) {
     throw new Error(`Sift: failed to download ${url2} (curl exit ${code}).`);
   }
 }
+var SHA256_HEX = /^[0-9a-f]{64}$/i;
+function verifySha256(shaFileContent, contents, label) {
+  const expected = shaFileContent.trim().split(/\s+/)[0] ?? "";
+  if (!SHA256_HEX.test(expected)) {
+    throw new Error(
+      `Sift: malformed checksum file for ${label} \u2014 expected a 64-char hex sha256, got '${expected.slice(0, 80)}'. Refusing to run an unverified binary.`
+    );
+  }
+  const actual = crypto5.createHash("sha256").update(contents).digest("hex");
+  if (expected.toLowerCase() !== actual) {
+    throw new Error(
+      `Sift: sha256 mismatch for ${label} \u2014 refusing to run an unverified binary (expected '${expected.toLowerCase()}', got '${actual}').`
+    );
+  }
+  return actual;
+}
 async function resolveSift(override, workDir) {
   if (override && override !== "sift") {
     info(`Sift: using provided binary '${override}' (download skipped).`);
@@ -98539,13 +98555,11 @@ async function resolveSift(override, workDir) {
   const shaFile = path7.join(workDir, "sift.sha256");
   await download(`${base}/${ASSET}`, bin);
   await download(`${base}/${ASSET}.sha256`, shaFile);
-  const expected = (await fs11.readFile(shaFile, "utf8")).trim().split(/\s+/)[0];
-  const actual = crypto5.createHash("sha256").update(await fs11.readFile(bin)).digest("hex");
-  if (!expected || expected !== actual) {
-    throw new Error(
-      `Sift: sha256 mismatch for ${ASSET} (engine v${SIFT_VERSION}) \u2014 refusing to run an unverified binary (expected '${expected}', got '${actual}').`
-    );
-  }
+  verifySha256(
+    await fs11.readFile(shaFile, "utf8"),
+    await fs11.readFile(bin),
+    `${ASSET} (engine v${SIFT_VERSION})`
+  );
   await fs11.chmod(bin, 493);
   info(`Sift: downloaded + sha256-verified ${ASSET} (engine v${SIFT_VERSION}).`);
   return bin;
