@@ -56,7 +56,10 @@ export interface ReportSummary {
 export interface InputProvenance {
     label: string;
     lines_observed: number;
-    unique_templates: number;
+    // Omitted by the engine when the path did not measure it — the aligned path, which is the
+    // one the Action's `sift a.log b.log` invocation takes, never counts whole-log templates.
+    // Optional here also keeps an older engine's always-present key readable.
+    unique_templates?: number;
     window_start_iso?: string;
     window_end_iso?: string;
 }
