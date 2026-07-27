@@ -3,7 +3,7 @@
 // Two halves, mirroring the render boundary (sift_action_contract.md § 1):
 //   • `SiftReport`         — the ENGINE's content. A structural subset of the
 //                            `ChangeReport` JSON (insight-eidos
-//                            diff/api/insight/diff/change_report.hpp) — only the
+//                            sift/api/sift.api-report.cppm) — only the
 //                            fields the frame reads. The engine owns these.
 //   • `SiftCommentContext` — the CI/git/GitHub envelope the ENGINE cannot know
 //                            (contract § 2.2). The Action assembles it.
@@ -12,7 +12,7 @@
 
 // ── Engine side: the report JSON (content) ──────────────────────────────────
 
-// Mirrors `dto::RankedChange` (diff/src/change_report_serialize.cpp). `severity`
+// Mirrors `dto::RankedChange` (sift/src/report/change_report_serialize.cpp). `severity`
 // is lowercase on the wire ("low"|"medium"|"high"|"critical"); `polarity` is
 // omitted when Neutral (only "regression"|"recovery" appear). Rows are surfaced
 // VERBATIM — the Action never re-authors `summary`/`evidence` (contract § 1).
