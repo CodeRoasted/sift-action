@@ -1,6 +1,6 @@
 {
   "name": "sift-action",
-  "version": "1.3.0",
+  "version": "1.8.0",
   "private": true,
   "type": "module",
   "description": "Sift — structural diff of your CI logs, as a sticky PR comment + advisory gate.",
