@@ -1,4 +1,4 @@
-// Baseline resolution (sift_action_contract.md § 3) — the user is King of the
+// Baseline resolution (bibles/sift_action.md § 3) — the user is King of the
 // baseline. The `baseline` input selects the source; the default (`auto`) stays
 // the turnkey zero-config behavior: the latest `success` run of THIS workflow on
 // the PR's base branch (push: the pushed branch; tag: the repo default branch),

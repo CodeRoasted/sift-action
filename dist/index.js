@@ -98547,7 +98547,7 @@ async function resolveSift(override, workDir) {
   }
   if (process.platform !== "linux" || process.arch !== "x64") {
     throw new Error(
-      `Sift v1 publishes a linux-x64 binary only; this runner is ${process.platform}/${process.arch}. Run the Sift step on a linux x64 runner, or set 'sift-binary:' to a path you provide. (arm/macOS/Windows assets are a fast-follow \u2014 sift_action_contract.md \xA77.)`
+      `Sift v1 publishes a linux-x64 binary only; this runner is ${process.platform}/${process.arch}. Run the Sift step on a linux x64 runner, or set 'sift-binary:' to a path you provide. (arm/macOS/Windows assets are a fast-follow \u2014 bibles/sift_action.md \xA77.)`
     );
   }
   const base = `https://github.com/${RELEASE_REPO}/releases/download/engine-v${SIFT_VERSION}`;

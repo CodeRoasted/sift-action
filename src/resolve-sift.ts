@@ -1,4 +1,4 @@
-// Binary distribution boundary (Argos lane; sift_action_contract.md §6–7).
+// Binary distribution boundary (Argos lane; bibles/sift_action.md §6–7).
 //
 // The frame logic (sift.ts) shells out to a `sift` binary; THIS module decides how
 // that binary reaches the runner. Two paths:
@@ -77,7 +77,7 @@ export async function resolveSift(override: string, workDir: string): Promise<st
             `Sift v1 publishes a linux-x64 binary only; this runner is ` +
                 `${process.platform}/${process.arch}. Run the Sift step on a linux x64 ` +
                 `runner, or set 'sift-binary:' to a path you provide. ` +
-                `(arm/macOS/Windows assets are a fast-follow — sift_action_contract.md §7.)`,
+                `(arm/macOS/Windows assets are a fast-follow — bibles/sift_action.md §7.)`,
         );
     }
 

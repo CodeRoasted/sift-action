@@ -1,5 +1,5 @@
 // Inline check-run annotations — the 4th Action output surface
-// (sift_action_contract.md § B / sift_conversion_surface.md § B.3).
+// (bibles/sift_action.md § B / sift_conversion_surface.md § B.3).
 //
 // GitHub `::error|warning|notice::` workflow commands surface in the Checks tab
 // and the PR "checks were not successful" strip. They are written to STDOUT and

@@ -3,7 +3,7 @@
 // `renderComment(report, context)` is a PURE, DETERMINISIC function: same
 // (report, context) ⇒ same string. The only varying inputs are identity stamps
 // (head_sha, baseline.sha) which IDENTIFY the run, not its content
-// (sift_action_contract.md § 4). The frame owns the header, the one-line
+// (bibles/sift_action.md § 4). The frame owns the header, the one-line
 // verdict, the state logic, and the footer; the ENGINE owns every row
 // (`summary`) and the full <details> body (`markdown`), surfaced VERBATIM —
 // the Action never re-authors a row (contract § 1, web_copy § "rows are the

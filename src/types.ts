@@ -1,6 +1,6 @@
 // The Sift Action's type surface.
 //
-// Two halves, mirroring the render boundary (sift_action_contract.md § 1):
+// Two halves, mirroring the render boundary (bibles/sift_action.md § 1):
 //   • `SiftReport`         — the ENGINE's content. A structural subset of the
 //                            `ChangeReport` JSON (insight-eidos
 //                            sift/api/sift.api-report.cppm) — only the

@@ -3,7 +3,7 @@
 // retrievable whatever the comment config), then posts to the configured surface (PR
 // sticky comment / push commit comment, each level-gated) and seeds the next baseline.
 // Orchestration only; all content is the engine's and all copy is the frame's
-// (sift_action_contract.md § 2.2 / § 3 / § 8).
+// (bibles/sift_action.md § 2.2 / § 3 / § 8).
 
 import * as core from '@actions/core';
 import * as github from '@actions/github';

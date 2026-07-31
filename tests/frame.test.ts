@@ -1,5 +1,5 @@
 // Integration tests for the frame renderer: fixture report.json + a
-// SiftCommentContext → the expected comment markdown (sift_action_contract.md
+// SiftCommentContext → the expected comment markdown (bibles/sift_action.md
 // § 8 / handoff). Covers all four states AND both verdict variants of the hero
 // headlines — the "green" predicate is the ENGINE-resolved `summary.changed_outcome`
 // (ADR 0025), never a context flag. The governed-copy lines are asserted VERBATIM

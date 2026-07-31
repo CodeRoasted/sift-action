@@ -1,4 +1,4 @@
-// Sticky comment transport (sift_action_contract.md § 4). ONE comment per PR
+// Sticky comment transport (bibles/sift_action.md § 4). ONE comment per PR
 // (per comment-tag), updated in place: list the PR's comments, find the one
 // carrying the hidden marker, PATCH it — else POST a new one. Never one comment
 // per push.

@@ -1,4 +1,4 @@
-// The `post`-mode poster (sift_action_contract.md § 6.1, job 2) — the privileged
+// The `post`-mode poster (bibles/sift_action.md § 6.1, job 2) — the privileged
 // half of the credential-free fork-comment topology. main.ts dispatches to
 // runPoster() when `mode: post`; this module is side-effect-free at import so its
 // security predicates are unit-testable.

@@ -300,7 +300,7 @@ It reproduces the Action's advisory-first posture with zero new code — `--fail
 gate; the archived `sift-report.json` + build status are the surface. The baseline is **user-wired**
 (last green build's archived log via the Copy Artifact plugin, or a committed known-good log);
 base-branch-aware "last green" resolution and a native PR/MR comment are platform-specific Tier-1 work
-(see `sift_action_contract.md` § 9). The same curl-verify-run pattern ports to GitLab CI, Buildkite, or
+(see `bibles/sift_action.md` § 9). The same curl-verify-run pattern ports to GitLab CI, Buildkite, or
 a local shell.
 
 ## Inputs

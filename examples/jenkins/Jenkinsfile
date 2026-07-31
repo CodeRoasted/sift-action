@@ -1,4 +1,4 @@
-// Sift on Jenkins — Tier-0, doc-only recipe (sift_action_contract.md § 9.3).
+// Sift on Jenkins — Tier-0, doc-only recipe (bibles/sift_action.md § 9.3).
 //
 // The GitHub Action is a thin adapter over a CI-AGNOSTIC substrate: the `sift`
 // engine ships as a PUBLIC, unauthenticated, checksummed release asset
