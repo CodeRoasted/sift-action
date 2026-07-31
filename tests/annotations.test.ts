@@ -93,7 +93,7 @@ test('a row with no evidence emits the summary alone (no trailing separator)', (
     assert.deepEqual(buildAnnotationCommands(report([row]), 'always'), ['::warning::shape shifted']);
 });
 
-// WHERE attribution (D-WHERE-7/12): the functional location appended to the summary line.
+// WHERE attribution (D-WHERE-7): the functional location appended to the summary line.
 test('a row with WHERE appends the location to the summary line', () => {
     const row: RankedChange = { kind: 'new_error_pattern', severity: 'high', significance: 0.9, summary: 'new error', polarity: 'regression', where: 'src/auth' };
     assert.deepEqual(buildAnnotationCommands(report([row]), 'always'), ['::error::new error · in src/auth']);
