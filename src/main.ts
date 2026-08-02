@@ -174,7 +174,7 @@ async function run(): Promise<void> {
     const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-'));
     const changedLog = path.join(workDir, 'changed.log');
     // The native verdict token this run forwards to the engine ('' = none — the
-    // engine's D-OUT-RUN-1 ladder falls to the console tail, then Unknown).
+    // engine's SRC-D-OUT-RUN-1 ladder falls to the console tail, then Unknown).
     let changedOutcome = rawChangedOutcome === 'auto' ? '' : rawChangedOutcome;
     if (targetJob) {
         // Zero-plumbing sourcing: pull the finished build job's log off the API
