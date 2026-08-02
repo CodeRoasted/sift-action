@@ -202,7 +202,7 @@ test('④ two independent axes: every row keeps its heat SQUARE; recovery ADDS a
     );
 });
 
-// WHERE attribution (D-WHERE-7): the functional location renders as inline code
+// WHERE attribution (SRC-D-WHERE-7): the functional location renders as inline code
 // after the summary, composing with the badge. Engine CONTENT → escapeInline.
 function whereReport(where: string): SiftReport {
     const row: RankedChange = {
