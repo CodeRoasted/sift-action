@@ -271,19 +271,23 @@ This Action is a thin adapter over a **CI-agnostic substrate**: the `sift` engin
 **public, unauthenticated, checksummed** release assets — `sift-linux-x64` and `sift-windows-x64.exe`
 (each with a `.sha256`) on this repo's releases. Any CI with `curl` + `sha256sum` is just another client.
 
-**No GitHub Actions? Install the CLI** — one line, downloads + sha256-verifies the latest binary:
+**No GitHub Actions? Install the CLI** — one line, downloads + sha256-verifies a **pinned**
+binary. With no argument you get the version the installer is pinned to, so the same command
+run months apart installs the same bytes; `latest` is available but must be **asked for**:
 
 ```sh
 # Linux / macOS shell (macOS asset is a fast-follow):
 curl -fsSL https://raw.githubusercontent.com/CodeRoasted/sift-action/main/install.sh | sh
-# pin a version:          ...install.sh | sh -s -- <X.Y.Z>
+# a different version:    ...install.sh | sh -s -- <X.Y.Z>
+# the moving target:      ...install.sh | sh -s -- latest      # not reproducible, and it says so
 # choose the location:    SIFT_INSTALL_DIR="$HOME/bin"  (default: /usr/local/bin, else ~/.local/bin)
 ```
 
 ```powershell
 # Windows (PowerShell) — diff + `--explain` via a BYO endpoint (local model pull is Linux-only):
 irm https://raw.githubusercontent.com/CodeRoasted/sift-action/main/install.ps1 | iex
-# pin a version:   & ([scriptblock]::Create((irm .../install.ps1))) -Version <X.Y.Z>
+# a different version: & ([scriptblock]::Create((irm .../install.ps1))) -Version <X.Y.Z>
+# the moving target:   & ([scriptblock]::Create((irm .../install.ps1))) -Version latest
 # choose location: $env:SIFT_INSTALL_DIR = 'C:\tools\sift'  (default: %LOCALAPPDATA%\Programs\sift)
 ```
 

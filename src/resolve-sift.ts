@@ -72,12 +72,20 @@ export async function resolveSift(override: string, workDir: string): Promise<st
         return override;
     }
 
+    // This Action downloads the linux-x64 asset only — GitHub-hosted Sift jobs run on linux
+    // runners. It is NOT a statement about what the engine publishes: `sift-windows-x64.exe`
+    // is published (with its .sha256) on every engine-v* release, and install.ps1 installs it
+    // as a standalone CLI. The old message said Windows was "a fast-follow", which was false
+    // and sent a Windows user away from a binary that exists; it also named a path inside the
+    // private superproject, which no reader of this public repo can open.
     if (process.platform !== 'linux' || process.arch !== 'x64') {
         throw new Error(
-            `Sift v1 publishes a linux-x64 binary only; this runner is ` +
+            `This Action downloads the linux-x64 engine asset; this runner is ` +
                 `${process.platform}/${process.arch}. Run the Sift step on a linux x64 ` +
                 `runner, or set 'sift-binary:' to a path you provide. ` +
-                `(arm/macOS/Windows assets are a fast-follow — bibles/sift_action.md §7.)`,
+                `On Windows outside Actions, install the published standalone CLI ` +
+                `(sift-windows-x64.exe) with install.ps1 — see the README. ` +
+                `arm and macOS assets are a fast-follow.`,
         );
     }
 

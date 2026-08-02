@@ -66,26 +66,46 @@ for suffix in "" ".sha256"; do
     esac
 done
 
-# ── 3. Rewrite the two source pins ──────────────────────────────────────────────────────
+# ── 3. Rewrite the FOUR source pins ─────────────────────────────────────────────────────
 # src/sift-version.ts is what the bundle bakes in; examples/jenkins/Jenkinsfile is a doc
 # recipe a user copies verbatim, so a stale one silently installs an old engine. They moved
 # in lock-step under `malf bump` + INV-8b and must keep doing so — enforced below by
 # re-reading both after the write rather than trusting the substitution.
+#
+# install.sh / install.ps1 JOINED THIS LIST on 2026-08-02, and the reason is the whole point
+# of the change that added them: both scripts used to default to `latest`, resolving the
+# newest release at run time. That silently violated the delivery contract (every client
+# version-pinned, never "latest") and made every unattended install irreproducible. They now
+# carry a baked default pin — which only stays true if the SAME writer that owns the other
+# pins owns these too. A hand-maintained pin beside a derived one is the drift class this
+# script exists to remove: derive at the writer, from the PUBLISHED set, or it rots.
 ver_ts="$here/src/sift-version.ts"
 jenkinsfile="$here/examples/jenkins/Jenkinsfile"
+install_sh="$here/install.sh"
+install_ps1="$here/install.ps1"
 
 [ -f "$ver_ts" ] || err "$ver_ts not found"
-python3 - "$ver_ts" "$jenkinsfile" "$ver" <<'PY'
+[ -f "$install_sh" ] || err "$install_sh not found"
+[ -f "$install_ps1" ] || err "$install_ps1 not found"
+python3 - "$ver" "$ver_ts" "$jenkinsfile" "$install_sh" "$install_ps1" <<'PY'
 import pathlib, re, sys
-ver_ts, jenkinsfile, ver = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
-for path, pattern in ((ver_ts, r"(SIFT_VERSION\s*=\s*['\"])[^'\"]*(['\"])"),
-                      (jenkinsfile, r"(SIFT_VERSION\s*=\s*['\"])\d+\.\d+\.\d+(['\"])")):
+ver = sys.argv[1]
+ver_ts, jenkinsfile, install_sh, install_ps1 = (pathlib.Path(p) for p in sys.argv[2:6])
+targets = (
+    (ver_ts,      r"(SIFT_VERSION\s*=\s*['\"])[^'\"]*(['\"])",        True),
+    (jenkinsfile, r"(SIFT_VERSION\s*=\s*['\"])\d+\.\d+\.\d+(['\"])",  False),
+    (install_sh,  r"(SIFT_PINNED_VERSION=\")\d+\.\d+\.\d+(\")",        True),
+    (install_ps1, r"(\$SiftPinnedVersion = ')\d+\.\d+\.\d+(')",        True),
+)
+for path, pattern, required in targets:
     if not path.exists():
+        if required:
+            sys.exit(f"bump: {path} is required and missing")
         continue
     text = path.read_text()
     new, n = re.subn(pattern, lambda m: f"{m.group(1)}{ver}{m.group(2)}", text, count=1)
     if n != 1:
-        sys.exit(f"bump: expected exactly 1 SIFT_VERSION substitution in {path}, made {n}")
+        sys.exit(f"bump: expected exactly 1 substitution in {path}, made {n}")
     if new != text:
         path.write_text(new)
         print(f"bump: rewrote {path.name} -> {ver}")
@@ -105,12 +125,27 @@ PY
 grep -q "SIFT_VERSION = \"$ver\"" "$here/dist/index.js" \
     || err "dist/index.js does not embed SIFT_VERSION = \"$ver\" after repackage."
 
-# ── 5. Prove the two source pins agree (what INV-8b used to assert) ─────────────────────
+# ── 5. Prove every source pin agrees (what INV-8b used to assert) ───────────────────────
+# Re-READ after the write rather than trusting the substitution: a regex that silently
+# matched nothing would otherwise leave a stale pin and report success.
 a="$(grep -oE "SIFT_VERSION\s*=\s*['\"][^'\"]+['\"]" "$ver_ts" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+[ "$a" = "$ver" ] || err "src/sift-version.ts reads $a, expected $ver after the rewrite."
 if [ -f "$jenkinsfile" ]; then
     b="$(grep -oE "SIFT_VERSION\s*=\s*['\"][0-9.]+['\"]" "$jenkinsfile" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
     [ "$a" = "$b" ] || err "src/sift-version.ts ($a) and the Jenkins example ($b) disagree after the rewrite."
 fi
+c="$(grep -oE 'SIFT_PINNED_VERSION="[0-9.]+"' "$install_sh" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+[ "$a" = "$c" ] || err "src/sift-version.ts ($a) and install.sh ($c) disagree after the rewrite."
+d="$(grep -oE "\\\$SiftPinnedVersion = '[0-9.]+'" "$install_ps1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+[ "$a" = "$d" ] || err "src/sift-version.ts ($a) and install.ps1 ($d) disagree after the rewrite."
 
-echo "✓ sift-action pinned to published engine v$ver (src + jenkins example + dist bundle)"
+# The installers must never fall back to `latest` again: the default has to be the pin, and
+# `latest` reachable only when the user names it. Asserted here because this is the writer
+# that would otherwise re-introduce it.
+grep -q 'SIFT_PINNED_VERSION' "$install_sh" \
+    || err "install.sh lost its baked pin — it would default to 'latest' again."
+grep -q 'SiftPinnedVersion' "$install_ps1" \
+    || err "install.ps1 lost its baked pin — it would default to 'latest' again."
+
+echo "✓ sift-action pinned to published engine v$ver (src + jenkins example + install.sh + install.ps1 + dist bundle)"
 echo "  next: commit, cut an Action release, and re-point @v1 at it."

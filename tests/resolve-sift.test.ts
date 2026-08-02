@@ -85,8 +85,23 @@ test('an unsupported platform fails with an actionable message, never a wrong-ar
     const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!;
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
     try {
-        await assert.rejects(() => resolveSift('sift', '/tmp'),
-                             /publishes a linux-x64 binary only/);
+        await assert.rejects(() => resolveSift('sift', '/tmp'), (error: Error) => {
+            // Asserted as a CONTRACT rather than one substring. The previous version matched
+            // "publishes a linux-x64 binary only" — which passed happily while the message
+            // was factually WRONG: it also told the reader Windows assets were "a fast-follow"
+            // when sift-windows-x64.exe has been published on every engine-v* release, and it
+            // cited a path inside the private superproject that no reader of this public repo
+            // can open. A substring match cannot see either defect, so these assert both.
+            assert.match(error.message, /linux-x64/, 'must name the asset it downloads');
+            assert.match(error.message, /darwin/, 'must name the runner it actually saw');
+            assert.match(error.message, /sift-binary|install\.ps1/,
+                         'must carry a remedy, not just a refusal');
+            assert.doesNotMatch(error.message, /Windows assets are a fast-follow/,
+                                'Windows IS published — this claim sent users away from a real binary');
+            assert.doesNotMatch(error.message, /bibles\/|technical_docs\//,
+                                'a public runtime string must not cite a private superproject path');
+            return true;
+        });
     } finally {
         Object.defineProperty(process, 'platform', realPlatform);
     }

@@ -9,6 +9,15 @@
 name: Sift (build + render)
 
 on:
+  push:
+    branches: [main]      # LOAD-BEARING, not decoration: the baseline resolver looks for the last
+                          # green run of THIS SAME workflow on the base branch (src/baseline.ts —
+                          # same workflow id ⇒ the identical build harness). A `pull_request`-only
+                          # workflow never runs on `main`, so that lookup finds nothing and EVERY
+                          # fork PR cold-starts, forever. The push leg is what seeds its own baseline.
+                          # `render` mode seeds too, green-gated: a red push never overwrites the
+                          # last-good baseline. The poster (2 of 2) fires on these runs and no-ops —
+                          # there is no PR for a trunk commit, and it says so and exits.
   pull_request:
 
 permissions:

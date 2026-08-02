@@ -2,8 +2,16 @@
 # Sift CLI installer — download + sha256-verify the published linux-x64 binary, no GitHub Actions needed.
 #
 #   curl -fsSL https://raw.githubusercontent.com/CodeRoasted/sift-action/main/install.sh | sh
-#   curl -fsSL https://raw.githubusercontent.com/CodeRoasted/sift-action/main/install.sh | sh -s -- 1.4.2   # pin a version
-#   SIFT_INSTALL_DIR="$HOME/bin" curl -fsSL .../install.sh | sh                                              # choose where
+#   curl -fsSL .../install.sh | sh -s -- 1.4.2      # a different pinned version
+#   curl -fsSL .../install.sh | sh -s -- latest     # the moving target, ASKED FOR
+#   SIFT_INSTALL_DIR="$HOME/bin" curl -fsSL .../install.sh | sh   # choose where
+#
+# LATEST IS A CHOICE, NEVER A DEFAULT. With no argument this installs the PINNED version
+# below, so the same one-liner run twice a month apart installs the same bytes. Asking for
+# `latest` is spelled out and resolves the newest published engine release at run time.
+# This script used to default to latest silently, which made every unattended install
+# irreproducible and contradicted the delivery contract (every client version-pinned,
+# never "latest").
 #
 # Mirrors the GitHub Action's resolve-sift.ts exactly: same engine-v<X.Y.Z> release, same asset,
 # same sha256-fatal check. linux-x64 only today (arm/macOS are a fast-follow); refuses anything else
@@ -12,6 +20,12 @@ set -eu
 
 REPO="CodeRoasted/sift-action"
 ASSET="sift-linux-x64"
+
+# The default engine pin. ./bump.sh OWNS this line — it is derived from the PUBLISHED
+# release set (the binary and its .sha256 must both be live before bump.sh will write it),
+# exactly as src/sift-version.ts is. Never hand-edit it to the workspace dev line: an
+# unpublished version 404s every consumer at download.
+SIFT_PINNED_VERSION="1.8.8"
 err() { echo "sift-install: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || err "missing required tool: $1"; }
 need curl; need sha256sum; need awk
@@ -25,14 +39,17 @@ case "$arch" in
     *) err "only x86_64 is published today (got '$arch')." ;;
 esac
 
-# 2. version: arg > $SIFT_VERSION > latest engine-v* release (no jq dependency).
-ver="${1:-${SIFT_VERSION:-}}"
-if [ -z "$ver" ]; then
+# 2. version: arg > $SIFT_VERSION > the baked pin. `latest` is honoured only when ASKED for,
+#    never fallen into — the whole point of the pin above (no jq dependency).
+ver="${1:-${SIFT_VERSION:-$SIFT_PINNED_VERSION}}"
+if [ "$ver" = "latest" ]; then
+    echo "sift-install: resolving 'latest' as requested — this install is NOT reproducible." >&2
     ver="$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=100" 2>/dev/null \
         | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"engine-v[0-9]+\.[0-9]+\.[0-9]+"' \
         | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -1)"
     [ -n "$ver" ] || err "could not resolve the latest engine version — pass one explicitly: ... | sh -s -- 1.4.2"
 fi
+[ -n "$ver" ] || err "no version to install: the baked pin is empty and none was given."
 base="https://github.com/$REPO/releases/download/engine-v$ver"
 
 # 3. download + sha256-verify (fatal — never install an unverified binary).
