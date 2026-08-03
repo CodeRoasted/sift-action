@@ -30,7 +30,7 @@
 
 pipeline {
   agent any
-  environment { SIFT_VERSION = '1.8.8' }                 // pin the engine version (kept in lock-step with the Action's src/sift-version.ts by ./bump.sh; ci.yml fails if they drift)
+  environment { SIFT_VERSION = '1.9.0' }                 // pin the engine version (kept in lock-step with the Action's src/sift-version.ts by ./bump.sh; ci.yml fails if they drift)
   stages {
     // … your build/test stages here — capture the log you want diffed as changed.log …
     stage('Build') {
