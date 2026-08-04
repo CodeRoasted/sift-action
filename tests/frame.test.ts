@@ -3,7 +3,7 @@
 // § 8 / handoff). Covers all four states AND both verdict variants of the hero
 // headlines — the "green" predicate is the ENGINE-resolved `summary.changed_outcome`
 // (ADR 0025), never a context flag. The governed-copy lines are asserted VERBATIM
-// against web_copy § "Surface: Sift PR comment"; rows are asserted to appear
+// against PRD-6 § "Surface: Sift PR comment"; rows are asserted to appear
 // VERBATIM from the engine fixture (never re-authored).
 
 import { test } from 'node:test';
@@ -176,7 +176,7 @@ test('④ regression, verdict unknown: verbatim headline + regression row carrie
 });
 
 test('④ two independent axes: every row keeps its heat SQUARE; recovery ADDS a green circle', () => {
-    // §B.4 (web_copy § "Badge glyphs"): severity = a heat square ALWAYS; recovery adds a
+    // §B.4 (PRD-6 § "Badge glyphs"): severity = a heat square ALWAYS; recovery adds a
     // green circle as a SECOND glyph (🟧 🟢), it does NOT collapse to a bare 🟢 — else a
     // HIGH and a LOW recovery would render identically and we'd lose the heat axis.
     const report = load('regression.json');

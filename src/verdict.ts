@@ -1,13 +1,13 @@
 // Verdict logic — the pure state machine behind the comment headline.
 //
-// The state is a pure function of the report the Action holds (web_copy
+// The state is a pure function of the report the Action holds (PRD-6
 // § "Verdict logic"): `significant_changes`, whether any ranked row is
 // `polarity == "regression"`, and the engine-resolved run-verdict pair
 // (`summary.outcome_regressed`, ADR 0025 §6.1). No I/O.
 
 import type { SiftReport } from './types.js';
 
-// The four frame states (web_copy § "The four states"). `ColdStart` is rendered
+// The four frame states (PRD-6 § "The four states"). `ColdStart` is rendered
 // without a report (the engine is not invoked when no baseline exists).
 export enum State {
     ColdStart = 'cold-start', // ① no baseline yet

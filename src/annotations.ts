@@ -70,7 +70,7 @@ function mapKind(polarity: RankedChange['polarity']): AnnotationKind {
 //
 // Colour here is GitHub's NATIVE error/warning/notice icon (mapKind, § B.3.3) — a
 // recovery → ::notice:: reads positive, NOT the orange ::warning::. The §B.4 emoji
-// badges are the COMMENT's surface only (web_copy.md § "Badge glyphs"); the message
+// badges are the COMMENT's surface only (PRD-6 § "Badge glyphs"); the message
 // stays the engine string verbatim so the §B.5 re-audit has a pure encoder to fuzz.
 function annotationCommand(row: RankedChange): string {
     const firstEvidence = row.evidence?.[0];

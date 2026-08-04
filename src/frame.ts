@@ -6,8 +6,8 @@
 // (bibles/sift_action.md § 4). The frame owns the header, the one-line
 // verdict, the state logic, and the footer; the ENGINE owns every row
 // (`summary`) and the full <details> body (`markdown`), surfaced VERBATIM —
-// the Action never re-authors a row (contract § 1, web_copy § "rows are the
-// engine's"). Copy below is governed by web_copy § "Surface: Sift PR comment".
+// the Action never re-authors a row (contract § 1; PRD-6 — "rows are the
+// engine's, not ours"). Copy below is governed by PRD-6 § "Surface: Sift PR comment".
 
 import type { SiftReport, SiftCommentContext } from './types.js';
 import { statusGlyph } from './glyph.js';
@@ -23,10 +23,10 @@ export function stickyMarker(tag?: string): string {
     return tag ? `<!-- sift:pr-comment:${tag} -->` : STICKY_MARKER;
 }
 
-// Shared header, every state (web_copy § "The four states", verbatim).
+// Shared header, every state (PRD-6 § "The four states", verbatim).
 const HEADER = '### 🔬 Sift — structural diff of your CI logs';
 
-// "What is this?" target — the product's Sift front door (web_copy § "Page: Sift").
+// "What is this?" target — the product's Sift front door (PRD-6 § "Page: Sift").
 const SIFT_URL = 'https://coderoast.fr/sift';
 
 // Defensive cap on inline rows so a pathological significant-set cannot bloat the
@@ -95,7 +95,7 @@ export function escapeInline(text: string): string {
         .replace(/\)/g, '&#41;');
 }
 
-// Inline row badge (§B.4 visual parity — web_copy.md § "Badge glyphs"). The no-ANSI
+// Inline row badge (§B.4 visual parity — PRD-6 § "Badge glyphs"). The no-ANSI
 // comment carries the heat ladder + recovery-green as emoji on THESE top-N rows only
 // (the <details> body / to_markdown stays emoji-free; annotations use native icons).
 // Two independent axes (statusGlyph): a heat SQUARE for severity ALWAYS, plus a green
@@ -139,9 +139,9 @@ function renderDetails(report: SiftReport): string {
     return `<details><summary>${summaryLine}</summary>\n\n${escapeInline(report.markdown ?? '')}\n\n</details>`;
 }
 
-// ── State bodies (web_copy § "The four states") ─────────────────────────────
+// ── State bodies (PRD-6 § "The four states") ─────────────────────────────
 
-// ① No baseline yet. web_copy hardcodes `main`; we substitute the PR's actual
+// ① No baseline yet. PRD-6 hardcodes `main`; we substitute the PR's actual
 // baseline SOURCE — the base branch by default (which may be master/develop),
 // or the configured named source (`baseline_source`) when the user overrode
 // selection — the only deviation from the literal copy, and the correct one.
@@ -226,8 +226,8 @@ function regressionBody(report: SiftReport): string {
 
 // ── Footer (every state) ────────────────────────────────────────────────────
 
-// web_copy footer + the baseline-provenance footnote (contract § 4 / web_copy
-// § "What the copy needs"): "last green run on `branch` @ sha", linked to the
+// PRD-6 footer + the baseline-provenance footnote (contract § 4 / PRD-6
+// § "What the frame carries"): "last green run on `branch` @ sha", linked to the
 // run. Determinism + on-prem stated once, flat. Identity stamps (head/baseline
 // sha) are run identity, not content.
 function footer(context: SiftCommentContext): string {

@@ -1,5 +1,5 @@
 // Status glyphs for the PR-comment top-N rows ONLY (frame.ts renderRow) — the §B.4
-// visual-parity layer (web_copy.md § "Badge glyphs", sift_conversion_surface.md § B.4).
+// visual-parity layer (PRD-6 § "Badge glyphs", sift_conversion_surface.md § B.4).
 // GitHub-flavored markdown has no ANSI, so the web report's heat ladder + recovery-green
 // ride emoji HERE — not the `to_markdown` <details> body (byte-frozen, emoji-free) and
 // not the annotations (GitHub's native error/warning/notice icons). Two axes, two glyph
