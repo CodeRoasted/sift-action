@@ -432,3 +432,39 @@ test('cold start with a configured source: the copy names the source, not the ba
     assert.ok(out.includes('Sift diffs each run against the `sift-baseline-main-build` baseline artifact.'));
     assert.ok(!out.includes('last green run on `main`'));
 });
+
+// ── Baseline age + the stale banner ─────────────────────────────────────────
+// The age is envelope-computed (context fields) so the renderer stays pure; the
+// frame's job is to SURFACE it: footer age always when known, and the loud
+// banner between header and body when the bound was exceeded.
+
+test('the footer states the baseline age when known; silent when unknown', () => {
+    const report = load('clean_suppressed.json');
+    const aged = renderComment(report, ctx({ baseline_age_hours: 122 }));
+    assert.ok(aged.includes('5d 2h old'), 'age renders in d/h form past 48h');
+    const unknown = renderComment(report, ctx());
+    assert.ok(!unknown.includes(' old'), 'no age claim when the envelope has none');
+});
+
+test('stale baseline: the banner renders between header and body, naming age and bound', () => {
+    const report = load('clean_suppressed.json');
+    const out = renderComment(
+        report,
+        ctx({ baseline_age_hours: 122, baseline_age_bound: '72h', baseline_stale: true }),
+    );
+    assert.ok(out.includes('**Stale baseline — 5d 2h old, past the 72h bound.**'));
+    const bannerAt = out.indexOf('Stale baseline');
+    const bodyAt = out.indexOf('No structural change');
+    assert.ok(bannerAt >= 0 && bodyAt > bannerAt, 'banner precedes the verdict body');
+    assert.ok(out.includes('5d 2h old'), 'footer age still present');
+});
+
+test('an aged-but-inside-bound baseline renders NO banner (age in the footer only)', () => {
+    const report = load('clean_suppressed.json');
+    const out = renderComment(
+        report,
+        ctx({ baseline_age_hours: 40, baseline_age_bound: '72h' }),
+    );
+    assert.ok(!out.includes('Stale baseline'));
+    assert.ok(out.includes('40h old'));
+});

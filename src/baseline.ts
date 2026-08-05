@@ -56,6 +56,39 @@ export function parseBaselineSpec(raw: string): BaselineSpec {
     );
 }
 
+// The `baseline-max-age` grammar: `<n>h` | `<n>d` (hours | days), n a positive
+// integer. Empty ⇒ no bound (null). Malformed is a CONFIG error — fail loud at
+// parse time, same posture as parseBaselineSpec, never a silent "unbounded".
+export function parseMaxAgeHours(raw: string): number | null {
+    const value = (raw || '').trim().toLowerCase();
+    if (!value) return null;
+    const match = /^(\d+)(h|d)$/.exec(value);
+    if (!match) {
+        throw new Error(
+            `invalid \`baseline-max-age\` input "${raw}" — expected <n>h or <n>d (e.g. 72h, 7d), ` +
+                'or empty for no bound',
+        );
+    }
+    const amount = Number(match[1]);
+    if (amount <= 0) {
+        throw new Error(`invalid \`baseline-max-age\` input "${raw}" — the bound must be positive`);
+    }
+    return match[2] === 'd' ? amount * 24 : amount;
+}
+
+// Whole hours between the baseline's created_at stamp and `nowMs`, floored; null
+// when the stamp is absent/unparseable (a `path=` baseline, a pre-sidecar
+// artifact) — an UNKNOWN age is reported as unknown, never coerced to 0 (which
+// would read as "fresh", the exact silent degradation this exists to kill).
+export function baselineAgeHours(createdAt: string, nowMs: number): number | null {
+    if (!createdAt) return null;
+    const stamp = Date.parse(createdAt);
+    if (Number.isNaN(stamp)) return null;
+    const deltaMs = nowMs - stamp;
+    if (deltaMs < 0) return 0; // clock skew between GitHub and the runner — clamp, don't go negative
+    return Math.floor(deltaMs / (60 * 60 * 1000));
+}
+
 export interface ResolvedBaseline {
     logPath: string;
     meta: BaselineProvenance;

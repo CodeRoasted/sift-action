@@ -72,6 +72,7 @@ jobs:
           target-job: build
           baseline: artifact=sift-baseline-main-ci
           baseline-name: sift-baseline-main-ci       # publish back under the same name
+          baseline-max-age: 72h                      # a red streak stops the re-seed; past this the diff announces its staleness instead of silently aging
           # publish-baseline: auto → verdict-gated re-seed (a FAILURE/UNSTABLE/ABORTED push keeps the old baseline)
           # changed-outcome: auto → the build job's own native conclusion, forwarded to the engine
 
@@ -82,6 +83,7 @@ jobs:
         with:
           target-job: build
           baseline: artifact=sift-baseline-main-ci
+          baseline-max-age: 72h                      # same bound as the seeding leg — a PR must not silently diff against a stale main
           publish-baseline: never                    # ② below owns this PR's seeding
 
       # ── PR: ② this build vs this PR's previous run (its own tagged comment),

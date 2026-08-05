@@ -62690,6 +62690,29 @@ function parseBaselineSpec(raw) {
     `invalid \`baseline\` input "${raw}" \u2014 expected auto | none | branch=<name> | artifact=<name> | path=<file>`
   );
 }
+function parseMaxAgeHours(raw) {
+  const value = (raw || "").trim().toLowerCase();
+  if (!value) return null;
+  const match = /^(\d+)(h|d)$/.exec(value);
+  if (!match) {
+    throw new Error(
+      `invalid \`baseline-max-age\` input "${raw}" \u2014 expected <n>h or <n>d (e.g. 72h, 7d), or empty for no bound`
+    );
+  }
+  const amount = Number(match[1]);
+  if (amount <= 0) {
+    throw new Error(`invalid \`baseline-max-age\` input "${raw}" \u2014 the bound must be positive`);
+  }
+  return match[2] === "d" ? amount * 24 : amount;
+}
+function baselineAgeHours(createdAt, nowMs) {
+  if (!createdAt) return null;
+  const stamp = Date.parse(createdAt);
+  if (Number.isNaN(stamp)) return null;
+  const deltaMs = nowMs - stamp;
+  if (deltaMs < 0) return 0;
+  return Math.floor(deltaMs / (60 * 60 * 1e3));
+}
 async function resolveBaseline(params) {
   if (params.spec.kind === "none") {
     info("Sift: baseline=none \u2014 forced cold start (seed-only run).");
@@ -62939,6 +62962,12 @@ function plural(count, singular, pluralForm) {
 function shortSha(sha) {
   return sha.slice(0, 7);
 }
+function formatAge(hours) {
+  if (hours < 48) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  const rest = hours % 24;
+  return rest === 0 ? `${days}d` : `${days}d ${rest}h`;
+}
 function escapeHtml(text) {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -63043,6 +63072,9 @@ function footer(context5) {
   ];
   if (context5.baseline) {
     parts.push(baselineFootnote(context5.baseline));
+    if (context5.baseline_age_hours != null) {
+      parts.push(`${formatAge(context5.baseline_age_hours)} old`);
+    }
   }
   parts.push(`as of \`${shortSha(context5.head_sha)}\``);
   return `<sub>${parts.join(" \xB7 ")}</sub>`;
@@ -63071,13 +63103,20 @@ function body(report, context5, state3) {
       return regressionBody(report);
   }
 }
+function staleBanner(context5) {
+  const age = context5.baseline_age_hours != null ? formatAge(context5.baseline_age_hours) : "unknown age";
+  return `> \u26A0\uFE0F **Stale baseline \u2014 ${age} old, past the ${context5.baseline_age_bound ?? ""} bound.** No green run has re-seeded it since; this diff compares against that aged snapshot and loses meaning as the streak grows.`;
+}
 function renderComment(report, context5) {
   const state3 = selectState(report);
   const header = context5.comment_tag ? `${HEADER} (${context5.comment_tag})` : HEADER;
+  const stale = context5.baseline_stale ? `${staleBanner(context5)}
+
+` : "";
   return `${stickyMarker(context5.comment_tag)}
 ${header}
 
-${body(report, context5, state3)}
+${stale}${body(report, context5, state3)}
 
 ${footer(context5)}`;
 }
@@ -98686,6 +98725,10 @@ function setSiftOutputs(state3, report) {
   setOutput("changed-outcome", report?.summary.changed_outcome ?? "UNKNOWN");
   setOutput("outcome-regressed", report?.summary.outcome_regressed === true);
 }
+function setBaselineAgeOutputs(ageHours, stale) {
+  setOutput("baseline-age-hours", ageHours ?? "");
+  setOutput("baseline-stale", stale);
+}
 async function tryWrite(label, write) {
   try {
     await write();
@@ -98749,6 +98792,8 @@ async function run() {
   const baselineName = getInput("baseline-name") || BASELINE_ARTIFACT_NAME;
   const publishMode = readPublishMode();
   const commentTag = getInput("comment-tag") || void 0;
+  const maxAgeRaw = getInput("baseline-max-age");
+  const maxAgeHours = parseMaxAgeHours(maxAgeRaw);
   const baseline = await resolveBaseline({
     octokit,
     owner,
@@ -98759,6 +98804,17 @@ async function run() {
     artifactName: baselineName,
     workDir
   });
+  const ageHours = baseline ? baselineAgeHours(baseline.meta.created_at, Date.now()) : null;
+  const baselineStale = maxAgeHours != null && ageHours != null && ageHours > maxAgeHours;
+  if (baselineStale) {
+    warning(
+      `Sift: STALE baseline \u2014 ${ageHours}h old, past the ${maxAgeRaw} bound. No run inside the bound has re-seeded \`${baselineName}\` (a red streak never seeds); this diff compares against that aged snapshot and shrinks in meaning as the streak grows.`
+    );
+  } else if (maxAgeHours != null && baseline && ageHours == null) {
+    warning(
+      `Sift: baseline-max-age=${maxAgeRaw} is set but the resolved baseline carries no created_at stamp (a \`path=\` baseline or a pre-sidecar artifact) \u2014 the bound cannot be checked. The age is UNKNOWN, not fresh.`
+    );
+  }
   const context5 = {
     context_version: CONTEXT_VERSION,
     head_sha: headSha,
@@ -98766,7 +98822,10 @@ async function run() {
     base_branch: baseBranch,
     baseline: baseline?.meta,
     baseline_source: baselineSourceLabel(baselineSpec),
-    comment_tag: commentTag
+    comment_tag: commentTag,
+    baseline_age_hours: ageHours ?? void 0,
+    baseline_age_bound: maxAgeHours != null ? maxAgeRaw.trim() : void 0,
+    baseline_stale: baselineStale || void 0
   };
   let gateExit = 0;
   let report = null;
@@ -98800,6 +98859,7 @@ async function run() {
   const state3 = selectState(report);
   await summary.addRaw(body3).write();
   setSiftOutputs(state3, report);
+  setBaselineAgeOutputs(ageHours, baselineStale);
   let reportPathOut = "";
   if (report) {
     reportPathOut = path8.join(process.env.RUNNER_TEMP || os8.tmpdir(), "sift-report.json");
@@ -98859,6 +98919,10 @@ async function run() {
   }
   if (gateExit !== 0) {
     setFailed(`Sift gate (--fail-on ${failOn}) tripped \u2014 see the comment / job summary for what changed.`);
+  } else if (baselineStale) {
+    setFailed(
+      `Sift: baseline is ${ageHours}h old \u2014 past the baseline-max-age=${maxAgeRaw} bound. A green run re-seeds \`${baselineName}\` and clears this.`
+    );
   }
 }
 run().catch((error2) => {

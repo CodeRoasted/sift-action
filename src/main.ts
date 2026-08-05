@@ -12,7 +12,13 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { buildAnnotationCommands } from './annotations.js';
-import { parseBaselineSpec, resolveBaseline, type BaselineSpec } from './baseline.js';
+import {
+    baselineAgeHours,
+    parseBaselineSpec,
+    parseMaxAgeHours,
+    resolveBaseline,
+    type BaselineSpec,
+} from './baseline.js';
 import { fetchTargetJobLog } from './joblog.js';
 import { upsertStickyComment, upsertCommitComment } from './comment.js';
 import { publishBaselineLog, writeRenderedComment } from './artifact.js';
@@ -130,6 +136,13 @@ function setSiftOutputs(state: State, report: SiftReport | null): void {
     core.setOutput('outcome-regressed', report?.summary.outcome_regressed === true);
 }
 
+// Baseline-age outputs, set on every run beside the verdict outputs: '' = unknown
+// (cold start, path= baseline) — never 0, which would claim "fresh".
+function setBaselineAgeOutputs(ageHours: number | null, stale: boolean): void {
+    core.setOutput('baseline-age-hours', ageHours ?? '');
+    core.setOutput('baseline-stale', stale);
+}
+
 // A GitHub write that may be denied on a fork PR (read-only token, contract § 6) or for a missing
 // scope (e.g. commit comments need contents: write). Surface it — never silently no-op — but don't
 // fail the run: the exit-code gate still holds without the comment.
@@ -224,6 +237,11 @@ async function run(): Promise<void> {
     const publishMode = readPublishMode();
     const commentTag = core.getInput('comment-tag') || undefined;
 
+    // The staleness bound (parsed BEFORE resolution — a malformed bound is a config
+    // error and must fail before any API work, like a malformed baseline selector).
+    const maxAgeRaw = core.getInput('baseline-max-age');
+    const maxAgeHours = parseMaxAgeHours(maxAgeRaw);
+
     const baseline = await resolveBaseline({
         octokit,
         owner,
@@ -235,6 +253,27 @@ async function run(): Promise<void> {
         workDir,
     });
 
+    // Baseline age — measured here (envelope side) so the frame stays pure. Over a
+    // red streak the green-gated re-seed stops and the baseline ages without limit;
+    // the report then degrades exactly when it is most needed. The age is ALWAYS
+    // surfaced (footnote + output); the bound, when set, turns "old" into a loud
+    // STALE banner + a red step — never a silent degrade.
+    const ageHours = baseline ? baselineAgeHours(baseline.meta.created_at, Date.now()) : null;
+    const baselineStale = maxAgeHours != null && ageHours != null && ageHours > maxAgeHours;
+    if (baselineStale) {
+        core.warning(
+            `Sift: STALE baseline — ${ageHours}h old, past the ${maxAgeRaw} bound. No run inside the ` +
+                `bound has re-seeded \`${baselineName}\` (a red streak never seeds); this diff compares ` +
+                `against that aged snapshot and shrinks in meaning as the streak grows.`,
+        );
+    } else if (maxAgeHours != null && baseline && ageHours == null) {
+        core.warning(
+            `Sift: baseline-max-age=${maxAgeRaw} is set but the resolved baseline carries no ` +
+                'created_at stamp (a `path=` baseline or a pre-sidecar artifact) — the bound cannot be ' +
+                'checked. The age is UNKNOWN, not fresh.',
+        );
+    }
+
     const context: SiftCommentContext = {
         context_version: CONTEXT_VERSION,
         head_sha: headSha,
@@ -243,6 +282,9 @@ async function run(): Promise<void> {
         baseline: baseline?.meta,
         baseline_source: baselineSourceLabel(baselineSpec),
         comment_tag: commentTag,
+        baseline_age_hours: ageHours ?? undefined,
+        baseline_age_bound: maxAgeHours != null ? maxAgeRaw.trim() : undefined,
+        baseline_stale: baselineStale || undefined,
     };
 
     // Diff — or cold start (contract § 3): no baseline ⇒ the engine is NOT invoked.
@@ -281,6 +323,7 @@ async function run(): Promise<void> {
     // before any comment decision — so the result is in the job info whatever the comment config.
     await core.summary.addRaw(body).write();
     setSiftOutputs(state, report);
+    setBaselineAgeOutputs(ageHours, baselineStale);
 
     // Expose the deterministic report.json on a STABLE, cross-step path (workDir is an
     // mkdtemp that's gone after this step). A later step on the SAME runner can then
@@ -381,6 +424,17 @@ async function run(): Promise<void> {
     // would skip the consumer's artifact upload, losing the rendered comment).
     if (gateExit !== 0) {
         core.setFailed(`Sift gate (--fail-on ${failOn}) tripped — see the comment / job summary for what changed.`);
+    } else if (baselineStale) {
+        // The staleness bound FAILS VISIBLY (after the comment/seed work above, so the
+        // labeled diff still posts): a bound the user set and the baseline exceeded is a
+        // red step, never a silent degrade. Advisory callers keep their guarantee via
+        // step-level continue-on-error — the annotation + STALE banner still surface.
+        // Ordered under the gate check: a tripped gate is the louder verdict and its
+        // message wins; the stale warning annotation above fires either way.
+        core.setFailed(
+            `Sift: baseline is ${ageHours}h old — past the baseline-max-age=${maxAgeRaw} bound. ` +
+                `A green run re-seeds \`${baselineName}\` and clears this.`,
+        );
     }
 }
 

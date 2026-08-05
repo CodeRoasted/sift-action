@@ -102,6 +102,13 @@ export interface SiftCommentContext {
     baseline?: BaselineProvenance; // absent ⇒ cold start
     baseline_source?: string;   // human label of a non-default configured source (cold-start copy)
     comment_tag?: string;       // namespaces the sticky marker + title (multi-diff jobs)
+    // Baseline age (whole hours), computed ENVELOPE-side at resolution time so the
+    // frame stays a pure function of (report, context). Absent when the baseline's
+    // created_at is unknown (a `path=` baseline) or on cold start. Additive optional
+    // fields — no reader branches on context_version, so the version stands.
+    baseline_age_hours?: number;
+    baseline_age_bound?: string;   // the configured `baseline-max-age`, verbatim (e.g. "72h")
+    baseline_stale?: boolean;      // age exceeded the bound ⇒ the frame renders the stale banner
 }
 
 // 0.2.0: the render-side `build_status` binary is RETIRED (ADR 0025 §5) — the run verdict

@@ -47,6 +47,16 @@ function shortSha(sha: string): string {
     return sha.slice(0, 7);
 }
 
+// Deterministic age copy from the envelope-computed whole-hours value: `<h>h` under
+// two days, else `<d>d <h>h` (the trailing hours dropped when zero). The frame never
+// reads a clock — the hours arrive via context (purity holds).
+export function formatAge(hours: number): string {
+    if (hours < 48) return `${hours}h`;
+    const days = Math.floor(hours / 24);
+    const rest = hours % 24;
+    return rest === 0 ? `${days}d` : `${days}d ${rest}h`;
+}
+
 // ── Safe embedding ──────────────────────────────────────────────────────────
 // The rows (`summary`) and the report body (`markdown`) are the engine's CONTENT
 // verbatim, but they derive from real — and on fork PRs, attacker-controlled — CI
@@ -237,6 +247,11 @@ function footer(context: SiftCommentContext): string {
     ];
     if (context.baseline) {
         parts.push(baselineFootnote(context.baseline));
+        // The age is ALWAYS stated when known — a reader must never have to infer
+        // from a sha how old the comparison point is (the silent-staleness class).
+        if (context.baseline_age_hours != null) {
+            parts.push(`${formatAge(context.baseline_age_hours)} old`);
+        }
     }
     parts.push(`as of \`${shortSha(context.head_sha)}\``);
     return `<sub>${parts.join(' · ')}</sub>`;
@@ -273,10 +288,25 @@ function body(report: SiftReport | null, context: SiftCommentContext, state: Sta
     }
 }
 
+// The stale-baseline banner (above the verdict body, below the header): when the
+// caller set `baseline-max-age` and the resolved baseline exceeds it, the diff
+// still renders — an aged comparison is information — but it must ANNOUNCE itself
+// before its numbers are read. Bound + age are frame-controlled envelope values.
+function staleBanner(context: SiftCommentContext): string {
+    const age =
+        context.baseline_age_hours != null ? formatAge(context.baseline_age_hours) : 'unknown age';
+    return (
+        `> ⚠️ **Stale baseline — ${age} old, past the ${context.baseline_age_bound ?? ''} bound.** ` +
+        'No green run has re-seeded it since; this diff compares against that aged snapshot ' +
+        'and loses meaning as the streak grows.'
+    );
+}
+
 // The full sticky-comment markdown. `report === null` ⇒ cold start. A
 // comment-tag suffixes the header so two tagged comments are visually distinct.
 export function renderComment(report: SiftReport | null, context: SiftCommentContext): string {
     const state = selectState(report);
     const header = context.comment_tag ? `${HEADER} (${context.comment_tag})` : HEADER;
-    return `${stickyMarker(context.comment_tag)}\n${header}\n\n${body(report, context, state)}\n\n${footer(context)}`;
+    const stale = context.baseline_stale ? `${staleBanner(context)}\n\n` : '';
+    return `${stickyMarker(context.comment_tag)}\n${header}\n\n${stale}${body(report, context, state)}\n\n${footer(context)}`;
 }

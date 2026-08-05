@@ -265,3 +265,36 @@ test('path=<file>: local baseline resolves with path provenance; a MISSING file 
         resolveBaseline(params(octokit, { spec: { kind: 'path', file: path.join(workDir, 'absent.log') }, workDir })),
     );
 });
+
+// ── The staleness bound (baseline-max-age) ──────────────────────────────────
+// The bound exists because the green-gated re-seed has no upper age limit: over
+// a red streak the baseline ages silently. Parsing is strict (config error) and
+// an unknown age is NULL, never 0 — 0 would read as "fresh", the silent
+// degradation the bound exists to kill.
+
+import { baselineAgeHours, parseMaxAgeHours } from '../src/baseline.js';
+
+test('parseMaxAgeHours: h/d grammar parses to hours; empty = no bound (null)', () => {
+    assert.equal(parseMaxAgeHours(''), null);
+    assert.equal(parseMaxAgeHours('  '), null);
+    assert.equal(parseMaxAgeHours('72h'), 72);
+    assert.equal(parseMaxAgeHours('7d'), 168);
+    assert.equal(parseMaxAgeHours('1H'), 1); // case-insensitive
+});
+
+test('parseMaxAgeHours: malformed or non-positive input THROWS (config error, never silent unbounded)', () => {
+    assert.throws(() => parseMaxAgeHours('72'), /baseline-max-age/);
+    assert.throws(() => parseMaxAgeHours('3w'), /baseline-max-age/);
+    assert.throws(() => parseMaxAgeHours('h'), /baseline-max-age/);
+    assert.throws(() => parseMaxAgeHours('-2h'), /baseline-max-age/);
+    assert.throws(() => parseMaxAgeHours('0d'), /must be positive/);
+});
+
+test('baselineAgeHours: whole floored hours from created_at; unknown stamp is NULL, never 0', () => {
+    const now = Date.parse('2026-07-27T12:00:00Z');
+    assert.equal(baselineAgeHours('2026-07-22T12:00:00Z', now), 120); // the measured 5-day instance
+    assert.equal(baselineAgeHours('2026-07-27T11:01:00Z', now), 0);   // 59 min floors to 0
+    assert.equal(baselineAgeHours('', now), null);
+    assert.equal(baselineAgeHours('not-a-date', now), null);
+    assert.equal(baselineAgeHours('2026-07-27T13:00:00Z', now), 0, 'clock skew clamps to 0, never negative');
+});

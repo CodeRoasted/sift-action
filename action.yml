@@ -63,6 +63,19 @@ inputs:
       green-gated: a red build never overwrites the last-green baseline) | `always` | `never`.
     required: false
     default: 'auto'
+  baseline-max-age:
+    description: >-
+      Staleness bound on the resolved baseline: `<n>h` or `<n>d` (e.g. `72h`, `7d`). Empty (default) =
+      unbounded, the prior behaviour. The green-gated re-seed means a long red streak ages the
+      baseline without limit, degrading every diff exactly when it is most needed — this bound makes
+      that visible instead of silent. When exceeded the run still diffs, posts, and seeds (an aged
+      comparison is information), with a STALE banner in the comment and a warning annotation; the
+      step then FAILS naming age vs bound (comment mode — render mode never fails, the banner +
+      annotation carry the signal). Advisory pipelines keep their guarantee with step-level
+      `continue-on-error`. The baseline's age is always in the comment footer and the
+      `baseline-age-hours` output, bound or no bound. A malformed value fails the run (config error).
+    required: false
+    default: ''
   comment-tag:
     description: >-
       Optional namespace for the sticky PR comment (appended to the hidden marker and the title), so
@@ -164,6 +177,10 @@ outputs:
     description: 'This run''s engine-resolved verdict: SUCCESS | FAILURE | UNSTABLE | ABORTED | UNKNOWN.'
   outcome-regressed:
     description: 'true when the run verdict got strictly worse (Success < Unstable < Failure; Aborted/Unknown excluded).'
+  baseline-age-hours:
+    description: 'Resolved baseline''s age in whole hours. Empty when unknown (cold start, a path= baseline, a pre-sidecar artifact) — never 0-for-unknown.'
+  baseline-stale:
+    description: 'true when `baseline-max-age` is set and the resolved baseline exceeds it, else false.'
   report-path:
     description: >-
       Filesystem path to this run's deterministic report.json on a stable, cross-step

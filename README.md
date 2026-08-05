@@ -118,6 +118,13 @@ against `main`'s last green out of the box). Every part of that is overridable:
   `auto`/`branch=` look for on the resolved run). Compose per-job / per-PR names with expressions.
 - **`publish-baseline`** controls seeding: `auto` (PRs always; pushes/tags green-gated) ·
   `always` · `never`.
+- **`baseline-max-age`** bounds the resolved baseline's **staleness** (`72h`, `7d`; empty =
+  unbounded). The green-gated re-seed means a long red streak ages the baseline without limit —
+  every diff then compares against an ever-older green, silently. With a bound set, an exceeded
+  baseline still diffs and posts (an aged comparison is information) but **announces itself**: a
+  stale banner in the comment, a warning annotation, and a failed step naming age vs bound
+  (advisory pipelines keep `continue-on-error` on the step). The age is always in the comment
+  footer and the `baseline-age-hours` output, bound or no bound.
 - **`comment-tag`** namespaces the sticky comment, so two diffs in one job (vs `main` **and** vs
   the PR's previous run) each keep their own comment.
 
@@ -321,6 +328,7 @@ a local shell.
 | `baseline` | no | `auto` | Baseline **selection**: `auto` \| `branch=<name>` \| `artifact=<name>` (named baseline, repo-wide) \| `path=<file>` \| `none`. Malformed values fail the run — never a silent fallback. See [Choosing the baseline](#choosing-the-baseline--you-are-king). |
 | `baseline-name` | no | `sift-baseline-log` | Artifact name this run **publishes** its log under (and what `auto`/`branch=` resolvers look for). |
 | `publish-baseline` | no | `auto` | `auto` (PRs always seed; pushes/tags verdict-gated: FAILURE/UNSTABLE/ABORTED never re-seeds) \| `always` \| `never`. |
+| `baseline-max-age` | no | _(unbounded)_ | Staleness bound on the resolved baseline (`<n>h` \| `<n>d`). Exceeded ⇒ stale banner + warning annotation + failed step (still diffs, posts, seeds). Malformed values fail the run. See [Choosing the baseline](#choosing-the-baseline--you-are-king). |
 | `comment-tag` | no | _(none)_ | Namespaces the sticky comment (marker + title) so two sift invocations in one job keep separate comments. |
 | `changed-outcome` | no | `auto` | This run's **native** CI verdict token, forwarded verbatim to the engine (four-class-aware: UNSTABLE is never folded into FAILURE). `auto` = `target-job`'s own conclusion; set `${{ needs.<job>.result }}` when sourcing via `log:`, else the engine reads the log's console tail / no verdict. |
 | `pr-comment` | no | `always` | `never` \| `regression` \| `significant` \| `always` — sticky PR comment at/above this verdict. |
@@ -342,6 +350,8 @@ Set on **every** run, whatever the comment config — branch on them in a later 
 | `baseline-outcome` | The baseline run's engine-resolved verdict: `SUCCESS` \| `FAILURE` \| `UNSTABLE` \| `ABORTED` \| `UNKNOWN`. |
 | `changed-outcome` | This run's engine-resolved verdict (same values). |
 | `outcome-regressed` | `true` when the run verdict got strictly worse (`Success < Unstable < Failure`; Aborted/Unknown excluded). |
+| `baseline-age-hours` | Resolved baseline's age in whole hours; empty when unknown (cold start, `path=` baseline, pre-sidecar artifact) — never 0-for-unknown. |
+| `baseline-stale` | `true` when `baseline-max-age` is set and exceeded, else `false`. |
 | `report-path` | Path to this run's `report.json` on a stable, cross-step location (empty on cold start). A later step on the **same runner** can narrate it with `sift explain --report <path>` — same content as the comment; no credential. |
 
 ## Architecture
