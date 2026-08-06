@@ -98552,7 +98552,7 @@ import { promises as fs11 } from "fs";
 import * as path7 from "path";
 
 // src/sift-version.ts
-var SIFT_VERSION = "1.9.0";
+var SIFT_VERSION = "1.9.1";
 
 // src/resolve-sift.ts
 var RELEASE_REPO = "CodeRoasted/sift-action";
