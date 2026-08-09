@@ -93,6 +93,25 @@ export function siftArgs(invocation: SiftInvocation): string[] {
         '--channel',
         'annotated',
     ];
+    // DN-32.D6 — a caller-declared verdict is a PAIR: the native token AND the vocabulary that
+    // interprets it. Unconditional and not an input, for the same reason as `--channel` above: it
+    // is a fact about WHO SUPPLIES the verdict — this Action runs on GitHub Actions and forwards
+    // GitHub's own `conclusion` / `job.status` — never a fact about the log's bytes.
+    //
+    // ⚠ THIS IS NOT `--dialect github`, AND MUST NEVER BE REPLACED BY IT. The logs this Action
+    // diffs are frequently a raw build log (cmake/ninja/conan output with no `##[` marker at all),
+    // where "no dialect" is the TRUE answer. Declaring a dialect those bytes do not have is a FALSE
+    // declaration, and a false one is worse than an unknown one because it SUCCEEDS: canon applies
+    // GHA marker rows to build output, and the composed dialect enters `semantic_identity`, so
+    // every document becomes incomparable with the truth for a reason no reader can see. The
+    // vocabulary coordinate touches no composition and cannot move that identity.
+    //
+    // Sent whenever EITHER token is present: without it the engine resolves the token against the
+    // stream's dialect, which a raw build log does not have — the token then resolves to nothing
+    // and every rule that reads the verdict silently does not apply.
+    if (invocation.baselineOutcome || invocation.changedOutcome) {
+        args.push('--outcome-vocabulary', 'github');
+    }
     if (invocation.baselineOutcome) {
         args.push('--baseline-outcome', invocation.baselineOutcome);
     }
