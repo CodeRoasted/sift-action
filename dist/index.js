@@ -98643,6 +98643,9 @@ function siftArgs(invocation) {
     "--channel",
     "annotated"
   ];
+  if (invocation.baselineOutcome || invocation.changedOutcome) {
+    args.push("--outcome-vocabulary", "github");
+  }
   if (invocation.baselineOutcome) {
     args.push("--baseline-outcome", invocation.baselineOutcome);
   }
