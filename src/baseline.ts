@@ -22,7 +22,13 @@ import type { getOctokit } from '@actions/github';
 import AdmZip from 'adm-zip';
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { BASELINE_META_FILE, type BaselineMeta, type BaselineProvenance } from './types.js';
+import {
+    BASELINE_META_FILE,
+    MAX_BASELINE_ARTIFACT_BYTES,
+    MAX_BASELINE_UNPACKED_BYTES,
+    type BaselineMeta,
+    type BaselineProvenance,
+} from './types.js';
 
 type Octokit = ReturnType<typeof getOctokit>;
 
@@ -190,7 +196,10 @@ async function resolveRemoteStrict(params: ResolveParams): Promise<ResolvedBasel
             created_at: artifact.created_at ?? '',
             label: spec.name,
         };
-        return { ...(await extractBaseline(octokit, owner, repo, artifact.id, workDir)), meta };
+        return {
+        ...(await extractBaseline(octokit, owner, repo, artifact.id, workDir, artifact.size_in_bytes)),
+        meta,
+    };
     }
 
     // Branch-run resolution (auto / branch=<name>): the last green run of THE SAME
@@ -239,7 +248,10 @@ async function resolveRemoteStrict(params: ResolveParams): Promise<ResolvedBasel
         branch,
         created_at: baseRun.created_at,
     };
-    return { ...(await extractBaseline(octokit, owner, repo, artifact.id, workDir)), meta };
+    return {
+        ...(await extractBaseline(octokit, owner, repo, artifact.id, workDir, artifact.size_in_bytes)),
+        meta,
+    };
 }
 
 // Extracts the baseline LOG plus the stamped provenance sidecar. The log entry is
@@ -252,15 +264,48 @@ async function extractBaseline(
     repo: string,
     artifactId: number,
     workDir: string,
+    artifactSize: number | undefined,
 ): Promise<{ logPath: string; outcomeToken: string }> {
+    // BOUND 1 — pre-download, on the METADATA, so oversized bytes never transfer. Mirrors the
+    // poster's pre-download gate rather than inventing a second shape.
+    if (artifactSize !== undefined && artifactSize > MAX_BASELINE_ARTIFACT_BYTES) {
+        throw new Error(
+            `baseline artifact ${artifactId} is ${artifactSize}B compressed, over the ` +
+                `${MAX_BASELINE_ARTIFACT_BYTES}B cap — refusing to download`,
+        );
+    }
+
     const download = await octokit.rest.actions.downloadArtifact({
         owner,
         repo,
         artifact_id: artifactId,
         archive_format: 'zip',
     });
-    const zip = new AdmZip(Buffer.from(download.data as ArrayBuffer));
+
+    // BOUND 2 — on the BYTES WE ACTUALLY GOT, before the parser sees them. Not redundant with
+    // bound 1: `size` is absent on some listings, and this is the gate that stands between a
+    // crafted archive and the allocation the advisory describes, which happens DURING parsing.
+    const raw = Buffer.from(download.data as ArrayBuffer);
+    if (raw.byteLength > MAX_BASELINE_ARTIFACT_BYTES) {
+        throw new Error(
+            `baseline artifact ${artifactId} downloaded ${raw.byteLength}B compressed, over the ` +
+                `${MAX_BASELINE_ARTIFACT_BYTES}B cap — refusing to parse`,
+        );
+    }
+
+    const zip = new AdmZip(raw);
     const files = zip.getEntries().filter((candidate) => !candidate.isDirectory);
+
+    // BOUND 3 — on the DECLARED UNPACKED TOTAL, before any `getData()` expands anything. The
+    // hazard is expansion ratio, so a compressed cap alone does not cover it: a small archive
+    // may declare an enormous unpacked size.
+    const unpacked = files.reduce((sum, candidate) => sum + (candidate.header?.size ?? 0), 0);
+    if (unpacked > MAX_BASELINE_UNPACKED_BYTES) {
+        throw new Error(
+            `baseline artifact ${artifactId} declares ${unpacked}B unpacked across ${files.length} ` +
+                `entries, over the ${MAX_BASELINE_UNPACKED_BYTES}B cap — refusing to extract`,
+        );
+    }
     const logEntry = files.find((candidate) => path.basename(candidate.entryName) !== BASELINE_META_FILE);
     if (!logEntry) {
         throw new Error(`baseline artifact ${artifactId} carries no log file`);

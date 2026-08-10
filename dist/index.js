@@ -62670,6 +62670,8 @@ var RENDERED_BODY_FILE = "comment-body.md";
 var RENDERED_META_FILE = "comment-meta.json";
 var MAX_RENDERED_ARTIFACT_BYTES = 1024 * 1024;
 var MAX_RENDERED_BODY_BYTES = 65536;
+var MAX_BASELINE_ARTIFACT_BYTES = 32 * 1024 * 1024;
+var MAX_BASELINE_UNPACKED_BYTES = 256 * 1024 * 1024;
 
 // src/baseline.ts
 function parseBaselineSpec(raw) {
@@ -62772,7 +62774,10 @@ async function resolveRemoteStrict(params) {
       created_at: artifact2.created_at ?? "",
       label: spec.name
     };
-    return { ...await extractBaseline(octokit, owner, repo, artifact2.id, workDir), meta: meta2 };
+    return {
+      ...await extractBaseline(octokit, owner, repo, artifact2.id, workDir, artifact2.size_in_bytes),
+      meta: meta2
+    };
   }
   const branch = spec.kind === "branch" ? spec.branch : contextBranch;
   const thisRun = await octokit.rest.actions.getWorkflowRun({ owner, repo, run_id: runId });
@@ -62813,17 +62818,37 @@ async function resolveRemoteStrict(params) {
     branch,
     created_at: baseRun.created_at
   };
-  return { ...await extractBaseline(octokit, owner, repo, artifact.id, workDir), meta };
+  return {
+    ...await extractBaseline(octokit, owner, repo, artifact.id, workDir, artifact.size_in_bytes),
+    meta
+  };
 }
-async function extractBaseline(octokit, owner, repo, artifactId, workDir) {
+async function extractBaseline(octokit, owner, repo, artifactId, workDir, artifactSize) {
+  if (artifactSize !== void 0 && artifactSize > MAX_BASELINE_ARTIFACT_BYTES) {
+    throw new Error(
+      `baseline artifact ${artifactId} is ${artifactSize}B compressed, over the ${MAX_BASELINE_ARTIFACT_BYTES}B cap \u2014 refusing to download`
+    );
+  }
   const download2 = await octokit.rest.actions.downloadArtifact({
     owner,
     repo,
     artifact_id: artifactId,
     archive_format: "zip"
   });
-  const zip = new import_adm_zip.default(Buffer.from(download2.data));
+  const raw = Buffer.from(download2.data);
+  if (raw.byteLength > MAX_BASELINE_ARTIFACT_BYTES) {
+    throw new Error(
+      `baseline artifact ${artifactId} downloaded ${raw.byteLength}B compressed, over the ${MAX_BASELINE_ARTIFACT_BYTES}B cap \u2014 refusing to parse`
+    );
+  }
+  const zip = new import_adm_zip.default(raw);
   const files = zip.getEntries().filter((candidate) => !candidate.isDirectory);
+  const unpacked = files.reduce((sum, candidate) => sum + (candidate.header?.size ?? 0), 0);
+  if (unpacked > MAX_BASELINE_UNPACKED_BYTES) {
+    throw new Error(
+      `baseline artifact ${artifactId} declares ${unpacked}B unpacked across ${files.length} entries, over the ${MAX_BASELINE_UNPACKED_BYTES}B cap \u2014 refusing to extract`
+    );
+  }
   const logEntry = files.find((candidate) => path.basename(candidate.entryName) !== BASELINE_META_FILE);
   if (!logEntry) {
     throw new Error(`baseline artifact ${artifactId} carries no log file`);

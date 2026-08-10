@@ -298,3 +298,84 @@ test('baselineAgeHours: whole floored hours from created_at; unknown stamp is NU
     assert.equal(baselineAgeHours('not-a-date', now), null);
     assert.equal(baselineAgeHours('2026-07-27T13:00:00Z', now), 0, 'clock skew clamps to 0, never negative');
 });
+
+// ── The baseline artifact's SIZE BOUNDS (GHSA: adm-zip <0.6.0, "crafted ZIP file
+// triggers 4GB memory allocation") ────────────────────────────────────────────────
+//
+// The baseline is a REPOSITORY ARTIFACT and artifacts are uploaded by workflow runs —
+// this Action's own documented pattern has a build job upload it. Where a consumer lets a
+// fork-triggered run publish under that name, those bytes are contributor-controlled and
+// reach the zip parser. These arms hold the three bounds to REJECTING; a bound that has
+// never rejected anything is decoration.
+//
+// Each must degrade to an honest cold start (null), never throw — the same contract the
+// 403 arms above enforce — and each rejects at a DIFFERENT stage, so a single bound
+// cannot satisfy all three.
+
+const bigRun = {
+    rest: {
+        actions: {
+            getWorkflowRun: async () => ({ data: { workflow_id: 7 } }),
+            listWorkflowRuns: async () => ({
+                data: {
+                    workflow_runs: [
+                        { id: 42, head_sha: 'abc', html_url: 'u', created_at: '2026-01-01T00:00:00Z' },
+                    ],
+                },
+            }),
+        },
+    },
+};
+
+function octokitWith(artifact: Record<string, unknown>, download: () => Promise<unknown>): unknown {
+    return {
+        rest: {
+            actions: {
+                ...bigRun.rest.actions,
+                listWorkflowRunArtifacts: async () => ({ data: { artifacts: [artifact] } }),
+                downloadArtifact: download,
+            },
+        },
+    };
+}
+
+const liveArtifact = (over: Record<string, unknown> = {}) => ({
+    id: 9,
+    name: 'sift-baseline-log',
+    expired: false,
+    created_at: '2026-01-01T00:00:00Z',
+    ...over,
+});
+
+test('BOUND 1: an oversized artifact is refused on METADATA — the bytes never transfer', async () => {
+    const octokit = octokitWith(
+        liveArtifact({ size_in_bytes: 64 * 1024 * 1024 }),
+        // Reaching the download at all means the pre-download gate did not fire.
+        async () => {
+            throw new Error('downloadArtifact was called despite the pre-download size gate');
+        },
+    );
+    assert.equal(await resolveBaseline(params(octokit)), null);
+});
+
+test('BOUND 2: oversized DOWNLOADED bytes are refused before the parser sees them', async () => {
+    // `size_in_bytes` absent — the metadata gate cannot fire, which is exactly why this
+    // second bound exists rather than being redundant with the first.
+    const octokit = octokitWith(liveArtifact(), async () => ({
+        data: new ArrayBuffer(33 * 1024 * 1024),
+    }));
+    assert.equal(await resolveBaseline(params(octokit)), null);
+});
+
+test('BOUND 1/2 admit a normal artifact — the caps do not reject everything (can-PASS)', async () => {
+    // A tiny buffer that is NOT a valid zip: it clears both size bounds and then fails in
+    // the parser. Proves the rejections above came from the SIZE gates, not from every
+    // input being refused — without this, all three arms would pass on a broken gate.
+    let parsed = false;
+    const octokit = octokitWith(liveArtifact({ size_in_bytes: 128 }), async () => {
+        parsed = true;
+        return { data: new ArrayBuffer(128) };
+    });
+    assert.equal(await resolveBaseline(params(octokit)), null);
+    assert.ok(parsed, 'a within-bounds artifact must reach the download/parse stage');
+});

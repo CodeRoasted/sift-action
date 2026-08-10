@@ -155,6 +155,31 @@ export const RENDERED_META_FILE = 'comment-meta.json';
 export const MAX_RENDERED_ARTIFACT_BYTES = 1024 * 1024; // 1 MiB, compressed (pre-download gate)
 export const MAX_RENDERED_BODY_BYTES = 65_536; // GitHub issue-comment hard limit (chars≈bytes)
 
+// Size bounds on the BASELINE artifact, which is a zip this Action parses and expands.
+//
+// WHY BOTH DIMENSIONS, and why the compressed one is not redundant: the hazard is
+// EXPANSION, not input size (GHSA — adm-zip <0.6.0, "crafted ZIP file triggers 4GB memory
+// allocation"). A cap on the download alone leaves that allocation reachable, because the
+// blow-up happens while PARSING; a cap on the unpacked total alone is applied too late, for
+// the same reason. So the compressed bound gates BEFORE `new AdmZip(...)` and the unpacked
+// bound gates BEFORE any `getData()`.
+//
+// WHY IT IS NOT MERELY A DEPENDENCY BUMP: this is the property the advisory is about, it is
+// version-independent, and it keeps holding if a future extractor regresses. The version bump
+// is a separate, semver-major change; this bound is what protects a consumer meanwhile.
+//
+// WHY THE INPUT IS UNTRUSTED: the baseline is a REPOSITORY ARTIFACT, and artifacts are uploaded
+// by workflow runs — this Action's own documented pattern has a build job upload it. Where a
+// consumer's configuration lets a fork-triggered run publish under that name, the bytes are
+// contributor-controlled and reach the parser.
+//
+// The numbers are capacities, not thresholds: every overflow REFUSES the artifact and degrades
+// to an honest cold start, so no verdict can be tuned by moving them. Sized far above any real
+// CI log (the collector's GHA corpus averages ~0.5 MB/log, worst case tens of MB) and far below
+// the allocation the advisory describes.
+export const MAX_BASELINE_ARTIFACT_BYTES = 32 * 1024 * 1024; // 32 MiB, COMPRESSED — gates the parse
+export const MAX_BASELINE_UNPACKED_BYTES = 256 * 1024 * 1024; // 256 MiB, DECOMPRESSED — gates extraction
+
 // Provenance the build job stamps into the artifact meta. `head_sha` is
 // cross-checked against the trusted `workflow_run` event head_sha (defence in
 // depth); it is NEVER the source of `pr_number`.
