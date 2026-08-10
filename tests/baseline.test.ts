@@ -145,8 +145,13 @@ function baselineZip(content: string, outcomeToken?: string): { data: ArrayBuffe
             Buffer.from(JSON.stringify({ context_version: '0.2.0', outcome_token: outcomeToken }), 'utf8'),
         );
     }
+    // `Buffer.buffer` is `ArrayBufferLike`, so slicing it yields `ArrayBuffer | SharedArrayBuffer`
+    // — adm-zip 0.6.0's own types surface that honestly where the 0.5.x DefinitelyTyped stub did
+    // not. Copy into a fresh ArrayBuffer instead of asserting the union away: this is the shape
+    // octokit's `downloadArtifact` actually returns, and a cast here would hide the one place the
+    // test fixture and the production payload could drift apart.
     const buffer = zip.toBuffer();
-    return { data: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) };
+    return { data: Uint8Array.from(buffer).buffer };
 }
 
 test('artifact=<name>: newest live artifact resolves repo-wide; expired + own-run artifacts are skipped', async () => {
