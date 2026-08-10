@@ -1935,7 +1935,11 @@ var require_request = __commonJS({
           } else if (typeof val[i] === "object") {
             throw new InvalidArgumentError(`invalid ${key} header`);
           } else {
-            arr.push(`${val[i]}`);
+            const str = `${val[i]}`;
+            if (!isValidHeaderValue(str)) {
+              throw new InvalidArgumentError(`invalid ${key} header`);
+            }
+            arr.push(str);
           }
         }
         val = arr;
@@ -1947,6 +1951,9 @@ var require_request = __commonJS({
         val = "";
       } else {
         val = `${val}`;
+        if (!isValidHeaderValue(val)) {
+          throw new InvalidArgumentError(`invalid ${key} header`);
+        }
       }
       if (headerName === "host") {
         if (request2.host !== null) {
@@ -5677,6 +5684,7 @@ var require_client_h1 = __commonJS({
       RequestContentLengthMismatchError,
       ResponseContentLengthMismatchError,
       RequestAbortedError,
+      InvalidArgumentError,
       HeadersTimeoutError,
       HeadersOverflowError,
       SocketError,
@@ -6403,8 +6411,16 @@ var require_client_h1 = __commonJS({
         }
         body3 = bodyStream.stream;
         contentLength2 = bodyStream.length;
-      } else if (util3.isBlobLike(body3) && request2.contentType == null && body3.type) {
-        headers.push("content-type", body3.type);
+      } else if (util3.isBlobLike(body3) && request2.contentType == null) {
+        const contentType2 = body3.type;
+        if (contentType2) {
+          const contentTypeValue = `${contentType2}`;
+          if (!util3.isValidHeaderValue(contentTypeValue)) {
+            util3.errorRequest(client2, request2, new InvalidArgumentError("invalid content-type header"));
+            return false;
+          }
+          headers.push("content-type", contentTypeValue);
+        }
       }
       if (body3 && typeof body3.read === "function") {
         body3.read(0);
@@ -8956,6 +8972,24 @@ var require_retry_handler = __commonJS({
       const current = Date.now();
       return new Date(retryAfter).getTime() - current;
     }
+    function validatePartialResponseContentLength(headers, range2, statusCode, retryCount) {
+      const contentLength2 = headers["content-length"];
+      if (contentLength2 == null) {
+        return null;
+      }
+      if (!Number.isFinite(range2.start) || !Number.isFinite(range2.end)) {
+        return null;
+      }
+      const length = Number(contentLength2);
+      const expectedLength = range2.end - range2.start + 1;
+      if (!Number.isFinite(length) || length !== expectedLength) {
+        return new RequestRetryError("Content-Length mismatch", statusCode, {
+          headers,
+          data: { count: retryCount }
+        });
+      }
+      return null;
+    }
     var RetryHandler = class _RetryHandler {
       constructor(opts, handlers) {
         const { retryOptions, ...dispatchOpts } = opts;
@@ -9128,6 +9162,11 @@ var require_retry_handler = __commonJS({
             );
             return false;
           }
+          const contentLengthError = validatePartialResponseContentLength(headers, contentRange, statusCode, this.retryCount);
+          if (contentLengthError != null) {
+            this.abort(contentLengthError);
+            return false;
+          }
           const { start, size, end = size - 1 } = contentRange;
           assert(this.start === start, "content-range mismatch");
           assert(this.end == null || this.end === end, "content-range mismatch");
@@ -9144,6 +9183,11 @@ var require_retry_handler = __commonJS({
                 resume,
                 statusMessage
               );
+            }
+            const contentLengthError = validatePartialResponseContentLength(headers, range2, statusCode, this.retryCount);
+            if (contentLengthError != null) {
+              this.abort(contentLengthError);
+              return false;
             }
             const { start, size, end = size - 1 } = range2;
             assert(
@@ -15990,14 +16034,48 @@ var require_util6 = __commonJS({
       for (let i = 0; i < path9.length; ++i) {
         const code = path9.charCodeAt(i);
         if (code < 32 || // exclude CTLs (0-31)
-        code === 127 || // DEL
+        code > 126 || // exclude DEL and non-ascii
         code === 59) {
           throw new Error("Invalid cookie path");
         }
       }
     }
+    function isLetterOrDigit(code) {
+      return code >= 48 && code <= 57 || // 0-9
+      code >= 65 && code <= 90 || // A-Z
+      code >= 97 && code <= 122;
+    }
     function validateCookieDomain(domain) {
-      if (domain.startsWith("-") || domain.endsWith(".") || domain.endsWith("-")) {
+      if (domain === " ") {
+        return;
+      }
+      if (domain.length > 255) {
+        throw new Error("Invalid cookie domain");
+      }
+      let labelLength = 0;
+      for (let i = 0; i < domain.length; ++i) {
+        const code = domain.charCodeAt(i);
+        if (code === 46) {
+          if (labelLength === 0) {
+            throw new Error("Invalid cookie domain");
+          }
+          if (domain.charCodeAt(i - 1) === 45) {
+            throw new Error("Invalid cookie domain");
+          }
+          labelLength = 0;
+          continue;
+        }
+        if (labelLength === 0 && !isLetterOrDigit(code)) {
+          throw new Error("Invalid cookie domain");
+        }
+        if (!isLetterOrDigit(code) && code !== 45) {
+          throw new Error("Invalid cookie domain");
+        }
+        if (++labelLength > 63) {
+          throw new Error("Invalid cookie domain");
+        }
+      }
+      if (labelLength === 0 || domain.charCodeAt(domain.length - 1) === 45) {
         throw new Error("Invalid cookie domain");
       }
     }
@@ -16080,7 +16158,11 @@ var require_util6 = __commonJS({
           throw new Error("Invalid unparsed");
         }
         const [key, ...value] = part.split("=");
-        out.push(`${key.trim()}=${value.join("=")}`);
+        const trimmedKey = key.trim();
+        const joinedValue = value.join("=");
+        validateCookieName(trimmedKey);
+        validateCookieValue(joinedValue);
+        out.push(`${trimmedKey}=${joinedValue}`);
       }
       return out.join("; ");
     }
@@ -20163,7 +20245,7 @@ var require_utils2 = __commonJS({
       var parts = name.split("/");
       for (var i = 0, l = parts.length; i < l; i++) {
         var path9 = pth.normalize(pth.join(prefix2, parts.slice(i, l).join(pth.sep)));
-        if (path9.indexOf(prefix2) === 0) {
+        if (path9 === prefix2 || path9.startsWith(prefix2 + pth.sep)) {
           return path9;
         }
       }
@@ -20182,6 +20264,12 @@ var require_utils2 = __commonJS({
       const lo = buffer2.readUInt32LE(index);
       const hi = buffer2.readUInt32LE(index + 4);
       return hi * 4294967296 + lo;
+    };
+    Utils.writeBigUInt64LE = function(buffer2, value, index) {
+      const lo = value >>> 0;
+      const hi = Math.floor(value / 4294967296) >>> 0;
+      buffer2.writeUInt32LE(lo, index);
+      buffer2.writeUInt32LE(hi, index + 4);
     };
     Utils.fromDOS2Date = function(val) {
       return new Date((val >> 25 & 127) + 1980, Math.max((val >> 21 & 15) - 1, 0), Math.max(val >> 16 & 31, 1), val >> 11 & 31, val >> 5 & 63, (val & 31) << 1);
@@ -20353,6 +20441,7 @@ var require_entryHeader = __commonJS({
           switch (val) {
             case Constants2.STORED:
               this.version = 10;
+              break;
             case Constants2.DEFLATED:
             default:
               this.version = 20;
@@ -20500,7 +20589,7 @@ var require_entryHeader = __commonJS({
           var data = Buffer.alloc(Constants2.LOCHDR);
           data.writeUInt32LE(Constants2.LOCSIG, 0);
           data.writeUInt16LE(_version, Constants2.LOCVER);
-          data.writeUInt16LE(_flags, Constants2.LOCFLG);
+          data.writeUInt16LE(_flags & ~Constants2.FLG_DESC, Constants2.LOCFLG);
           data.writeUInt16LE(_method, Constants2.LOCHOW);
           data.writeUInt32LE(_time, Constants2.LOCTIM);
           data.writeUInt32LE(_crc, Constants2.LOCCRC);
@@ -20515,7 +20604,7 @@ var require_entryHeader = __commonJS({
           data.writeUInt32LE(Constants2.CENSIG, 0);
           data.writeUInt16LE(_verMade, Constants2.CENVEM);
           data.writeUInt16LE(_version, Constants2.CENVER);
-          data.writeUInt16LE(_flags, Constants2.CENFLG);
+          data.writeUInt16LE(_flags & ~Constants2.FLG_DESC, Constants2.CENFLG);
           data.writeUInt16LE(_method, Constants2.CENHOW);
           data.writeUInt32LE(_time, Constants2.CENTIM);
           data.writeUInt32LE(_crc, Constants2.CENCRC);
@@ -20568,6 +20657,7 @@ var require_mainHeader = __commonJS({
     var Constants2 = Utils.Constants;
     module.exports = function() {
       var _volumeEntries = 0, _totalEntries = 0, _size = 0, _offset = 0, _commentLength = 0;
+      const needsZip64 = () => _volumeEntries > Constants2.EF_ZIP64_OR_16 || _totalEntries > Constants2.EF_ZIP64_OR_16 || _size > Constants2.EF_ZIP64_OR_32 || _offset > Constants2.EF_ZIP64_OR_32;
       return {
         get diskEntries() {
           return _volumeEntries;
@@ -20600,7 +20690,7 @@ var require_mainHeader = __commonJS({
           _commentLength = val;
         },
         get mainHeaderSize() {
-          return Constants2.ENDHDR + _commentLength;
+          return (needsZip64() ? Constants2.ZIP64HDR + Constants2.END64HDR : 0) + Constants2.ENDHDR + _commentLength;
         },
         loadFromBinary: function(data) {
           if ((data.length !== Constants2.ENDHDR || data.readUInt32LE(0) !== Constants2.ENDSIG) && (data.length < Constants2.ZIP64HDR || data.readUInt32LE(0) !== Constants2.ZIP64SIG)) {
@@ -20615,21 +20705,51 @@ var require_mainHeader = __commonJS({
           } else {
             _volumeEntries = Utils.readBigUInt64LE(data, Constants2.ZIP64SUB);
             _totalEntries = Utils.readBigUInt64LE(data, Constants2.ZIP64TOT);
-            _size = Utils.readBigUInt64LE(data, Constants2.ZIP64SIZE);
+            _size = Utils.readBigUInt64LE(data, Constants2.ZIP64SIZB);
             _offset = Utils.readBigUInt64LE(data, Constants2.ZIP64OFF);
             _commentLength = 0;
           }
         },
         toBinary: function() {
-          var b = Buffer.alloc(Constants2.ENDHDR + _commentLength);
-          b.writeUInt32LE(Constants2.ENDSIG, 0);
-          b.writeUInt32LE(0, 4);
-          b.writeUInt16LE(_volumeEntries, Constants2.ENDSUB);
-          b.writeUInt16LE(_totalEntries, Constants2.ENDTOT);
-          b.writeUInt32LE(_size, Constants2.ENDSIZ);
-          b.writeUInt32LE(_offset, Constants2.ENDOFF);
-          b.writeUInt16LE(_commentLength, Constants2.ENDCOM);
-          b.fill(" ", Constants2.ENDHDR);
+          if (!needsZip64()) {
+            var b = Buffer.alloc(Constants2.ENDHDR + _commentLength);
+            b.writeUInt32LE(Constants2.ENDSIG, 0);
+            b.writeUInt32LE(0, 4);
+            b.writeUInt16LE(_volumeEntries, Constants2.ENDSUB);
+            b.writeUInt16LE(_totalEntries, Constants2.ENDTOT);
+            b.writeUInt32LE(_size, Constants2.ENDSIZ);
+            b.writeUInt32LE(_offset, Constants2.ENDOFF);
+            b.writeUInt16LE(_commentLength, Constants2.ENDCOM);
+            b.fill(" ", Constants2.ENDHDR);
+            return b;
+          }
+          var b = Buffer.alloc(this.mainHeaderSize);
+          let offset = 0;
+          b.writeUInt32LE(Constants2.ZIP64SIG, offset);
+          Utils.writeBigUInt64LE(b, Constants2.ZIP64HDR - Constants2.ZIP64LEAD, offset + Constants2.ZIP64SIZE);
+          b.writeUInt16LE(45, offset + Constants2.ZIP64VEM);
+          b.writeUInt16LE(45, offset + Constants2.ZIP64VER);
+          b.writeUInt32LE(0, offset + Constants2.ZIP64DSK);
+          b.writeUInt32LE(0, offset + Constants2.ZIP64DSKDIR);
+          Utils.writeBigUInt64LE(b, _volumeEntries, offset + Constants2.ZIP64SUB);
+          Utils.writeBigUInt64LE(b, _totalEntries, offset + Constants2.ZIP64TOT);
+          Utils.writeBigUInt64LE(b, _size, offset + Constants2.ZIP64SIZB);
+          Utils.writeBigUInt64LE(b, _offset, offset + Constants2.ZIP64OFF);
+          const zip64EndOffset = _offset + _size;
+          offset += Constants2.ZIP64HDR;
+          b.writeUInt32LE(Constants2.END64SIG, offset);
+          b.writeUInt32LE(0, offset + Constants2.END64START);
+          Utils.writeBigUInt64LE(b, zip64EndOffset, offset + Constants2.END64OFF);
+          b.writeUInt32LE(1, offset + Constants2.END64NUMDISKS);
+          offset += Constants2.END64HDR;
+          b.writeUInt32LE(Constants2.ENDSIG, offset);
+          b.writeUInt32LE(0, offset + 4);
+          b.writeUInt16LE(Math.min(_volumeEntries, Constants2.EF_ZIP64_OR_16), offset + Constants2.ENDSUB);
+          b.writeUInt16LE(Math.min(_totalEntries, Constants2.EF_ZIP64_OR_16), offset + Constants2.ENDTOT);
+          b.writeUInt32LE(Math.min(_size, Constants2.EF_ZIP64_OR_32), offset + Constants2.ENDSIZ);
+          b.writeUInt32LE(Math.min(_offset, Constants2.EF_ZIP64_OR_32), offset + Constants2.ENDOFF);
+          b.writeUInt16LE(_commentLength, offset + Constants2.ENDCOM);
+          b.fill(" ", offset + Constants2.ENDHDR);
           return b;
         },
         toJSON: function() {
@@ -20698,7 +20818,7 @@ var require_deflater = __commonJS({
 // node_modules/adm-zip/methods/inflater.js
 var require_inflater = __commonJS({
   "node_modules/adm-zip/methods/inflater.js"(exports2, module) {
-    var version3 = +(process.versions ? process.versions.node : "").split(".")[0] || 0;
+    var version3 = +(process?.versions?.node ?? "").split(".")[0] || 0;
     module.exports = function(inbuf, expectedLength) {
       var zlib2 = __require("zlib");
       const option = version3 >= 15 && expectedLength > 0 ? { maxOutputLength: expectedLength } : {};
@@ -21457,7 +21577,7 @@ var require_zipFile = __commonJS({
           }
           const mh = mainHeader.toBinary();
           if (_comment) {
-            _comment.copy(mh, Utils.Constants.ENDHDR);
+            _comment.copy(mh, mh.length - _comment.length);
           }
           mh.copy(outBuffer, dindex);
           inBuffer = outBuffer;
@@ -21513,7 +21633,7 @@ var require_zipFile = __commonJS({
                 });
                 const mh = mainHeader.toBinary();
                 if (_comment) {
-                  _comment.copy(mh, Utils.Constants.ENDHDR);
+                  _comment.copy(mh, mh.length - _comment.length);
                 }
                 mh.copy(outBuffer, dindex);
                 inBuffer = outBuffer;
@@ -21698,6 +21818,7 @@ var require_adm_zip = __commonJS({
          * Remove the entry from the file or the entry and all it's nested directories and files if the given entry is a directory
          *
          * @param {ZipEntry|string} entry
+         * @param {boolean} withsubfolders
          * @returns {void}
          */
         deleteFile: function(entry, withsubfolders = true) {
@@ -21780,17 +21901,17 @@ var require_adm_zip = __commonJS({
          * @param {string} [zipName] Optional name for the file
          * @param {string} [comment] Optional file comment
          */
-        addLocalFile: function(localPath2, zipPath, zipName, comment) {
-          if (filetools.fs.existsSync(localPath2)) {
+        addLocalFile: function(localPath, zipPath, zipName, comment) {
+          if (filetools.fs.existsSync(localPath)) {
             zipPath = zipPath ? fixPath(zipPath) : "";
-            const p = pth.win32.basename(pth.win32.normalize(localPath2));
+            const p = pth.win32.basename(pth.win32.normalize(localPath));
             zipPath += zipName ? zipName : p;
-            const _attr = filetools.fs.statSync(localPath2);
-            const data = _attr.isFile() ? filetools.fs.readFileSync(localPath2) : Buffer.alloc(0);
+            const _attr = filetools.fs.statSync(localPath);
+            const data = _attr.isFile() ? filetools.fs.readFileSync(localPath) : Buffer.alloc(0);
             if (_attr.isDirectory()) zipPath += filetools.sep;
             this.addFile(zipPath, data, comment, _attr);
           } else {
-            throw Utils.Errors.FILE_NOT_FOUND(localPath2);
+            throw Utils.Errors.FILE_NOT_FOUND(localPath);
           }
         },
         /**
@@ -21812,17 +21933,17 @@ var require_adm_zip = __commonJS({
          */
         addLocalFileAsync: function(options2, callback) {
           options2 = typeof options2 === "object" ? options2 : { localPath: options2 };
-          const localPath2 = pth.resolve(options2.localPath);
+          const localPath = pth.resolve(options2.localPath);
           const { comment } = options2;
           let { zipPath, zipName } = options2;
           const self2 = this;
-          filetools.fs.stat(localPath2, function(err, stats) {
+          filetools.fs.stat(localPath, function(err, stats) {
             if (err) return callback(err, false);
             zipPath = zipPath ? fixPath(zipPath) : "";
-            const p = pth.win32.basename(pth.win32.normalize(localPath2));
+            const p = pth.win32.basename(pth.win32.normalize(localPath));
             zipPath += zipName ? zipName : p;
             if (stats.isFile()) {
-              filetools.fs.readFile(localPath2, function(err2, data) {
+              filetools.fs.readFile(localPath, function(err2, data) {
                 if (err2) return callback(err2, false);
                 self2.addFile(zipPath, data, comment, stats);
                 return setImmediate(callback, void 0, true);
@@ -21841,23 +21962,23 @@ var require_adm_zip = __commonJS({
          * @param {string} [zipPath] - optional path inside zip
          * @param {(RegExp|function)} [filter] - optional RegExp or Function if files match will be included.
          */
-        addLocalFolder: function(localPath2, zipPath, filter) {
+        addLocalFolder: function(localPath, zipPath, filter) {
           filter = filenameFilter(filter);
           zipPath = zipPath ? fixPath(zipPath) : "";
-          localPath2 = pth.normalize(localPath2);
-          if (filetools.fs.existsSync(localPath2)) {
-            const items = filetools.findFiles(localPath2);
+          localPath = pth.normalize(localPath);
+          if (filetools.fs.existsSync(localPath)) {
+            const items = filetools.findFiles(localPath);
             const self2 = this;
             if (items.length) {
               for (const filepath of items) {
-                const p = pth.join(zipPath, relativePath(localPath2, filepath));
+                const p = pth.join(zipPath, relativePath(localPath, filepath));
                 if (filter(p)) {
                   self2.addLocalFile(filepath, pth.dirname(p));
                 }
               }
             }
           } else {
-            throw Utils.Errors.FILE_NOT_FOUND(localPath2);
+            throw Utils.Errors.FILE_NOT_FOUND(localPath);
           }
         },
         /**
@@ -21868,24 +21989,24 @@ var require_adm_zip = __commonJS({
          * @param {RegExp|function} [filter] optional RegExp or Function if files match will
          *               be included.
          */
-        addLocalFolderAsync: function(localPath2, callback, zipPath, filter) {
+        addLocalFolderAsync: function(localPath, callback, zipPath, filter) {
           filter = filenameFilter(filter);
           zipPath = zipPath ? fixPath(zipPath) : "";
-          localPath2 = pth.normalize(localPath2);
+          localPath = pth.normalize(localPath);
           var self2 = this;
-          filetools.fs.open(localPath2, "r", function(err) {
+          filetools.fs.open(localPath, "r", function(err) {
             if (err && err.code === "ENOENT") {
-              callback(void 0, Utils.Errors.FILE_NOT_FOUND(localPath2));
+              callback(void 0, Utils.Errors.FILE_NOT_FOUND(localPath));
             } else if (err) {
               callback(void 0, err);
             } else {
-              var items = filetools.findFiles(localPath2);
+              var items = filetools.findFiles(localPath);
               var i = -1;
               var next = function() {
                 i += 1;
                 if (i < items.length) {
                   var filepath = items[i];
-                  var p = relativePath(localPath2, filepath).split("\\").join("/");
+                  var p = relativePath(localPath, filepath).split("\\").join("/");
                   p = p.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7E]/g, "");
                   if (filter(p)) {
                     filetools.fs.stat(filepath, function(er0, stats) {
@@ -21931,7 +22052,7 @@ var require_adm_zip = __commonJS({
         addLocalFolderAsync2: function(options2, callback) {
           const self2 = this;
           options2 = typeof options2 === "object" ? options2 : { localPath: options2 };
-          localPath = pth.resolve(fixPath(options2.localPath));
+          const localPath = pth.resolve(fixPath(options2.localPath));
           let { zipPath, filter, namefix } = options2;
           if (filter instanceof RegExp) {
             filter = /* @__PURE__ */ function(rx) {
@@ -21945,7 +22066,7 @@ var require_adm_zip = __commonJS({
             };
           }
           zipPath = zipPath ? fixPath(zipPath) : "";
-          if (namefix == "latin1") {
+          if (namefix === "latin1") {
             namefix = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7E]/g, "");
           }
           if (typeof namefix !== "function") namefix = (str) => str;
@@ -21989,9 +22110,9 @@ var require_adm_zip = __commonJS({
          * @param {RegExp|function} [props.filter] - optional RegExp or Function if files match will be included.
          * @param {function|string} [props.namefix] - optional function to help fix filename
          */
-        addLocalFolderPromise: function(localPath2, props) {
+        addLocalFolderPromise: function(localPath, props) {
           return new Promise((resolve2, reject) => {
-            this.addLocalFolderAsync2(Object.assign({ localPath: localPath2 }, props), (err, done) => {
+            this.addLocalFolderAsync2(Object.assign({ localPath }, props), (err, done) => {
               if (err) reject(err);
               if (done) resolve2(this);
             });
@@ -22083,7 +22204,7 @@ var require_adm_zip = __commonJS({
             throw Utils.Errors.NO_ENTRY();
           }
           var entryName = canonical(item.entryName);
-          var target = sanitize(targetPath, outFileName && !item.isDirectory ? outFileName : maintainEntryPath ? entryName : pth.basename(entryName));
+          var target = sanitize(targetPath, outFileName && !item.isDirectory ? canonical(outFileName) : maintainEntryPath ? entryName : pth.basename(entryName));
           if (item.isDirectory) {
             var children = _zip.getEntryChildren(item);
             children.forEach(function(child) {
@@ -22116,7 +22237,7 @@ var require_adm_zip = __commonJS({
           if (!_zip) {
             return false;
           }
-          for (var entry in _zip.entries) {
+          for (var entry of _zip.entries) {
             try {
               if (entry.isDirectory) {
                 continue;
@@ -27987,6 +28108,8 @@ var require_brace_expansion = __commonJS({
     var escClose = "\0CLOSE" + Math.random() + "\0";
     var escComma = "\0COMMA" + Math.random() + "\0";
     var escPeriod = "\0PERIOD" + Math.random() + "\0";
+    var EXPANSION_MAX = 1e5;
+    var EXPANSION_MAX_LENGTH = 4e6;
     function numeric(str) {
       return parseInt(str, 10) == str ? parseInt(str, 10) : str.charCodeAt(0);
     }
@@ -28020,11 +28143,12 @@ var require_brace_expansion = __commonJS({
       if (!str)
         return [];
       options = options || {};
-      var max = options.max == null ? Infinity : options.max;
+      var max = options.max == null ? EXPANSION_MAX : options.max;
+      var maxLength = options.maxLength == null ? EXPANSION_MAX_LENGTH : options.maxLength;
       if (str.substr(0, 2) === "{}") {
         str = "\\{\\}" + str.substr(2);
       }
-      return expand2(escapeBraces(str), max, true).map(unescapeBraces);
+      return expand2(escapeBraces(str), max, maxLength, true).map(unescapeBraces);
     }
     function embrace(str) {
       return "{" + str + "}";
@@ -28038,18 +28162,90 @@ var require_brace_expansion = __commonJS({
     function gte(i, y) {
       return i >= y;
     }
-    function expand2(str, max, isTop) {
-      var expansions = [];
-      var m = balanced("{", "}", str);
-      if (!m) return [str];
-      var pre = m.pre;
-      var post = m.post.length ? expand2(m.post, max, false) : [""];
-      if (/\$$/.test(m.pre)) {
-        for (var k = 0; k < post.length && k < max; k++) {
-          var expansion = pre + "{" + m.body + "}" + post[k];
-          expansions.push(expansion);
+    function combine(acc, pre, values, max, maxLength, dropEmpties) {
+      var out = [];
+      var length = 0;
+      for (var a = 0; a < acc.length; a++) {
+        for (var v = 0; v < values.length; v++) {
+          if (out.length >= max) return out;
+          var expansion = acc[a] + pre + values[v];
+          if (dropEmpties && !expansion) continue;
+          if (length + expansion.length > maxLength) return out;
+          out.push(expansion);
+          length += expansion.length;
         }
-      } else {
+      }
+      return out;
+    }
+    function expandSequence(body3, isAlphaSequence, max, maxLength) {
+      var n = body3.split(/\.\./);
+      var N = [];
+      if (n[0] === void 0 || n[1] === void 0) {
+        return N;
+      }
+      var x = numeric(n[0]);
+      var y = numeric(n[1]);
+      var width = Math.max(n[0].length, n[1].length);
+      var incr = n.length === 3 && n[2] !== void 0 ? Math.max(Math.abs(numeric(n[2])), 1) : 1;
+      var test = lte;
+      var reverse = y < x;
+      if (reverse) {
+        incr *= -1;
+        test = gte;
+      }
+      var pad = n.some(isPadded);
+      var length = 0;
+      for (var i = x; test(i, y) && N.length < max; i += incr) {
+        var c;
+        if (isAlphaSequence) {
+          c = String.fromCharCode(i);
+          if (c === "\\") {
+            c = "";
+          }
+        } else {
+          c = String(i);
+          if (pad) {
+            var need = width - c.length;
+            if (need > 0) {
+              var z = new Array(need + 1).join("0");
+              if (i < 0) {
+                c = "-" + z + c.slice(1);
+              } else {
+                c = z + c;
+              }
+            }
+          }
+        }
+        if (length + c.length > maxLength) break;
+        N.push(c);
+        length += c.length;
+      }
+      return N;
+    }
+    function expand2(str, max, maxLength, isTop) {
+      var acc = [""];
+      var dropEmpties = false;
+      var firstGroup = true;
+      for (; ; ) {
+        const m = balanced("{", "}", str);
+        if (!m) {
+          return combine(acc, str, [""], max, maxLength, dropEmpties);
+        }
+        const pre = m.pre;
+        if (/\$$/.test(pre)) {
+          acc = combine(
+            acc,
+            pre + "{" + m.body + "}",
+            [""],
+            max,
+            maxLength,
+            dropEmpties && !m.post.length
+          );
+          firstGroup = false;
+          if (!m.post.length) break;
+          str = m.post;
+          continue;
+        }
         var isNumericSequence = /^-?\d+\.\.-?\d+(?:\.\.-?\d+)?$/.test(m.body);
         var isAlphaSequence = /^[a-zA-Z]\.\.[a-zA-Z](?:\.\.-?\d+)?$/.test(m.body);
         var isSequence = isNumericSequence || isAlphaSequence;
@@ -28057,74 +28253,69 @@ var require_brace_expansion = __commonJS({
         if (!isSequence && !isOptions) {
           if (m.post.match(/,(?!,).*\}/)) {
             str = m.pre + "{" + m.body + escClose + m.post;
-            return expand2(str, max, true);
+            isTop = true;
+            continue;
           }
-          return [str];
+          return combine(
+            acc,
+            pre + "{" + m.body + "}" + m.post,
+            [""],
+            max,
+            maxLength,
+            dropEmpties
+          );
         }
-        var n;
+        if (firstGroup) {
+          dropEmpties = isTop && !isSequence;
+          firstGroup = false;
+        }
+        var values;
         if (isSequence) {
-          n = m.body.split(/\.\./);
+          values = expandSequence(m.body, isAlphaSequence, max, maxLength);
         } else {
-          n = parseCommaParts(m.body);
-          if (n.length === 1) {
-            n = expand2(n[0], max, false).map(embrace);
+          var n = parseCommaParts(m.body);
+          if (n.length === 1 && n[0] !== void 0) {
+            n = expand2(n[0], max, maxLength, false).map(embrace);
             if (n.length === 1) {
-              return post.map(function(p) {
-                return m.pre + n[0] + p;
-              });
+              acc = combine(
+                acc,
+                pre + n[0],
+                [""],
+                max,
+                maxLength,
+                dropEmpties && !m.post.length
+              );
+              if (!m.post.length) break;
+              str = m.post;
+              continue;
             }
           }
-        }
-        var N;
-        if (isSequence) {
-          var x = numeric(n[0]);
-          var y = numeric(n[1]);
-          var width = Math.max(n[0].length, n[1].length);
-          var incr = n.length == 3 ? Math.max(Math.abs(numeric(n[2])), 1) : 1;
-          var test = lte;
-          var reverse = y < x;
-          if (reverse) {
-            incr *= -1;
-            test = gte;
+          var dropsEmpties = dropEmpties && !m.post.length && !pre;
+          for (var d = 0; dropsEmpties && d < acc.length; d++) {
+            if (acc[d]) {
+              dropsEmpties = false;
+            }
           }
-          var pad = n.some(isPadded);
-          N = [];
-          for (var i = x; test(i, y) && N.length < max; i += incr) {
-            var c;
-            if (isAlphaSequence) {
-              c = String.fromCharCode(i);
-              if (c === "\\")
-                c = "";
-            } else {
-              c = String(i);
-              if (pad) {
-                var need = width - c.length;
-                if (need > 0) {
-                  var z = new Array(need + 1).join("0");
-                  if (i < 0)
-                    c = "-" + z + c.slice(1);
-                  else
-                    c = z + c;
-                }
+          values = [];
+          var valuesLength = 0;
+          outer: for (var j = 0; j < n.length; j++) {
+            var expanded = expand2(n[j], max, maxLength, false);
+            for (var k = 0; k < expanded.length; k++) {
+              var v = expanded[k];
+              if (dropsEmpties && !v) continue;
+              if (values.length >= max || valuesLength + v.length > maxLength) {
+                break outer;
               }
+              values.push(v);
+              valuesLength += v.length;
             }
-            N.push(c);
-          }
-        } else {
-          N = [];
-          for (var j = 0; j < n.length; j++) {
-            N.push.apply(N, expand2(n[j], max, false));
           }
         }
-        for (var j = 0; j < N.length; j++) {
-          for (var k = 0; k < post.length && expansions.length < max; k++) {
-            var expansion = pre + N[j] + post[k];
-            if (!isTop || isSequence || expansion)
-              expansions.push(expansion);
-          }
-        }
+        acc = combine(acc, pre, values, max, maxLength, dropEmpties && !m.post.length);
+        if (!m.post.length) break;
+        str = m.post;
       }
-      return expansions;
+      return acc;
     }
   }
 });

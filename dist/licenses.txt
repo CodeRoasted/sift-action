@@ -1011,7 +1011,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-adm-zip@0.5.17
+adm-zip@0.5.18
 ==============================================================================
 MIT License
 
@@ -1601,7 +1601,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-brace-expansion@2.1.1
+brace-expansion@2.1.4
 ==============================================================================
 MIT License
 
@@ -3517,7 +3517,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ==============================================================================
-undici@6.27.0
+undici@6.28.0
 ==============================================================================
 MIT License
 
