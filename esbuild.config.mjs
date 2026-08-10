@@ -8,6 +8,30 @@
 //   • the dist/licenses.txt compliance artifact (the bundled deps' license texts) is
 //     regenerated here from the production dependency tree — esbuild's --legal-comments
 //     only extracts inline banners, not full texts, so we walk node_modules ourselves.
+// ── ACCEPTED ADVISORY, argued rather than suppressed (re-read this before re-reporting it) ──
+//
+// `npm audit` reports esbuild <=0.24.2 MODERATE — GHSA-67mh-4wv8-2f99, "esbuild enables any
+// website to send any requests to the development server and read the response". It is left
+// UNFIXED, deliberately, and the argument is about REACHABILITY rather than severity:
+//
+//   • the advisory is entirely about esbuild's DEV SERVER (`serve()` / `--serve`). This file
+//     imports exactly one esbuild symbol, `build`, calls it once and exits. `serve` is never
+//     imported, so the vulnerable surface cannot be instantiated.
+//   • esbuild is a devDependency ONLY — `package.json` has it under `devDependencies` and NOT
+//     under `dependencies`, which is the structural fact; it builds `dist/index.js` and never
+//     runs on a consumer's runner. (Do not try to confirm that by grepping the artifacts: the
+//     `esbuild` string DOES occur in both, as this generator's header line in
+//     `dist/licenses.txt` and as undici's `esbuildDetection` feature probe in `dist/index.js`.
+//     Neither is an esbuild licence block or an esbuild import — a grep here yields false
+//     positives, which is why the dependency-section fact is the one cited.)
+//   • the fix is esbuild 0.28.2, a SEMVER-MAJOR bump of the tool that produces the shipped
+//     bundle. Taking a major on the bundler to close a dev-server issue we do not have would
+//     move the artifact every consumer runs, to fix nothing reachable.
+//
+// This is an exception with a reason, not a suppression: no `--force`, no audit-level flag, no
+// ignore file. If the build ever gains `serve()`, or esbuild becomes a runtime dependency, this
+// paragraph is void and the bump is owed. Re-verified 2026-08-10; the other three advisories in
+// that audit (adm-zip HIGH, brace-expansion HIGH, undici MODERATE) were all TAKEN.
 import { build } from 'esbuild';
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
