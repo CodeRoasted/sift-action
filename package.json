@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "test": "tsc && node --test lib/tests/",
-    "package": "node esbuild.config.mjs"
+    "package": "node esbuild.config.mjs",
+    "preflight": "tsc && node lib/tools/preflight.js"
   },
   "dependencies": {
     "@actions/artifact": "^6.2.1",

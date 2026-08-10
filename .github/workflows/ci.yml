@@ -93,6 +93,20 @@ jobs:
           fi
           exit $rc
 
+      - name: Preflight — the vector we BUILD runs on the engine we PIN
+        # The step above proves the pinned binary EXISTS. This proves it ACCEPTS what we send it.
+        # Distinct properties: a published pin still 134s if the Action forwards a token that
+        # release predates. Measured three times — `--outcome-vocabulary`, then `--transport none`
+        # twice — and every gate above this line went green on all three, because they answer
+        # "did it ship" and never "will it run". The unit suite structurally cannot catch it: it
+        # asserts the vector's content, and the content was always what we intended.
+        #
+        # Same script a developer runs pre-push (`npm run preflight`), deliberately: one
+        # definition, so local and CI cannot drift into checking different things. It imports the
+        # real siftArgs / resolveSift / engineEnv rather than restating them — see tools/preflight.ts
+        # for why a hand-rebuilt vector would defeat the purpose.
+        run: npm run preflight
+
       - name: Sift — structural diff of this run's typecheck/test log (advisory, dogfoods THIS code)
         if: ${{ always() && github.event.pull_request.head.repo.fork != true }}
         continue-on-error: true    # advisory: a Sift error must NEVER fail this build
@@ -116,10 +130,35 @@ jobs:
     # actionlint lints WORKFLOWS, not action.yml — so a broken manifest (a ${{ }} expression
     # using a context invalid in action metadata, e.g. `needs` / `github.event`) ships silently
     # and fails EVERY consumer at `uses:`, which the TS suite can never catch. Force GitHub to
-    # LOAD the manifest by self-using the action. On a non-PR event main.ts takes the no-PR path
-    # (seed-only) and exits 0 — no engine, no binary, no comment. A manifest that won't load
-    # fails this job at the `uses:` step. (PRs are covered by the push:main run after merge,
-    # before the floating @v1 is re-pointed at the new commit.)
+    # LOAD the manifest by self-using the action. A manifest that won't load fails this job at
+    # the `uses:` step. (PRs are covered by the push:main run after merge, before the floating
+    # @v1 is re-pointed at the new commit.)
+    #
+    # WHAT IT ACTUALLY EXERCISES — corrected 2026-08-10 after the description cost us a red.
+    # This comment used to say the job was "seed-only ... no engine, no binary, no comment".
+    # That was true when written and stopped being true when baseline storage landed: with a
+    # stored baseline this job downloads the pinned engine and runs a REAL comparison. It is
+    # the job that caught `--transport none` — while its own description said it could not.
+    #
+    # That is the expensive kind of stale comment: it does not merely misinform, it argues
+    # against consulting the instrument you already have. It is why the bad commit was pushed
+    # without anyone running this check first. A comment stating INTENTION rots when the plan
+    # moves; a comment stating STATE rots when the SYSTEM moves, silently, and nothing
+    # type-checks it.
+    #
+    # THE PAIR, and why both exist. `preflight` (in `build`, above) and this job guarantee
+    # different things, and neither subsumes the other:
+    #
+    #   preflight     — the argument vector we BUILD runs on the engine we PIN. Runs the real
+    #                   siftArgs against the real resolved pin. Runs LOCALLY too, pre-push,
+    #                   which is the whole point: it is the only one of the two a developer can
+    #                   consult before the mistake is public.
+    #   manifest-load — action.yml LOADS at `uses:`, which ONLY GitHub can prove, plus main.ts's
+    #                   real orchestration end to end. Post-push by nature.
+    #
+    # Together: preflight fails fast and early on a vector the pin rejects; this job is the
+    # backstop for everything preflight cannot reach — manifest validity, input plumbing, and
+    # the `--explain` pair preflight declares out of scope.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
