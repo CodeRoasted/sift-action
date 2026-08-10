@@ -24,6 +24,17 @@
 // model server. Those two are NOT covered here. Probing them with `--help` instead would be a
 // reimplemented predicate — the very thing this file refuses to do — so the residue is recorded
 // honestly rather than faked.
+//
+// SECOND BOUNDARY, and it is MEASURED rather than reasoned: this file drives ONE argument vector,
+// the one with every optional field populated. That is deliberate (it takes every conditional
+// push), and it means every CONDITION is exercised in exactly one cell. Measured 2026-08-10:
+// mutating `siftArgs` so `--outcome-vocabulary` rides only when BOTH outcome tokens are present
+// — which breaks the two single-token cells the Action really sends — leaves this preflight
+// GREEN, because its invocation happens to populate both. The biconditional is therefore pinned
+// where it is cheap and total, in `tests/sift.test.ts`. Neither instrument subsumes the other:
+// preflight proves the vector RUNS on the pinned engine, the unit arm proves the vector is PAIRED
+// in every cell. Read that as the standing rule for anything added here — a condition this file
+// covers, it covers once.
 
 import { execFile } from 'node:child_process';
 import { mkdtemp, writeFile, access } from 'node:fs/promises';

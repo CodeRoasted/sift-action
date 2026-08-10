@@ -36,6 +36,69 @@ test('siftArgs: native tokens forward VERBATIM (no adapter-side translation — 
     assert.ok(c >= 0 && args[c + 1] === 'cancelled', 'changed token must ride verbatim (never folded to red)');
 });
 
+// A caller-declared verdict is a PAIR (DN-32.D6): the native token AND the vocabulary that
+// interprets it. This arm pins the BICONDITIONAL — vocabulary present iff a token is present —
+// across all four cells, and it exists because of a MEASURED cost profile that INVERTS at the
+// next pin bump.
+//
+// Today `SIFT_VERSION` predates the pairing being fatal, so dropping `--outcome-vocabulary`
+// degrades silently: the engine resolves the token against the STREAM's dialect, a raw build log
+// has none, the token resolves to nothing and every verdict-reading rule quietly does not apply.
+// That is exactly what happened to `sift-crawl`, and it was not a hypothetical: measured on 63
+// identical-`head_sha` pairs whose ground truth is silence, 60 critical/high `regression` rows
+// survived a demotion that could not fire. After the pin moves past `insight-canon 86daaf4` the
+// half-pair is FATAL, so the same regression stops being silent and turns EVERY Action run into a
+// usage error. The arm must therefore exist BEFORE the bump, not after.
+//
+// Why this is not preflight's job, stated rather than assumed: preflight populates BOTH tokens, so
+// it drives exactly ONE of the four cells below. A regression emitting the vocabulary only when
+// both tokens are present would pass preflight and break the two single-token cells — which is the
+// shape the Action actually sends whenever only one side has a known verdict. Preflight proves the
+// vector RUNS; this proves the vector is PAIRED.
+test('siftArgs: the verdict PAIR is never half-declared — vocabulary iff token, all four cells', () => {
+    const cells: ReadonlyArray<{ baselineOutcome: string; changedOutcome: string; expectVocabulary: boolean }> = [
+        { baselineOutcome: '', changedOutcome: '', expectVocabulary: false },
+        { baselineOutcome: 'success', changedOutcome: '', expectVocabulary: true },
+        { baselineOutcome: '', changedOutcome: 'failure', expectVocabulary: true },
+        { baselineOutcome: 'success', changedOutcome: 'failure', expectVocabulary: true },
+    ];
+    for (const cell of cells) {
+        const args = siftArgs({ ...baseInvocation, ...cell });
+        const where = `[baseline=${cell.baselineOutcome || '<none>'} changed=${cell.changedOutcome || '<none>'}]`;
+        const vocabAt = args.indexOf('--outcome-vocabulary');
+        const hasToken = args.includes('--baseline-outcome') || args.includes('--changed-outcome');
+
+        assert.equal(hasToken, cell.expectVocabulary, `${where} token presence disagrees with the cell`);
+        assert.equal(
+            vocabAt >= 0,
+            cell.expectVocabulary,
+            `${where} a verdict token without --outcome-vocabulary is a HALF-PAIR: it degrades ` +
+                `silently on the current pin and is FATAL once the pin moves past insight-canon 86daaf4`,
+        );
+        if (cell.expectVocabulary) {
+            // Pin the VALUE, not merely the flag's presence: a boolean is satisfiable by any path
+            // that reaches it, a specific string by one. `github` is the vocabulary that maps
+            // GitHub's own `conclusion`/`job.status` tokens.
+            assert.equal(args[vocabAt + 1], 'github', `${where} the vocabulary must be 'github'`);
+            assert.equal(
+                args.filter((a) => a === '--outcome-vocabulary').length,
+                1,
+                `${where} the vocabulary must be declared exactly once`,
+            );
+        }
+    }
+});
+
+test('siftArgs: --outcome-vocabulary is NOT --dialect — the Action never declares a dialect', () => {
+    // The guard on the repair, not on the defect. `--outcome-vocabulary github` is a fact about WHO
+    // supplies the verdict; `--dialect github` would be a false claim about the log's BYTES, which
+    // are frequently raw cmake/ninja output carrying no `##[` marker at all. A false declaration is
+    // worse than an absent one because it SUCCEEDS — the dialect enters `semantic_identity` and
+    // every document silently becomes incomparable with the truth.
+    const args = siftArgs({ ...baseInvocation, baselineOutcome: 'success', changedOutcome: 'failure' });
+    assert.ok(!args.includes('--dialect'), 'the Action must never declare a dialect for bytes it did not author');
+});
+
 // ── The declared IntentChannel (ADR 0029 D5) ────────────────────────────────
 
 test('siftArgs: --channel=annotated is ALWAYS declared — this Action fetches the runner raw job log', () => {
