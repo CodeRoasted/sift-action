@@ -92,25 +92,6 @@ export function siftArgs(invocation: SiftInvocation): string[] {
         // 9.05% of 22030 real annotated logs, i.e. exactly the form this line declares.
         '--channel',
         'annotated',
-        // DN-35.D12 — the transport is DECLARED, symmetrically, and `none` is the honest answer
-        // for this stream: DN-32.D6 established that what this Action diffs is `build.log`, raw
-        // build output with no delivery prefix to unwind.
-        //
-        // `--transport` sets BOTH sides from one token, which is the point: deduction is
-        // content-sensitive, and content is exactly what a diff varies, so a per-side deduction
-        // disagrees precisely when the two sides differ most. Measured on this Action's own
-        // invocation before this line existed: `baseline api-rfc3339-line-prefix (deduced),
-        // changed none (deduced)` on a homologous pair — same API, same repo, same workflow.
-        // The cost was not the verdict (identical either way) but the UNIT: 1 of 16 rows kept a
-        // real unit under the asymmetry against 12 of 12 when both sides agreed, which starves
-        // the DN-31.D9 roll-up of the attribution it acts on.
-        //
-        // Declaring it here makes asymmetry impossible by construction rather than refusable
-        // after the fact — there is nothing to refuse when the answer is known. Unconditional and
-        // not an input, for the same reason as `--channel` above: it is a fact about what this
-        // Action acquires, not a knob a workflow author could know better.
-        '--transport',
-        'none',
     ];
     // DN-32.D6 — a caller-declared verdict is a PAIR: the native token AND the vocabulary that
     // interprets it. Unconditional and not an input, for the same reason as `--channel` above: it
