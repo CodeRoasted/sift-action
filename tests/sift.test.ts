@@ -106,9 +106,9 @@ test('siftArgs: --channel=annotated is ALWAYS declared — this Action fetches t
     // which returns the ANNOTATED materialization (`##[group]Run <cmd>` banners). The Action is the
     // caller that KNOWS, and ADR-22.D4 + ADR-22.D5 say the IntentChannel is declared by the
     // caller, never guessed from content. Drop this flag and the engine fails closed on depth
-    // (D5) — the PR comment silently stops comparing step by step. Before the coordinate
-    // existed it was worse than silent: the bare `Run ` row fired on annotated prose and
-    // invented phantom steps (9.05% of 22030 real logs of exactly this form).
+    // (ADR-22.D5) — the PR comment silently stops comparing step by step. Before the
+    // coordinate existed it was worse than silent: the bare `Run ` row fired on annotated
+    // prose and invented phantom steps (9.05% of 22030 real logs of exactly this form).
     const args = siftArgs(baseInvocation);
     const idx = args.indexOf('--channel');
     assert.ok(idx >= 0, '--channel must always be declared');

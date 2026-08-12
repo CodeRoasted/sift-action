@@ -80,16 +80,18 @@ export function siftArgs(invocation: SiftInvocation): string[] {
         invocation.baselineLabel,
         '--changed-label',
         invocation.changedLabel,
-        // ADR-22.D4 + ADR-22.D5 — the IntentChannel is caller-declared provenance, and this Action IS the caller that
-        // knows: it fetches both logs with octokit's downloadJobLogsForWorkflowRun (joblog.ts), which
-        // returns the runner's RAW job log — the `annotated` materialization, where step banners are
-        // `##[group]Run <cmd>` and a line starting with a bare `Run ` is ordinary prose.
+        // ADR-22.D4 + ADR-22.D5 — the IntentChannel is caller-declared provenance, and this
+        // Action IS the caller that knows: it fetches both logs with octokit's
+        // downloadJobLogsForWorkflowRun (joblog.ts), which returns the runner's RAW job log —
+        // the `annotated` materialization, where step banners are `##[group]Run <cmd>` and a
+        // line starting with a bare `Run ` is ordinary prose.
         //
         // Unconditional, not an input: it is a fact about how this Action acquires logs, not a knob a
-        // workflow author could know better than we do. Without it sift fails closed on DEPTH (D5) and
-        // would compare these logs without claiming step structure; WITH it, and before the coordinate
-        // existed, the bare `Run ` row fired on that prose and minted phantom Step quanta — measured on
-        // 9.05% of 22030 real annotated logs, i.e. exactly the form this line declares.
+        // workflow author could know better than we do. Without it sift fails closed on DEPTH
+        // (ADR-22.D5) and would compare these logs without claiming step structure; WITH it,
+        // and before the coordinate existed, the bare `Run ` row fired on that prose and minted
+        // phantom Step quanta — measured on 9.05% of 22030 real annotated logs, i.e. exactly the
+        // form this line declares.
         '--channel',
         'annotated',
     ];
