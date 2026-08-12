@@ -131,3 +131,80 @@ test('fetchTargetJobLog: missing, ambiguous, and not-completed jobs all THROW wi
         /has not completed .* `needs:`/,
     );
 });
+
+// ── DN-37.D14 — the RENDERING GRAMMAR, mirrored ──────────────────────────────
+//
+// A reusable-workflow job renders as `"<caller job> / <inner name>"`. That grammar is
+// stated ONCE (DN-37.D14) and consumed here and in the engine, and the two consumers
+// cannot share a literal: this repo is PUBLIC, the engine repo is PRIVATE, and the only
+// artifact they both hold is the published binary — which carries no source text. Literal
+// single-sourcing was costed and is unreachable.
+//
+// So the mechanism is TWO INDEPENDENT WITNESSES OVER THE SAME LITERAL EXAMPLE. The engine
+// side is `SiftCrawlJobGraph.TheAnchorMatchesItsExactRenderingAndEveryFanOutRowUnderIt`,
+// on these exact names, measured off a real run. If GitHub changes the rendering, both go
+// red, and neither repo depends on the other to notice.
+//
+// ⚠ THE HONEST BOUND, AND IT MUST NOT BE SOFTENED: two witnesses catch a PLATFORM change.
+// They do NOT catch one lane editing one comment out of agreement with the other — nothing
+// reachable does, short of a shared artifact, which was named with its cost and refused.
+// Do not describe this pair as "keeping the two repos in sync". It keeps them both honest
+// about GitHub.
+//
+// ⚠ AND IT PINS IDENTITY, NEVER A COUNT. "one match" is satisfied by matching the WRONG
+// job, and the sibling arm above cannot tell the difference: its mock returns the same log
+// for every `job_id`. Here the log is keyed by id and the two fan-out siblings declare
+// OPPOSITE conclusions, so resolving the wrong one fails on both axes.
+
+const RUST_CI_FAN_OUT = [
+    { id: 11, name: 'Lint', status: 'completed', conclusion: 'success' },
+    { id: 12, name: 'unit', status: 'completed', conclusion: 'failure' },
+    { id: 13, name: 'rust-ci / Format', status: 'completed', conclusion: 'success' },
+    { id: 14, name: 'rust-ci / cargo shear', status: 'completed', conclusion: 'failure' },
+];
+
+function fanOutParams(jobName: string): FetchJobLogParams {
+    const octokit = {
+        paginate: async () => RUST_CI_FAN_OUT,
+        rest: {
+            actions: {
+                listJobsForWorkflowRun: async () => ({ data: { jobs: RUST_CI_FAN_OUT } }),
+                // The log IS the identity: keyed by job_id, so the returned text names which
+                // row the lookup actually resolved.
+                downloadJobLogsForWorkflowRun: async ({ job_id }: { job_id: number }) => ({
+                    data: `${T}log-of-job-${job_id}`,
+                }),
+            },
+        },
+    };
+    return {
+        octokit: octokit as unknown as FetchJobLogParams['octokit'],
+        owner: 'o',
+        repo: 'r',
+        runId: 1,
+        jobName,
+        capture: 'off',
+    };
+}
+
+test('DN-37.D14 mirror: an inner name resolves through the "<caller> / <inner>" rendering, and it is THAT job', async () => {
+    const out = await fetchTargetJobLog(fanOutParams('cargo shear'));
+    // Identity, twice, on two independent axes. `rust-ci / Format` is the sibling under the
+    // same anchor and declares the OPPOSITE conclusion, so a wrong pick cannot pass both.
+    assert.equal(out.text, 'log-of-job-14');
+    assert.equal(out.conclusion, 'failure');
+});
+
+test('DN-37.D14 mirror: the full rendering resolves exactly, and the separator is load-bearing', async () => {
+    // The exact-name path takes precedence and lands on the same row — the anchor's own
+    // rendering is a legal name in its own right.
+    const exact = await fetchTargetJobLog(fanOutParams('rust-ci / Format'));
+    assert.equal(exact.text, 'log-of-job-13');
+    assert.equal(exact.conclusion, 'success');
+
+    // ⚠ AND THE GRAMMAR IS A SEPARATOR, NOT A SUFFIX. Were the fallback a bare `endsWith`,
+    // any job whose name merely ENDS in the inner name would match — the fan-out would stop
+    // being a declared containment and become a substring coincidence. Nothing else in this
+    // repo states that the separator carries the meaning.
+    await assert.rejects(fetchTargetJobLog(fanOutParams('shear')), /not found in this run/);
+});
