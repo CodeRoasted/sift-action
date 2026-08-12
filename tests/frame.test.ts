@@ -56,6 +56,22 @@ function withOutcomes(
 
 const HEADER = '### 🔬 Sift — structural diff of your CI logs';
 
+// The <details> embed SLOT — the exact span `renderDetails` fills with the engine's
+// body. Extracted rather than searched, for two reasons an `out.includes(...)` cannot
+// reach: an arm can state what the slot holds EXACTLY (nothing dropped, nothing
+// appended, nothing else in it), and a "this must not survive RAW" check cannot be
+// satisfied by the frame's own trusted `</details>` closing tag sitting outside it.
+const SLOT_OPEN = '</summary>\n\n';
+const SLOT_CLOSE = '\n\n</details>';
+function detailsBody(out: string): string {
+    const open = out.indexOf(SLOT_OPEN);
+    assert.ok(open >= 0, `no <details> slot in the comment:\n${out}`);
+    const start = open + SLOT_OPEN.length;
+    const end = out.indexOf(SLOT_CLOSE, start);
+    assert.ok(end >= start, `unterminated <details> slot:\n${out}`);
+    return out.slice(start, end);
+}
+
 // ── Shared frame (every state) ──────────────────────────────────────────────
 
 test('every comment starts with the hidden sticky marker then the header', () => {
@@ -130,9 +146,28 @@ test('③ drift, verdict unknown: verbatim headline + rows verbatim + engine <de
     // Rows are the engine's content, verbatim — safely embedded (escapeInline).
     const firstRow = report.ranked_changes[0]!;
     assert.ok(out.includes(`**[${firstRow.severity.toUpperCase()}]** ${escapeInline(firstRow.summary)}`), out);
-    // <details> embeds the engine markdown body, safely embedded.
+    // <details> embeds the engine markdown body.
     assert.ok(out.includes(`<details><summary>Full report — ${report.summary.total_changes} changes, ${significant} significant</summary>`), out);
-    assert.ok(report.markdown && out.includes(escapeInline(report.markdown)), 'engine markdown body embedded (safely)');
+    // COMPLETENESS, and only completeness. Equality on the slot, not `includes`, so a
+    // truncation, a dropped line or an interpolated extra is all visible — measured:
+    // dropping the body's first line reds this arm and NOTHING else in the suite, which
+    // is why it is repaired rather than replaced.
+    //
+    // What it deliberately does NOT prove is the ESCAPING. Its expectation is computed
+    // by calling the transform under test, so it is green for every definition of
+    // `escapeInline`, correct or not — measured: entity-encoding `•` inside
+    // `escapeInline` leaves the whole suite green, and collapsing space runs leaves
+    // this arm green. Read as a safety guarantee it is a mirror; read as an embed-site
+    // arm it holds a property nothing else does. The transform's own table is pinned by
+    // hand below ("escapeInline: each declared substitution"); the body's USE of that
+    // table by "the <details> BODY rides escapeInline".
+    const markdown = report.markdown ?? '';
+    assert.notEqual(markdown, '', 'fixture must carry a body, else the embed claim is vacuously true');
+    assert.equal(
+        detailsBody(out),
+        escapeInline(markdown),
+        'the engine body must arrive whole and alone in the <details> slot',
+    );
 });
 
 test('③ drift, verdict SUCCESS: the cache-died hero headline (verbatim)', () => {
@@ -295,6 +330,67 @@ test('the comment body is deterministic: same (report, context) ⇒ same string'
     assert.equal(renderComment(report, c), renderComment(report, c));
 });
 
+// ── The escape table itself (the trust boundary's own contract) ─────────────
+//
+// `escapeInline` is the single transform standing between fork-attacker-controlled CI
+// log text and the rendered comment. Every arm below it — and every row/body embed arm
+// above — reads it as a given, so it needs pins whose expectation is written BY HAND
+// from the table declared in frame.ts, never re-derived by calling it. An expectation
+// computed as `escapeInline(x)` is satisfied by ANY definition of `escapeInline`,
+// including a broken one; that is the shape this section exists to replace.
+//
+// Exact equality, not `includes`: the claim is that the table is EXACTLY these
+// substitutions and that nothing else in the string moves. `includes` can only see a
+// rule that vanished — equality also sees a rule that APPEARED, and an appeared rule
+// contradicts the boundary's stated invariant ("each escape maps to the entity that
+// displays the same character, inert") even when it is display-identical.
+
+// Input → the output a reader of frame.ts's table can predict without running it.
+// `&` is substituted FIRST, which the tag and literal-entity rows pin: were it applied
+// last, `<` would double-escape and `&lt;` would read back as `&amp;lt;`.
+const ESCAPE_TABLE: ReadonlyArray<readonly [name: string, input: string, expected: string]> = [
+    ['ampersand', 'a & b', 'a &amp; b'],
+    ['html tags — the </details> breakout', '</details><script>', '&lt;/details&gt;&lt;script&gt;'],
+    ['a literal entity is shown, not decoded', '&lt;', '&amp;lt;'],
+    ['backtick — code fence and inline span', '``` `x`', '&#96;&#96;&#96; &#96;x&#96;'],
+    ['pipe — table cell', 'a | b', 'a &#124; b'],
+    ['link — hidden destination', '[click](https://evil.example/p)', '&#91;click&#93;&#40;https://evil.example/p&#41;'],
+    ['image — auto-loading pixel', '![alt](https://t.example/p.png)', '!&#91;alt&#93;&#40;https://t.example/p.png&#41;'],
+];
+
+test('escapeInline: each declared substitution, against a hand-written expectation', () => {
+    for (const [name, input, expected] of ESCAPE_TABLE) {
+        assert.equal(escapeInline(input), expected, `${name} — input ${JSON.stringify(input)}`);
+    }
+});
+
+test('escapeInline leaves the engine\'s markdown formatting alone', () => {
+    // The other half of the contract, load-bearing in the opposite direction: the
+    // engine's block formatting must SURVIVE (frame.ts — "the body's headers/bold/
+    // bullets survive intact"), which is what keeps the collapsed report readable.
+    // Identity here is a property, not a tautology: it is exactly what fails the day
+    // someone reaches for a general-purpose markdown escaper.
+    const formatting = '# Sift\n\n## Significant changes\n\n**bold** _under_ *em*\n\n- item\n1. numbered\n';
+    assert.equal(escapeInline(formatting), formatting, `formatting must pass through: ${JSON.stringify(formatting)}`);
+});
+
+test('escapeInline preserves whitespace runs and the evidence glyphs byte-for-byte', () => {
+    // The shape the <details> body carries an evidence sub-bullet in: a three-space
+    // indent, `-`, then `•` / `…`. Identity over the whole span, so a lossy tidy-up
+    // (collapsing space runs) and a new entity rule (`•` → `&#8226;`) each red HERE,
+    // at the transform, naming the transform.
+    //
+    // ⚠ This is deliberately the OPPOSITE choice from the evidence arm at the foot of
+    // this file, which keeps both its needles ASCII precisely so a new entity rule does
+    // NOT red it. Not a contradiction — the division of labour. `&#8226;` displays as
+    // `•`, so a reader loses nothing and that arm must not be weakened over it; but the
+    // table is a security contract, so GROWING it is a decision to ratify, never a
+    // drive-by. A red here means "the table changed": widen this expectation on
+    // purpose, and never by reaching for the arm that was written not to see it.
+    const evidence = '   -   • build / bravo: the linker refused\n   -   • … and 7 more\n';
+    assert.equal(escapeInline(evidence), evidence, `evidence span must pass through: ${JSON.stringify(evidence)}`);
+});
+
 // ── Safe embedding (contract § "Comment-embedding safety") ──────────────────
 // Engine content (rows + body) derives from CI logs that, on a fork PR, an
 // attacker controls. None of it may break the comment STRUCTURE — verbatim
@@ -365,6 +461,53 @@ test('safe embedding: markdown link/image syntax is neutralized (no phishing und
     // The frame's OWN links (footer "What is this?" + provenance) are trusted and
     // composed raw, so they stay live — neutralization touches only engine content.
     assert.ok(out.includes('[What is this?](https://coderoast.fr/sift)'), 'frame links stay live');
+});
+
+// The three arms above assert their entities against the WHOLE comment, and
+// `maliciousReport()` plants the same attack string in the row summary AND in the
+// body — so the INLINE ROW alone satisfies them and they hold nothing about the
+// collapsed body. Measured: strip the backtick/pipe/bracket/paren rules from the body
+// embed only (`escapeHtml` in `renderDetails`) and "HTML/backtick/pipe render inert"
+// stays GREEN. The code fence is frame.ts's own second-named vector and it lives in
+// the BODY — a log line inside the collapsed report — so it needs an arm that can only
+// be satisfied there.
+const BODY_VECTORS: ReadonlyArray<readonly [raw: string, embedded: string]> = [
+    ['ampersand&sign', 'ampersand&amp;sign'],
+    ['</details>', '&lt;/details&gt;'],
+    ['```fence```', '&#96;&#96;&#96;fence&#96;&#96;&#96;'],
+    ['cell|wall', 'cell&#124;wall'],
+    ['[lure](https://evil.example/body)', '&#91;lure&#93;&#40;https://evil.example/body&#41;'],
+];
+
+test('safe embedding: the <details> BODY rides escapeInline — every vector, hand-written', () => {
+    const report: SiftReport = {
+        ...load('drift.json'),
+        markdown:
+            '# Sift — baseline → changed\n\n## Significant changes\n\n' +
+            BODY_VECTORS.map(([raw], i) => `${i + 1}. **[HIGH]** log line carrying ${raw}`).join('\n') +
+            '\n',
+    };
+    // Each vector must be unreachable from the row block, or the row satisfies the pin
+    // and the arm inherits exactly the blindness it was written to remove. Asserted
+    // against the fixture, not assumed of it.
+    for (const row of report.ranked_changes) {
+        for (const [raw] of BODY_VECTORS) {
+            assert.ok(
+                !row.summary.includes(raw),
+                `vector ${JSON.stringify(raw)} also occurs in a row summary — the pin below would be ` +
+                    `satisfiable by the inline row block instead of the body: ${row.summary}`,
+            );
+        }
+    }
+
+    const slot = detailsBody(renderComment(report, ctx()));
+    for (const [raw, embedded] of BODY_VECTORS) {
+        assert.ok(slot.includes(embedded), `body must carry ${JSON.stringify(embedded)}\n--- slot ---\n${slot}`);
+        assert.ok(
+            !slot.includes(raw),
+            `body must not carry ${JSON.stringify(raw)} un-defanged\n--- slot ---\n${slot}`,
+        );
+    }
 });
 
 // ── Push mode: the renderer must not depend on pr_number (contract § 3) ─────
