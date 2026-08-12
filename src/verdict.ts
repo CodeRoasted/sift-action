@@ -3,7 +3,7 @@
 // The state is a pure function of the report the Action holds (PRD-6
 // § "Verdict logic"): `significant_changes`, whether any ranked row is
 // `polarity == "regression"`, and the engine-resolved run-verdict pair
-// (`summary.outcome_regressed`, ADR 0025 §6.1). No I/O.
+// (`summary.outcome_regressed`, ADR-17.D5). No I/O.
 
 import type { SiftReport } from './types.js';
 
@@ -20,7 +20,7 @@ export enum State {
 // strictly worse" (`summary.outcome_regressed`, the engine-derived §6.1 predicate:
 // Success < Unstable < Failure, Aborted/Unknown excluded). One canonical pair the
 // headline, the rows, and the gate all agree on — a SUCCESS→UNSTABLE run with no
-// new structural row is still loud (UNSTABLE never folds, ADR 0025).
+// new structural row is still loud (UNSTABLE never folds, ADR-17.D5).
 export function hasRegression(report: SiftReport): boolean {
     return (
         report.summary.outcome_regressed === true ||

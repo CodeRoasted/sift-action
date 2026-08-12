@@ -100,7 +100,7 @@ export interface ResolvedBaseline {
     meta: BaselineProvenance;
     /**
      * The baseline run's native CI verdict token, read from the artifact's stamped
-     * sidecar (ADR 0025 §3.1) — forwarded verbatim as `--baseline-outcome`. Empty when
+     * sidecar (ADR-17.D5) — forwarded verbatim as `--baseline-outcome`. Empty when
      * the sidecar is absent (a `path=` baseline, or an artifact stamped before the
      * sidecar existed): the engine's ladder then falls to the console tail → Unknown.
      */

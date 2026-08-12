@@ -31,7 +31,7 @@ const RETENTION_DAYS = 90;
 
 // Publishes the ingested log PLUS the stamped provenance sidecar (BASELINE_META_FILE)
 // carrying this run's native CI verdict token — what the NEXT run forwards as
-// `--baseline-outcome` (ADR 0025 §3.1: the outcome-bearing fixture pins its side-input).
+// `--baseline-outcome` (ADR-17.D5: the outcome-bearing fixture pins its side-input).
 export async function publishBaselineLog(
     logPath: string,
     outcomeToken: string,

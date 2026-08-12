@@ -27,7 +27,7 @@ export const MAX_ANNOTATIONS = 10;
 // The message carries engine content derived from real — and on fork PRs,
 // ATTACKER-controlled — CI logs. It must be SAFELY EMBEDDED in a workflow command
 // exactly as `escapeInline` (frame.ts) safely embeds a row in the comment: the
-// escape IS the trust boundary (contract § 3 / adr/0014 § 3).
+// escape IS the trust boundary (contract § 3 / ADR-14.D5).
 //
 // A workflow command is recognised only as a WHOLE LINE beginning (after leading
 // whitespace) with `::`. So forging or breaking a command requires either a raw
@@ -65,7 +65,7 @@ function mapKind(polarity: RankedChange['polarity']): AnnotationKind {
 // One ranked row → one encoded check-level workflow command. NO `file=`/`line=`
 // anchor: Sift diffs LOGS, not source, so there is no honest source `file:line`
 // to pin to — a guessed anchor would violate precision-first (§ B.3.2,
-// adr/0013). The message is the engine's `summary` plus its first `evidence`
+// ADR-9.D2). The message is the engine's `summary` plus its first `evidence`
 // line (the deterministic "here's the line"), surfaced verbatim, then encoded.
 //
 // Colour here is GitHub's NATIVE error/warning/notice icon (mapKind, § B.3.3) — a

@@ -53,7 +53,7 @@ function readMode(): Mode {
     return raw === 'render' || raw === 'post' ? raw : 'comment';
 }
 
-// The current run's NATIVE CI verdict token, verbatim (ADR 0025 §3.1 — forwarded as
+// The current run's NATIVE CI verdict token, verbatim (ADR-17.D5 — forwarded as
 // `--changed-outcome`; the engine's dialect package maps it, the adapter never
 // translates). `auto` (the default) uses the target job's own API `conclusion`
 // ('success'|'failure'|'cancelled'|…) — zero caller plumbing; without a target job it
@@ -106,7 +106,7 @@ function baselineSourceLabel(spec: BaselineSpec): string | undefined {
     }
 }
 
-// Opt-in `--explain` provisioning (adr/0009 §6.2). Runs the engine's idempotent `explain-setup`:
+// Opt-in `--explain` provisioning (ADR-13.D5). Runs the engine's idempotent `explain-setup`:
 // download + SHA-256-verify the pinned model + inference server from the public CodeRoasted/sift-explain-model HF
 // repo (NO credential — anonymous, fork-safe). Best-effort + fail-soft: a provisioning failure is a
 // WARNING, never an Action failure — `sift --explain` then degrades to no-narrative on the non-TTY CI
@@ -352,7 +352,7 @@ async function run(): Promise<void> {
 
     // One seeding rule for BOTH modes (the `create_baseline` half): `auto` keeps
     // the proven semantics — PRs always seed, pushes/tags are verdict-gated,
-    // now FOUR-CLASS (ADR 0025): a run the ENGINE resolved as FAILURE, UNSTABLE,
+    // now FOUR-CLASS (ADR-17.D5): a run the ENGINE resolved as FAILURE, UNSTABLE,
     // or ABORTED never overwrites the last-good baseline. Unknown stays
     // permissive (no signal ≠ bad — the `log:`-input path without outcome wiring
     // must keep seeding, exactly as the old 'unknown' did). On a cold start (no

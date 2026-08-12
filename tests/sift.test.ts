@@ -20,7 +20,7 @@ const baseInvocation: SiftInvocation = {
     outputPath: 'report.json',
 };
 
-// ── The native-verdict side-inputs (ADR 0025 §3.1) ──────────────────────────
+// ── The native-verdict side-inputs (ADR-17.D5) ──────────────────────────────
 
 test('siftArgs: outcome flags are ABSENT when no token — the engine ladder must fall to the console tail', () => {
     const args = siftArgs(baseInvocation);
@@ -99,16 +99,16 @@ test('siftArgs: --outcome-vocabulary is NOT --dialect — the Action never decla
     assert.ok(!args.includes('--dialect'), 'the Action must never declare a dialect for bytes it did not author');
 });
 
-// ── The declared IntentChannel (ADR 0029 D5) ────────────────────────────────
+// ── The declared IntentChannel (ADR-22.D4 + ADR-22.D5) ──────────────────────
 
 test('siftArgs: --channel=annotated is ALWAYS declared — this Action fetches the runner raw job log', () => {
     // Unconditional and not an input: joblog.ts fetches via octokit's downloadJobLogsForWorkflowRun,
     // which returns the ANNOTATED materialization (`##[group]Run <cmd>` banners). The Action is the
-    // caller that KNOWS, and ADR 0029 D2 says the IntentChannel is declared by the caller, never guessed
-    // from content. Drop this flag and the engine fails closed on depth (D5) — the PR comment silently
-    // stops comparing step by step. Before the coordinate existed it was worse than silent: the bare
-    // `Run ` row fired on annotated prose and invented phantom steps (9.05% of 22030 real logs of
-    // exactly this form).
+    // caller that KNOWS, and ADR-22.D4 + ADR-22.D5 say the IntentChannel is declared by the
+    // caller, never guessed from content. Drop this flag and the engine fails closed on depth
+    // (D5) — the PR comment silently stops comparing step by step. Before the coordinate
+    // existed it was worse than silent: the bare `Run ` row fired on annotated prose and
+    // invented phantom steps (9.05% of 22030 real logs of exactly this form).
     const args = siftArgs(baseInvocation);
     const idx = args.indexOf('--channel');
     assert.ok(idx >= 0, '--channel must always be declared');

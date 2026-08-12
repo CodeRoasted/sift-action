@@ -2,7 +2,7 @@
 // SiftCommentContext → the expected comment markdown (bibles/sift_action.md
 // § 8 / handoff). Covers all four states AND both verdict variants of the hero
 // headlines — the "green" predicate is the ENGINE-resolved `summary.changed_outcome`
-// (ADR 0025), never a context flag. The governed-copy lines are asserted VERBATIM
+// (ADR-17.D5), never a context flag. The governed-copy lines are asserted VERBATIM
 // against PRD-6 § "Surface: Sift PR comment"; rows are asserted to appear
 // VERBATIM from the engine fixture (never re-authored).
 
@@ -242,7 +242,7 @@ test('④ regression, verdict SUCCESS: the strongest hero headline (founder-lock
     assert.ok(out.includes('🚨 Green tests. Real regression. It slipped through:'), out);
 });
 
-// ── ④bis Run-verdict regression (ADR 0025 §6.1 — UNSTABLE never folds) ───────
+// ── ④bis Run-verdict regression (ADR-17.D5 — UNSTABLE never folds) ───────────
 
 test('④ a pure verdict regression (SUCCESS → UNSTABLE, zero rows) is Regression, not Clean', () => {
     // Steady templates, worse verdict: the engine emits outcome_regressed with no

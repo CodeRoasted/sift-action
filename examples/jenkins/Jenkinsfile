@@ -12,7 +12,7 @@
 //     Artifact plugin, or a committed known-good log). Base-branch-aware "last green"
 //     resolution is Tier-1 / Sift v2, not a per-CI adapter's job.
 //
-// RUN VERDICT (four-class, ADR 0025): the pipeline forwards Jenkins's NATIVE verdict
+// RUN VERDICT (four-class, ADR-17.D5): the pipeline forwards Jenkins's NATIVE verdict
 // (`currentBuild.currentResult` — SUCCESS | FAILURE | UNSTABLE | ABORTED) to the
 // engine via `--changed-outcome`; the engine's Jenkins vocabulary maps it, keeping
 // UNSTABLE distinct from FAILURE at the diff layer. TIMING MATTERS: the verdict is

@@ -135,7 +135,7 @@ test('branch=<name>: the run resolver targets the EXPLICIT branch, not the conte
 });
 
 // A named-baseline zip the artifact source can inflate. `outcomeToken` adds the
-// stamped provenance sidecar (ADR 0025 §3.1); undefined = a sidecar-less artifact.
+// stamped provenance sidecar (ADR-17.D5); undefined = a sidecar-less artifact.
 function baselineZip(content: string, outcomeToken?: string): { data: ArrayBuffer } {
     const zip = new AdmZip();
     zip.addFile('baseline.log', Buffer.from(content, 'utf8'));

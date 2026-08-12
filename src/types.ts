@@ -33,7 +33,7 @@ export interface RankedChange {
     changed_line_refs?: number[];
 }
 
-// The run verdicts (ADR 0025 §5 — the diff-layer home of the four classes). Uppercase
+// The run verdicts (ADR-17.D5 — the diff-layer home of the four classes). Uppercase
 // enum strings on the wire ("SUCCESS"|"FAILURE"|"UNSTABLE"|"ABORTED"), OMITTED when
 // Unknown; `outcome_regressed` (strictly worse on Success < Unstable < Failure;
 // Aborted/Unknown excluded) is emitted only when true. The frame, the verdict state,
@@ -111,7 +111,7 @@ export interface SiftCommentContext {
     baseline_stale?: boolean;      // age exceeded the bound ⇒ the frame renders the stale banner
 }
 
-// 0.2.0: the render-side `build_status` binary is RETIRED (ADR 0025 §5) — the run verdict
+// 0.2.0: the render-side `build_status` binary is RETIRED (ADR-17.D5) — the run verdict
 // now flows THROUGH the engine (`--changed-outcome`) and the frame reads the four-class
 // pair off `ReportSummary`, never a CI envelope flag.
 export const CONTEXT_VERSION = '0.2.0';
@@ -121,7 +121,7 @@ export const CONTEXT_VERSION = '0.2.0';
 // artifact off the base branch's last green run. One name, both sides.
 export const BASELINE_ARTIFACT_NAME = 'sift-baseline-log';
 
-// The baseline artifact's stamped provenance sidecar (ADR 0025 §3.1): the publishing
+// The baseline artifact's stamped provenance sidecar (ADR-17.D5): the publishing
 // run stamps its NATIVE CI verdict token (verbatim — the adapter never translates,
 // SRC-SP-2) so the next run can forward it as `--baseline-outcome`. Absent sidecar /
 // empty token ⇒ no flag ⇒ the engine's SRC-D-OUT-RUN-1 ladder falls to the console

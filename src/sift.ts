@@ -17,7 +17,7 @@ export interface SiftInvocation {
     changedLog: string;
     baselineLabel: string;
     changedLabel: string;
-    // The runs' NATIVE CI verdict tokens, verbatim (ADR 0025 §3.1) — forwarded as
+    // The runs' NATIVE CI verdict tokens, verbatim (ADR-17.D5) — forwarded as
     // `--baseline-outcome` / `--changed-outcome`; the ENGINE's dialect package maps
     // them (SRC-SP-2 — the adapter never translates). Empty ⇒ flag omitted ⇒ the engine's
     // SRC-D-OUT-RUN-1 ladder falls to the console tail, then Unknown.
@@ -25,7 +25,7 @@ export interface SiftInvocation {
     changedOutcome: string;
     failOn: FailOn;
     outputPath: string;
-    // Opt-in AI narrative (adr/0009). The pinned local model + server are provisioned by
+    // Opt-in AI narrative (ADR-13.D5). The pinned local model + server are provisioned by
     // runExplainSetup() before this runs; `sift --explain` then auto-spawns the bundled server,
     // narrates additively, and tears it down. Fail-soft: a missing/unreachable model leaves the
     // deterministic report + the gate exit code untouched. No credential — the Action never carries one.
@@ -80,7 +80,7 @@ export function siftArgs(invocation: SiftInvocation): string[] {
         invocation.baselineLabel,
         '--changed-label',
         invocation.changedLabel,
-        // ADR 0029 — the IntentChannel is caller-declared provenance, and this Action IS the caller that
+        // ADR-22.D4 + ADR-22.D5 — the IntentChannel is caller-declared provenance, and this Action IS the caller that
         // knows: it fetches both logs with octokit's downloadJobLogsForWorkflowRun (joblog.ts), which
         // returns the runner's RAW job log — the `annotated` materialization, where step banners are
         // `##[group]Run <cmd>` and a line starting with a bare `Run ` is ordinary prose.
