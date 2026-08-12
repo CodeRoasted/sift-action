@@ -430,8 +430,14 @@ test('safe embedding: content cannot break out of the <details> block', () => {
     // </details> (in the row AND the body) are escaped, so they do not count.
     assert.equal((out.match(/<details>/g) ?? []).length, 1, out);
     assert.equal((out.match(/<\/details>/g) ?? []).length, 1, out);
-    // The footer renders after the body — proof a fence/tag in the body did not
-    // swallow the trailing </details> + footer.
+    // The frame's own trailer is the LAST content in the string: the body was composed
+    // INSIDE the block, and nothing from it runs past the footer. That is a claim about
+    // renderComment's composition, and only that. It reads the RAW markdown, whose last
+    // bytes do not move however the body's code fence ends up rendering — so it cannot
+    // see a fence swallowing the trailing </details> + footer, nor any other escaping
+    // failure (measured: embed the body with escapeHtml, leaving its ``` fence raw, and
+    // this arm stays green). The fence vector is held by the </details> count above and
+    // by "the <details> BODY rides escapeInline" below.
     assert.ok(out.trimEnd().endsWith('</sub>'), out);
 });
 
