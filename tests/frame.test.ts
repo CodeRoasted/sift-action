@@ -468,3 +468,87 @@ test('an aged-but-inside-bound baseline renders NO banner (age in the footer onl
     assert.ok(!out.includes('Stale baseline'));
     assert.ok(out.includes('40h old'));
 });
+
+// ── The evidence channel reaches the reader ─────────────────────────────────
+//
+// The engine's promise was that the fold's evidence rides "the channel every renderer
+// already prints". On this surface that channel is exactly ONE path, and it is worth
+// naming because it is the reason there is no TypeScript re-implementation to test:
+// `renderRow` emits `summary` + `where` and NOTHING else, so an evidence line reaches a
+// reader only through the <details> body — `report.markdown`, which IS the engine's
+// `to_markdown` output, embedded verbatim. The engine side owns what that body CONTAINS
+// (insight-eidos: tests/report/rendered_evidence_test.cpp); what is uncovered here is
+// whether the derivation actually DELIVERS it — the body embed above is asserted as an
+// identity against whatever `markdown` happens to be, so it cannot see evidence loss, and
+// safe embedding runs over every byte of it on the way through.
+
+// A folded member's text and the head of a truncation notice. Both are held apart from
+// every `ranked_changes[].summary` on purpose (asserted below, not assumed): an arm
+// asserting "the evidence text appears" is satisfiable by the inline row block the moment
+// the two overlap, and then it holds nothing about the evidence channel at all.
+// ⚠ BOTH NEEDLES ARE ASCII, and that is a decision, not an accident. The evidence lines
+// carry `•` and `…`; a needle containing either would red when `escapeInline` grows one
+// more entity rule — and `&#8226;` DISPLAYS as `•`, so that red would cost a reader
+// nothing and would argue for weakening this arm. Pin what a rewrite cannot preserve
+// silently: the words, contiguous.
+const FOLD_MEMBER = 'the linker refused the release profile';
+const FOLD_NOTICE_COUNT = 'and 7 more';
+
+function reportCarryingEvidence(): SiftReport {
+    const base = load('drift.json');
+    // The engine body's own shape: a ranked row, then its evidence as indented bullets.
+    const markdown =
+        '# Sift — baseline → changed\n\n' +
+        '**7 changes, 2 structurally significant.**\n\n' +
+        '## Significant changes\n\n' +
+        '1. **[CRITICAL · regression]** Unit changed outcome: "gate" — required by this run\n' +
+        `   -   • build / bravo: ${FOLD_MEMBER}\n` +
+        `   -   • … ${FOLD_NOTICE_COUNT}, all carried in rolled_up_template_ids\n`;
+    return { ...base, markdown };
+}
+
+test('evidence reaches the reader: folded member + remainder notice land inside <details>', () => {
+    const report = reportCarryingEvidence();
+    for (const row of report.ranked_changes) {
+        assert.ok(
+            !row.summary.includes(FOLD_MEMBER),
+            'the member text also occurs in an inline row summary — every assertion below would ' +
+                'then be satisfiable by the row block, not the evidence channel',
+        );
+        assert.ok(!row.summary.includes(FOLD_NOTICE_COUNT), 'same, for the notice');
+    }
+
+    const out = renderComment(report, ctx());
+    const detailsAt = out.indexOf('<details>');
+    assert.ok(detailsAt >= 0, out);
+
+    // Present, and present in the ONE place that can carry it — after the <details> opening.
+    // A hit before it would mean the row block grew an evidence channel of its own, which is
+    // the derivation this arm rests on quietly breaking.
+    const memberAt = out.indexOf(FOLD_MEMBER);
+    assert.ok(memberAt > detailsAt, 'the folded member never reached the collapsed report body');
+    const noticeAt = out.indexOf(FOLD_NOTICE_COUNT);
+    assert.ok(noticeAt > detailsAt, 'the truncation notice never reached the collapsed report body');
+
+    // READABLE, not merely present: safe embedding runs over every byte of the body on the
+    // way through, and an evidence line delivered as scattered fragments is the same loss as
+    // a dropped one. CONTIGUITY is the checkable form of "readable" — assert the whole span
+    // arrives unbroken, not just that its words occur somewhere.
+    assert.ok(
+        out.includes(`build / bravo: ${FOLD_MEMBER}`),
+        out.slice(detailsAt, detailsAt + 600),
+    );
+    assert.ok(
+        out.includes(`${FOLD_NOTICE_COUNT}, all carried in rolled_up_template_ids`),
+        out.slice(detailsAt, detailsAt + 600),
+    );
+
+    // And the line is still a LINE: its own row in the body, under its own indent. A body
+    // re-wrapped or stripped of leading whitespace stops rendering evidence as a sub-bullet
+    // and merges it into the row above — present in the bytes, gone from the reader's eye.
+    assert.match(
+        out,
+        new RegExp(`\\n {3}- .*build / bravo: ${FOLD_MEMBER}`),
+        out.slice(detailsAt, detailsAt + 600),
+    );
+});
