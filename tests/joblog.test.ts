@@ -72,13 +72,23 @@ test('anonymous sections (bare SIFT_CAPTURE) work under auto', () => {
 
 // ── job lookup ───────────────────────────────────────────────────────────────
 
-function fetchParams(jobs: unknown[], log: string, over: Partial<FetchJobLogParams> = {}): FetchJobLogParams {
+// `log` may be a FUNCTION OF THE JOB ID, and that is not a convenience: a fixed string makes
+// every job in the run indistinguishable, so an arm asserting on the returned text cannot tell
+// the RIGHT job from the WRONG one. Keying the log by id makes the returned text name the row
+// the lookup actually resolved. See the identity note on the rendering arm below.
+function fetchParams(
+    jobs: unknown[],
+    log: string | ((jobId: number) => string),
+    over: Partial<FetchJobLogParams> = {},
+): FetchJobLogParams {
     const octokit = {
         paginate: async () => jobs,
         rest: {
             actions: {
                 listJobsForWorkflowRun: async () => ({ data: { jobs } }),
-                downloadJobLogsForWorkflowRun: async () => ({ data: log }),
+                downloadJobLogsForWorkflowRun: async ({ job_id }: { job_id: number }) => ({
+                    data: typeof log === 'function' ? log(job_id) : log,
+                }),
             },
         },
     };
@@ -100,13 +110,40 @@ test('fetchTargetJobLog: exact name match, completed job, cleaned log + conclusi
     assert.equal(out.conclusion, 'success');
 });
 
-test('fetchTargetJobLog: reusable-workflow "caller / name" suffix matches uniquely', async () => {
+// ⚠ THIS ARM COULD NOT SEE WHICH JOB IT RESOLVED, and the repair is recorded rather than
+// quietly applied. It asserted `out.text === 'ok'` against a mock that returned the SAME log for
+// every `job_id`, with both fixture jobs declaring `success` — so "the suffix matched uniquely"
+// was satisfied by matching the WRONG row, and by a lookup that ignored the name entirely. The
+// property it names was never false; it was never checked either.
+//
+// Repaired to the standard the DN-37.D14 mirror below sets: the log is keyed by id, and the two
+// candidate rows declare OPPOSITE conclusions, so a wrong resolution fails on two independent
+// axes at once. Verified by mutation — inverting the lookup's precedence (rendering before exact)
+// leaves the OLD form of this arm green and reds this one.
+test('fetchTargetJobLog: the "caller / name" rendering resolves, and the EXACT name wins over it', async () => {
+    // A caller workflow with its own `build` job that ALSO calls a reusable workflow exposing an
+    // inner `build`. Both names are legal in one run, and that collision is the entire reason the
+    // lookup tries the exact name FIRST — a precedence with no arm on it until now.
     const jobs = [
-        { id: 7, name: 'ci / build', status: 'completed', conclusion: 'success' },
-        { id: 8, name: 'lint', status: 'completed', conclusion: 'success' },
+        { id: 7, name: 'ci / build', status: 'completed', conclusion: 'failure' },
+        { id: 8, name: 'build', status: 'completed', conclusion: 'success' },
+        { id: 9, name: 'lint', status: 'completed', conclusion: 'success' },
     ];
-    const out = await fetchTargetJobLog(fetchParams(jobs, `${T}ok`));
-    assert.equal(out.text, 'ok');
+    const byId = (jobId: number) => `${T}log-of-job-${jobId}`;
+
+    const exact = await fetchTargetJobLog(fetchParams(jobs, byId));
+    assert.equal(exact.text, 'log-of-job-8');
+    assert.equal(exact.conclusion, 'success');
+
+    // …and with no exact job in the run, the rendering resolves — to THAT row, not merely to one.
+    const rendered = await fetchTargetJobLog(
+        fetchParams(
+            jobs.filter((job) => job.name !== 'build'),
+            byId,
+        ),
+    );
+    assert.equal(rendered.text, 'log-of-job-7');
+    assert.equal(rendered.conclusion, 'failure');
 });
 
 test('fetchTargetJobLog: missing, ambiguous, and not-completed jobs all THROW with actionable messages', async () => {
