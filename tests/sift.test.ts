@@ -115,6 +115,22 @@ test('siftArgs: --channel=annotated is ALWAYS declared — this Action fetches t
     assert.equal(args[idx + 1], 'annotated', 'the Action fetches the runner RAW job log, not the stripped form');
 });
 
+test('siftArgs: --transport=none is ALWAYS declared — deduction is suppressed, never relied on', () => {
+    // DN-35.D12. Deduction is content-sensitive and content is exactly what a diff varies, so
+    // per-side deduction disagrees precisely when the two sides differ most — measured on this
+    // Action's own invocation: `baseline api-rfc3339-line-prefix (deduced), changed none (deduced)`
+    // on a homologous pair, costing the UNIT (1 of 16 rows kept a real unit). `none` is the honest
+    // declaration: both acquisition paths feed prefix-free bytes (DN-32.D6 build.log; joblog.ts
+    // strips runner timestamps before sift sees a byte). One token sets BOTH sides, so asymmetry
+    // cannot arise. The engine-side acceptance is the peek reading `none (declared)` — a
+    // `(deduced)` that happens to say none is the defect wearing the fix's clothes; THIS arm pins
+    // the emitter half: the declaration always rides.
+    const args = siftArgs(baseInvocation);
+    const idx = args.indexOf('--transport');
+    assert.ok(idx >= 0, '--transport must always be declared (deduction suppressed by construction)');
+    assert.equal(args[idx + 1], 'none', 'both acquisition paths are prefix-free — none is the honest token');
+});
+
 test('siftArgs: --explain is absent by default (opt-in)', () => {
     assert.ok(!siftArgs(baseInvocation).includes('--explain'));
     assert.ok(!siftArgs({ ...baseInvocation, explain: false }).includes('--explain'));
