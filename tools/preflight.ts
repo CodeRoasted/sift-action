@@ -73,17 +73,25 @@ const VERDICT_CELLS: ReadonlyArray<{ name: string; baselineOutcome: string; chan
 // Action never emits a half-pair; nothing proved what the PINNED ENGINE does when it receives
 // one, and that behaviour changes underneath us at a bump.
 //
-// MEASURED on engine v1.9.2 (2026-08-10): a verdict token with NO `--outcome-vocabulary` is
+// MEASURED on engine v1.9.2 (2026-08-10): a verdict token with NO `--outcome-vocabulary` was
 // accepted, exit 0, output byte-identical to the paired invocation, and NOT ONE WORD of
 // diagnostic. That is the silent degradation itself — the same shape cost `sift-crawl` 60
 // critical/high `regression` rows across 63 identical-commit pairs whose ground truth was
-// silence. Past `insight-canon 86daaf4` the same input TERMINATES the process instead.
+// silence.
+//
+// MEASURED on engine v1.9.3 (2026-08-15, this bump): the half-pair is REFUSED — exit 1, a
+// diagnostic naming the missing coordinate and enumerating the composed vocabularies ("error:
+// --baseline-outcome / --changed-outcome need --outcome-vocabulary. … the composed vocabularies
+// are: \"github\", \"gitlab\", \"jenkins\", \"test_frameworks\""). A usage error, not a SIGABRT:
+// the CLI refuses before constructing the config (DN-37.D18 — fail-closed is a property of the
+// OUTCOME, and a CLI has an exit code and must use it). This probe went red on exactly this bump
+// and the declaration moved with the pin, which is this constant doing its one job.
 //
 // So this constant is the pin's other half, and it fails CLOSED: `bump.sh` moves SIFT_VERSION,
 // this stops matching, preflight goes red, and whoever bumps must look at the difference rather
 // than remember it. Do not "fix" a red here by editing this value alone — read the engine's new
 // behaviour first and confirm it is the one intended.
-const PINNED_ENGINE_HALF_PAIR: 'tolerated' | 'fatal' = 'tolerated';
+const PINNED_ENGINE_HALF_PAIR: 'tolerated' | 'fatal' = 'fatal';
 
 interface RunResult {
     exitCode: number;
