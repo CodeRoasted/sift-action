@@ -7,6 +7,7 @@
 
 import * as exec from '@actions/exec';
 import { promises as fs } from 'fs';
+import type { DeclaredJobWire } from './jobgraph.js';
 import type { SiftReport } from './types.js';
 
 export type FailOn = 'none' | 'significant' | 'regression';
@@ -31,6 +32,13 @@ export interface SiftInvocation {
     // deterministic report + the gate exit code untouched. No credential — the Action never carries one.
     explain?: boolean;
     explainModel?: string; // advanced override; default = the auto-provisioned pinned model
+    // The CHANGED run's declared `needs:` job graph (DN-37.D18 — a JSON file behind
+    // `--changed-job-graph`), produced by jobgraph.ts. ABSENT (undefined) ⇒ no flag ⇒ the fold is
+    // inert; a present-but-empty `jobs` array declares a workflow with zero jobs — different facts,
+    // and the engine acts on the difference. There is deliberately no baseline half: the fold
+    // operates on the changed run's aggregator, and the flag NAME carries that asymmetry.
+    // runSift() writes `jobs` to `path` before exec; siftArgs() only names the path.
+    changedJobGraph?: { path: string; jobs: DeclaredJobWire[] };
 }
 
 export interface SiftResult {
@@ -127,10 +135,17 @@ export function siftArgs(invocation: SiftInvocation): string[] {
     // every document becomes incomparable with the truth for a reason no reader can see. The
     // vocabulary coordinate touches no composition and cannot move that identity.
     //
-    // Sent whenever EITHER token is present: without it the engine resolves the token against the
-    // stream's dialect, which a raw build log does not have — the token then resolves to nothing
-    // and every rule that reads the verdict silently does not apply.
-    if (invocation.baselineOutcome || invocation.changedOutcome) {
+    // Sent whenever ANY declared verdict is present — a run token on either side, or a job
+    // conclusion inside the declared graph, which the engine interprets through this SAME
+    // vocabulary (DN-37.D18: same declarer, same run; a second vocabulary field would be a second
+    // enumeration of one concept). Without it a run token resolves against the stream's dialect,
+    // which a raw build log does not have — the token then resolves to nothing and every rule that
+    // reads the verdict silently does not apply — and a graph conclusion is REFUSED outright: the
+    // pinned engine exits non-zero on any non-empty `conclusion` with no vocabulary (the half-pair
+    // refusal, at the CLI boundary). All-empty conclusions assert nothing and need no vocabulary.
+    const graphDeclaresConclusion =
+        invocation.changedJobGraph?.jobs.some((job) => job.conclusion !== '') ?? false;
+    if (invocation.baselineOutcome || invocation.changedOutcome || graphDeclaresConclusion) {
         args.push('--outcome-vocabulary', 'github');
     }
     if (invocation.baselineOutcome) {
@@ -138,6 +153,12 @@ export function siftArgs(invocation: SiftInvocation): string[] {
     }
     if (invocation.changedOutcome) {
         args.push('--changed-outcome', invocation.changedOutcome);
+    }
+    // DN-37.D18 — the declared `needs:` graph rides as a FILE: `needs` is genuinely nested, and
+    // flat flags cannot carry a nesting without inventing a separator convention JSON already
+    // spells. Present ⇒ the flag names the path runSift() writes; absent ⇒ no flag, fold inert.
+    if (invocation.changedJobGraph) {
+        args.push('--changed-job-graph', invocation.changedJobGraph.path);
     }
     if (invocation.failOn !== 'none') {
         args.push('--fail-on', invocation.failOn);
@@ -155,6 +176,16 @@ export function siftArgs(invocation: SiftInvocation): string[] {
 }
 
 export async function runSift(invocation: SiftInvocation): Promise<SiftResult> {
+    // The graph file the vector names — written here, where the other file IO already lives, so
+    // siftArgs stays pure (unit-testable without spawning). All four wire fields always travel:
+    // the type guarantees presence, and JSON.stringify of the literal-ordered objects is
+    // deterministic for a given graph.
+    if (invocation.changedJobGraph) {
+        await fs.writeFile(
+            invocation.changedJobGraph.path,
+            JSON.stringify(invocation.changedJobGraph.jobs),
+        );
+    }
     // ignoreReturnCode: a non-zero exit is the advisory gate, not an Action error.
     // env: a scrubbed, credential-free environment (see engineEnv).
     const exitCode = await exec.exec(invocation.siftBin, siftArgs(invocation), {

@@ -38,6 +38,7 @@ jobs:
     permissions:
       actions: write          # read the build job's log + baselines; upload this run's baseline
       pull-requests: write    # post/update the sticky comment
+      contents: read          # read this workflow's `needs:` graph (optional — see below)
     steps:
       - name: Sift Log Diff
         uses: CodeRoasted/sift-action@v1
@@ -48,6 +49,13 @@ jobs:
 The first green run on the base branch seeds the baseline; every PR gets a diff
 automatically thereafter (self-bootstrapping). No prior green run ⇒ an honest
 "no baseline yet" comment.
+
+With `contents: read`, Sift also reads this workflow's declared `needs:` job
+graph and hands it to the engine, so a failure surfacing on a required-check
+**aggregator** job is folded into the member job that actually failed instead
+of being reported against the aggregator. Optional and fail-soft: without the
+permission the diff runs exactly as before — aggregator rows just don't fold
+(the run log says so).
 
 ## Advanced usage
 

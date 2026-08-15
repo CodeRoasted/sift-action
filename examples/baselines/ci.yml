@@ -63,6 +63,8 @@ jobs:
     permissions:
       actions: write        # read the build job's log + baselines; upload this run's baseline
       pull-requests: write  # the sticky PR comment(s)
+      contents: read        # read this workflow's `needs:` graph — folds an aggregator job's
+                            # failure into the failing member (optional; without it, no fold)
     steps:
       # ── main push / tag: diff vs the named main baseline, then re-seed it ──
       - name: Sift — vs main baseline (and re-seed it)

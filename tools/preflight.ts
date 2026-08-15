@@ -32,12 +32,15 @@
 // breaks the two single-token cells the Action really sends — left this preflight GREEN.
 // The verdict coordinate is now driven in all four cells below, so that specific hole is closed.
 //
-// THE BOUNDARY THAT REMAINS, stated so the next reader does not re-derive the wrong lesson:
-// widening covered ONE coordinate. Every other conditional in `siftArgs` is still exercised in a
-// single combination, and the same mutation aimed at any of them would still green here. This
-// file's sentence is *"the pinned engine ACCEPTS what the Action emits"*; `tests/sift.test.ts`'s
-// is *"the Action emits a PAIRED vector in every cell"*. **Neither subsumes the other, and a
-// property provable without the engine belongs in the unit arm, where it is total and free.**
+// THE BOUNDARY THAT REMAINS, stated so the next reader does not re-derive the wrong lesson: the
+// widenings cover TWO coordinates — the verdict pair (four cells) and the `--changed-job-graph`
+// declaration (three cells, section A′ — the FOURTH instance of this class, named by DN-37.D18
+// before it could become the fifth discovery). Every other conditional in `siftArgs` is still
+// exercised in a single combination, and a mutation aimed at one of those would still green here.
+// This file's sentence is *"the pinned engine ACCEPTS what the Action emits"*;
+// `tests/sift.test.ts`'s is *"the Action emits a PAIRED vector in every cell"*. **Neither subsumes
+// the other, and a property provable without the engine belongs in the unit arm, where it is total
+// and free.**
 
 import { execFile } from 'node:child_process';
 import { mkdtemp, writeFile, access } from 'node:fs/promises';
@@ -45,6 +48,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
+import type { DeclaredJobWire } from '../src/jobgraph.js';
 import { engineEnv, siftArgs, type SiftInvocation } from '../src/sift.js';
 import { resolveSift } from '../src/resolve-sift.js';
 import { SIFT_VERSION } from '../src/sift-version.js';
@@ -188,6 +192,91 @@ async function main(): Promise<void> {
         }
     }
 
+    // ── A′) the `--changed-job-graph` coordinate, in its three ship shapes ───────────────────
+    // The graph is the wire jobgraph.ts produces (DN-37.D18), and each shape below is one the
+    // Action REALLY emits — not a synthetic corner. The verdict cells above stay graph-FREE
+    // because acquisition-absent is itself a ship shape (a denied `contents: read`, a missing
+    // GITHUB_WORKFLOW_REF), so both halves of the conditional stay driven on the real engine.
+    const GRAPH_CELLS: ReadonlyArray<{
+        name: string;
+        jobs: DeclaredJobWire[];
+        baselineOutcome: string;
+        changedOutcome: string;
+    }> = [
+        {
+            // The full PR shape: run tokens AND a graph with an edge, a resolved conclusion, a
+            // fan-out anchor, and a key-less quoted rendering — every wire feature at once.
+            name: 'graph + both verdicts',
+            jobs: [
+                { key: 'build', display: 'build', needs: [], conclusion: 'success' },
+                { key: 'gate', display: 'gate', needs: ['build'], conclusion: 'failure' },
+                { key: '', display: 'Bazel / test windows', needs: [], conclusion: 'failure' },
+            ],
+            baselineOutcome: 'success',
+            changedOutcome: 'failure',
+        },
+        {
+            // `log:` sourcing with no outcome wiring: the graph's conclusions are the ONLY
+            // declared verdicts, so the vocabulary rides on them alone — the exact pairing branch
+            // DN-37.D18 added, driven with no run token to mask it.
+            name: 'graph conclusions only, no run tokens',
+            jobs: [{ key: 'build', display: 'build', needs: ['deps'], conclusion: 'failure' },
+                   { key: 'deps', display: 'deps', needs: [], conclusion: '' }],
+            baselineOutcome: '',
+            changedOutcome: '',
+        },
+        {
+            // The edge-gated acquisition (no edges ⇒ the jobs listing is skipped ⇒ displays and
+            // conclusions all empty) — the shape this repo's own dogfood emits. No verdict
+            // anywhere, so NO vocabulary rides: the engine must accept a conclusion-less graph
+            // bare (all-empty is fine — the refusal trigger is incomplete ∧ unresolved).
+            name: 'inert graph, no verdicts, no vocabulary',
+            jobs: [
+                { key: 'build', display: '', needs: [], conclusion: '' },
+                { key: 'actionlint', display: '', needs: [], conclusion: '' },
+            ],
+            baselineOutcome: '',
+            changedOutcome: '',
+        },
+    ];
+    for (const [index, cell] of GRAPH_CELLS.entries()) {
+        const outputPath = join(work, `report-graph-${index}.json`);
+        const graphPath = join(work, `graph-${index}.json`);
+        // The file body is written the way runSift writes it — JSON.stringify of the typed wire —
+        // so this drives the bytes the engine will really receive, not a hand-authored guess.
+        await writeFile(graphPath, JSON.stringify(cell.jobs));
+        const invocation: SiftInvocation = {
+            siftBin,
+            baselineLog,
+            changedLog,
+            baselineLabel: 'preflight-baseline',
+            changedLabel: 'preflight-changed',
+            baselineOutcome: cell.baselineOutcome,
+            changedOutcome: cell.changedOutcome,
+            failOn: 'significant',
+            outputPath,
+            changedJobGraph: { path: graphPath, jobs: cell.jobs },
+        };
+        const args = siftArgs(invocation);
+        const r = await runVector(siftBin, args, outputPath);
+        const ok = !r.rejected && r.ranClean && r.wroteReport;
+        process.stdout.write(
+            `preflight graph cell ${index + 1}/${GRAPH_CELLS.length} [${cell.name}]: ` +
+                `${args.length} args, exit ${r.exitCode} — ${ok ? 'accepted' : 'REJECTED'}\n`,
+        );
+        if (!ok) {
+            if (r.stderr.trim()) {
+                process.stdout.write(`--- engine stderr ---\n${r.stderr.trimEnd()}\n---------------------\n`);
+            }
+            failures.push(
+                `  graph cell [${cell.name}]: exit ${r.exitCode}` +
+                    `${r.exitCode === 134 ? ' (ABORTED — died on a signal)' : ''}` +
+                    `, report.json ${r.wroteReport ? 'written' : 'ABSENT'}, rejected=${r.rejected}\n` +
+                    `      vector: ${args.join(' ')}`,
+            );
+        }
+    }
+
     // ── B) the CAPABILITY PROBE — what does the PINNED engine do with a HALF-PAIR? ───────────
     // This is deliberately NOT a vector the Action can build (`tests/sift.test.ts` proves it never
     // emits one). It is derived from the real both-token vector by REMOVING the vocabulary, so it
@@ -237,8 +326,9 @@ async function main(): Promise<void> {
     }
 
     process.stdout.write(
-        `preflight OK — the pinned engine accepted all ${VERDICT_CELLS.length} verdict cells, ` +
-            `and its half-pair behaviour is still '${PINNED_ENGINE_HALF_PAIR}'.\n`,
+        `preflight OK — the pinned engine accepted all ${VERDICT_CELLS.length} verdict cells and ` +
+            `all ${GRAPH_CELLS.length} graph cells, and its half-pair behaviour is still ` +
+            `'${PINNED_ENGINE_HALF_PAIR}'.\n`,
     );
 }
 

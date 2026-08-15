@@ -114,8 +114,10 @@ export async function fetchTargetJobLog(params: FetchJobLogParams): Promise<Targ
         run_id: runId,
         per_page: 100,
     });
-    // Exact name first; a reusable-workflow job renders as "<caller job> / <name>",
-    // so fall back to a unique "…/ <name>" suffix match.
+    // Exact name first; a reusable-workflow job renders under the rendering grammar DN-37.D14
+    // states (cited, never restated — tests/joblog.test.ts carries its mirror witness). The query
+    // is this consumer's own: the user names the INNER job and the caller prefix is unknown here,
+    // so the fallback matches by unique SUFFIX.
     let matches = jobs.filter((job) => job.name === jobName);
     if (matches.length === 0) {
         matches = jobs.filter((job) => job.name.endsWith(`/ ${jobName}`));

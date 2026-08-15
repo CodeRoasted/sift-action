@@ -37,18 +37,19 @@ test('siftArgs: native tokens forward VERBATIM (no adapter-side translation — 
 });
 
 // A caller-declared verdict is a PAIR (DN-32.D6): the native token AND the vocabulary that
-// interprets it. This arm pins the BICONDITIONAL — vocabulary present iff a token is present —
-// across all four cells, and it exists because of a MEASURED cost profile that INVERTS at the
-// next pin bump.
+// interprets it. This arm pins the BICONDITIONAL — vocabulary present iff a verdict is declared —
+// across all four run-token cells (the graph coordinate, the pair's third input since DN-37.D18,
+// has its own arms below), and it exists because the cost of breaking it is a hard failure on
+// EVERY consumer run.
 //
-// Today `SIFT_VERSION` predates the pairing being fatal, so dropping `--outcome-vocabulary`
-// degrades silently: the engine resolves the token against the STREAM's dialect, a raw build log
-// has none, the token resolves to nothing and every verdict-reading rule quietly does not apply.
-// That is exactly what happened to `sift-crawl`, and it was not a hypothetical: measured on 63
-// identical-`head_sha` pairs whose ground truth is silence, 60 critical/high `regression` rows
-// survived a demotion that could not fire. After the pin moves past `insight-canon 86daaf4` the
-// half-pair is FATAL, so the same regression stops being silent and turns EVERY Action run into a
-// usage error. The arm must therefore exist BEFORE the bump, not after.
+// On the pinned engine the half-pair is FATAL: a token without `--outcome-vocabulary` is refused,
+// exit 1, with a diagnostic naming the missing coordinate (preflight's capability probe declares
+// and re-measures this at every bump). It was not always so — on engines before `insight-canon
+// 86daaf4` the same shape degraded SILENTLY: the token resolved against the STREAM's dialect, a
+// raw build log has none, so it resolved to nothing and every verdict-reading rule quietly did not
+// apply. Measured on 63 identical-`head_sha` pairs whose ground truth is silence, 60 critical/high
+// `regression` rows survived a demotion that could not fire. This arm predates the bump that made
+// the class fatal, which is the order the instruments must land in.
 //
 // Why this is not preflight's job, stated rather than assumed: preflight populates BOTH tokens, so
 // it drives exactly ONE of the four cells below. A regression emitting the vocabulary only when
@@ -72,8 +73,8 @@ test('siftArgs: the verdict PAIR is never half-declared — vocabulary iff token
         assert.equal(
             vocabAt >= 0,
             cell.expectVocabulary,
-            `${where} a verdict token without --outcome-vocabulary is a HALF-PAIR: it degrades ` +
-                `silently on the current pin and is FATAL once the pin moves past insight-canon 86daaf4`,
+            `${where} a verdict token without --outcome-vocabulary is a HALF-PAIR: the pinned ` +
+                `engine refuses it (exit 1) on every consumer run`,
         );
         if (cell.expectVocabulary) {
             // Pin the VALUE, not merely the flag's presence: a boolean is satisfiable by any path
@@ -113,6 +114,63 @@ test('siftArgs: --channel=annotated is ALWAYS declared — this Action fetches t
     const idx = args.indexOf('--channel');
     assert.ok(idx >= 0, '--channel must always be declared');
     assert.equal(args[idx + 1], 'annotated', 'the Action fetches the runner RAW job log, not the stripped form');
+});
+
+// ── The declared `needs:` job graph (DN-37.D18) ─────────────────────────────
+
+test('siftArgs: --changed-job-graph is ABSENT when no graph — absent is a first-class state, not an empty file', () => {
+    const args = siftArgs(baseInvocation);
+    assert.ok(!args.includes('--changed-job-graph'), 'no graph acquired ⇒ no flag ⇒ the fold is inert');
+});
+
+test('siftArgs: the graph rides as the FILE PATH runSift writes — a declared-empty graph still rides', () => {
+    // `[]` is "declared, zero jobs" — a different fact from absent, and the engine acts on the
+    // difference (DN-37.D18: one flag, two states, no companion marker).
+    const args = siftArgs({ ...baseInvocation, changedJobGraph: { path: '/tmp/g.json', jobs: [] } });
+    const idx = args.indexOf('--changed-job-graph');
+    assert.ok(idx >= 0, 'a declared graph must ride, even when it declares zero jobs');
+    assert.equal(args[idx + 1], '/tmp/g.json', 'the flag carries the path the file is written to');
+});
+
+test('siftArgs: a graph CONCLUSION is a declared verdict — the vocabulary pair widens to cover it', () => {
+    // The pinned engine REFUSES any non-empty graph `conclusion` with no --outcome-vocabulary
+    // (the half-pair refusal at the CLI boundary), and this is a real ship shape: `log:` sourcing
+    // with `changed-outcome` unset still acquires a graph whose rows carry API conclusions. The
+    // pairing must therefore hold at the emitter with NO run token present.
+    const graphed = {
+        path: '/tmp/g.json',
+        jobs: [
+            { key: 'build', display: 'build', needs: [], conclusion: 'success' },
+            { key: 'gate', display: 'gate', needs: ['build'], conclusion: 'failure' },
+        ],
+    };
+    const args = siftArgs({ ...baseInvocation, changedJobGraph: graphed });
+    const vocabAt = args.indexOf('--outcome-vocabulary');
+    assert.ok(vocabAt >= 0, 'a graph conclusion without --outcome-vocabulary is the HALF-PAIR — refused by the pin');
+    assert.equal(args[vocabAt + 1], 'github', 'same declarer, same run, same vocabulary');
+    assert.equal(
+        args.filter((a) => a === '--outcome-vocabulary').length,
+        1,
+        'run tokens and graph conclusions share ONE vocabulary declaration',
+    );
+});
+
+test('siftArgs: an all-empty-conclusion graph declares no verdict — NO vocabulary rides on it', () => {
+    // Empty is NOT DECLARED (DN-32.D7) — nothing to interpret, so nothing is declared to
+    // interpret it with. The biconditional stays exact: vocabulary iff something carries a verdict.
+    const inert = {
+        path: '/tmp/g.json',
+        jobs: [
+            { key: 'build', display: '', needs: ['deps'], conclusion: '' },
+            { key: 'deps', display: '', needs: [], conclusion: '' },
+        ],
+    };
+    const args = siftArgs({ ...baseInvocation, changedJobGraph: inert });
+    assert.ok(args.includes('--changed-job-graph'), 'the declaration itself still travels');
+    assert.ok(
+        !args.includes('--outcome-vocabulary'),
+        'no verdict anywhere ⇒ no vocabulary — declaring one with nothing to interpret breaks the iff',
+    );
 });
 
 test('siftArgs: --transport=none is ALWAYS declared — deduction is suppressed, never relied on', () => {

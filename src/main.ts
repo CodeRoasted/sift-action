@@ -20,6 +20,7 @@ import {
     type BaselineSpec,
 } from './baseline.js';
 import { fetchTargetJobLog } from './joblog.js';
+import { resolveChangedJobGraph } from './jobgraph.js';
 import { upsertStickyComment, upsertCommitComment } from './comment.js';
 import { publishBaselineLog, writeRenderedComment } from './artifact.js';
 import { renderComment } from './frame.js';
@@ -298,6 +299,26 @@ async function run(): Promise<void> {
         if (explain) {
             await provisionExplain(siftBin);
         }
+        // The CHANGED run's declared `needs:` job graph (jobgraph.ts — the DN-37.D18 wire), so the
+        // engine can fold a required-check aggregator row into the member that actually failed.
+        // Fail-soft: acquisition failure ⇒ null ⇒ no flag ⇒ the fold is inert and the run is
+        // untouched (needs `contents: read`; the log line names it when denied).
+        //
+        // The workflow YAML is read at the BASE ref on a PR — a TRUST boundary, not only a
+        // correctness one (DN-37.D7). On a fork PR the head-ref file is CONTRIBUTOR-CONTROLLED and
+        // the run did not use it: a fork could shape the fold — and therefore the report's #1
+        // row — by editing a workflow file that never executed. Base-ref is both the correct
+        // branch and the trusted one, so do not "simplify" this back to the head ref. On a
+        // push/tag run, `github.context.sha` IS the declaration the run executed.
+        const changedJobGraph = await resolveChangedJobGraph({
+            octokit,
+            owner,
+            repo,
+            runId: github.context.runId,
+            workflowRef: process.env.GITHUB_WORKFLOW_REF,
+            contentRef: pr ? (pr.base.sha as string) : github.context.sha,
+            info: core.info,
+        });
         const result = await runSift({
             siftBin,
             baselineLog: baseline.logPath,
@@ -310,6 +331,9 @@ async function run(): Promise<void> {
             outputPath: reportJsonPath,
             explain,
             explainModel,
+            changedJobGraph: changedJobGraph
+                ? { path: path.join(workDir, 'changed-job-graph.json'), jobs: changedJobGraph }
+                : undefined,
         });
         gateExit = result.exitCode;
         report = result.report;

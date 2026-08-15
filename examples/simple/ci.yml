@@ -30,6 +30,9 @@ jobs:
     permissions:
       actions: write          # read the build job's log + baselines; upload this run's baseline
       pull-requests: write    # post/update the sticky comment
+      contents: read          # read this workflow's `needs:` graph, so an aggregator job's failure
+                              # is folded into the member that actually failed (optional: without
+                              # it the diff still runs, aggregator rows just don't fold)
     steps:
       - name: Sift Log Diff
         uses: CodeRoasted/sift-action@v1
