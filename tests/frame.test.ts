@@ -187,6 +187,76 @@ test('③ drift, verdict SUCCESS: the cache-died hero headline (verbatim)', () =
     );
 });
 
+// ── ③ bis — the suppression gap at CENSUS-ERA numbers (DN-37.D31) ───────────
+//
+// Until `total_changes` was restored as the pre-cut census, the aligned spine — the
+// one THIS Action consumes, via the CLI's `diff_logs_aligned` — assigned
+// `significant_changes` into `total_changes`. So on real bytes the gap was a
+// structural zero and this headline printed "0 of 22 diffs are noise": the
+// suppression half of the pitch was dead output. Measured after the restore, same
+// pair: total 973, significant 22.
+//
+// The two drift arms above compute their expectation as `total - significant`, which
+// is the render's own formula — they hold the SHAPE of the sentence and are green for
+// any arithmetic, right or wrong. This arm pins LITERALS at the measured numbers, and
+// pins the other side of the boundary with them: the same fixture at significant ===
+// total must print the zero-gap sentence. One of the two strings is wrong the moment
+// the subtraction, the grouping or the census itself moves, and neither can be
+// satisfied by printing a constant.
+test('③ drift: the census-era gap renders literally, and the zero-gap boundary with it', () => {
+    const base = load('drift.json');
+    const at = (total: number, significant: number): SiftReport => ({
+        ...base,
+        summary: { ...base.summary, total_changes: total, significant_changes: significant },
+    });
+
+    // The measured post-restore pair. 973 − 22 = 951, three digits, ungrouped.
+    assert.ok(
+        renderComment(at(973, 22), ctx()).includes(
+            '🔍 22 structural changes worth a look — 951 of 973 diffs are noise.',
+        ),
+        renderComment(at(973, 22), ctx()),
+    );
+
+    // The pre-restore shape, which is what a regression of DN-37.D31 would print again.
+    assert.ok(
+        renderComment(at(22, 22), ctx()).includes(
+            '🔍 22 structural changes worth a look — 0 of 22 diffs are noise.',
+        ),
+        renderComment(at(22, 22), ctx()),
+    );
+
+    // The census routinely clears a thousand on a real CI log, and the suppressed value
+    // rides `groupThousands` at a call site no fixture has ever pushed past three digits
+    // (the function's comma path is proven elsewhere, on line counts — this pins the SITE).
+    assert.ok(
+        renderComment(at(12043, 22), ctx()).includes(
+            '🔍 22 structural changes worth a look — 12,021 of 12,043 diffs are noise.',
+        ),
+        renderComment(at(12043, 22), ctx()),
+    );
+});
+
+// The invariant `significant <= total` is the ENGINE's, asserted where each spine
+// finalizes its summary and deliberately NOWHERE downstream (DN-37.D31: a defensive
+// clamp at a render site converts an invariant break into a plausible number). This
+// arm does not re-litigate that ruling — it CHARACTERIZES what this surface does if
+// the invariant is ever breached upstream, because the answer differs from the two
+// unsigned C++ render sites by construction: a JS number is a double, so the
+// subtraction yields a visible negative and never the ~1.8e19 an unsigned wrap
+// produces. Visibly wrong, not plausibly wrong — which is why no clamp is owed here
+// either, and the reason is a language fact worth pinning rather than assuming.
+test('a breached census invariant surfaces as a visible negative, never a wrapped magnitude', () => {
+    const base = load('drift.json');
+    const breached: SiftReport = {
+        ...base,
+        summary: { ...base.summary, total_changes: 22, significant_changes: 973 },
+    };
+    const out = renderComment(breached, ctx());
+    assert.ok(out.includes('-951 of 22 diffs are noise.'), out);
+    assert.ok(!/\d{15,}/.test(out), `an unsigned-wrap-sized magnitude reached the comment:\n${out}`);
+});
+
 // ── ④ Regression (a row has polarity === regression) ────────────────────────
 
 test('④ regression, verdict unknown: verbatim headline + regression row carries · regression', () => {
