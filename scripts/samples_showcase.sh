@@ -154,9 +154,16 @@ done
       echo
     done
   done
-  echo "> These logs are public-safe by construction — synthetic fixtures (fabricated orgs/builds,"
-  echo "> zero third-party bytes) reproducing each engine's marker skeleton. Our real crawled corpora"
-  echo "> stay private."
+  # STATE THE FACT, NEVER THE VERDICT. This line used to read "public-safe by construction" — the
+  # exact phrase retired on 2026-08-18, because that is the wording under which a real third-party
+  # operational corpus reached the public hub and 16 release tarballs. The two trees rendered here
+  # really are fabricated (each carries `SLICE.json "synthetic": true`), so the fact is checkable
+  # and needs no verdict attached to it. The line is also SCOPED to what this run rendered — the
+  # old one asserted a property of whatever trees happened to be found, which is how a third
+  # corpus would inherit a claim nobody made about it.
+  echo "> The ${#shown[@]} tree(s) rendered above are synthetic fixtures — fabricated orgs, builds and"
+  echo "> paths, each declared \`SLICE.json \"synthetic\": true\`, with no third-party bytes. Our real"
+  echo "> crawled corpora stay private."
 } > "$OUT/README.md"
 
 echo "sift showcase rendered → $OUT (${#shown[@]} dialect(s): ${shown[*]%%|*})" >&2
