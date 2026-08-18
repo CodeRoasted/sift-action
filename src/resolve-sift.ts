@@ -14,7 +14,10 @@
 //
 // v1 platform scope = linux x64 (GitHub-hosted runners are overwhelmingly
 // ubuntu-latest). On any other platform we fail with an actionable message rather
-// than download a wrong-arch binary — arm/macOS/Windows assets are a fast-follow.
+// than download a wrong-arch binary. That is THIS ACTION's scope, not the engine's:
+// sift-windows-x64.exe is published on every engine-v* release — see the correction
+// at resolveSift() below, which this line contradicted. arm and macOS are the
+// fast-follow.
 
 import * as core from '@actions/core';
 import * as exec from '@actions/exec';

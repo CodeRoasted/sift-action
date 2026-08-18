@@ -244,9 +244,12 @@ Without the cache step it still works — it just re-downloads the model each ru
 
 ## Platform & supply chain
 
-- **Runner:** linux x64 (`ubuntu-latest`) for v1; arm/macOS/Windows are a
-  fast-follow. On any other platform the Action fails with an actionable message
-  rather than running a wrong-arch binary.
+- **Runner:** linux x64 (`ubuntu-latest`) — **this Action** downloads the linux-x64
+  engine asset only, and on any other runner it fails with an actionable message
+  rather than running a wrong-arch binary. That is a statement about the Action, not
+  about what the engine publishes: **`sift-windows-x64.exe` is published** on every
+  `engine-v*` release and `install.ps1` installs it as a standalone CLI (see
+  [Other CI / Jenkins](#other-ci--jenkins)). **arm and macOS assets are a fast-follow.**
 - **Binary distribution:** the Action downloads the **version-pinned**
   `sift-linux-x64` release asset and **verifies its sha256** before executing it —
   a checksum mismatch is fatal (the asset is a supply-chain surface: the Action
