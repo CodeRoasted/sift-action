@@ -31,6 +31,7 @@ import { selectState, shouldComment, State, type CommentLevel } from './verdict.
 import {
     BASELINE_ARTIFACT_NAME,
     CONTEXT_VERSION,
+    MAX_CHANGED_LOG_BYTES,
     SIFT_COMMENT_DIR,
     type SiftCommentContext,
     type SiftReport,
@@ -212,6 +213,21 @@ async function run(): Promise<void> {
             `Sift: sourced the log from job "${targetJob}" (capture: ${capture}, changed-outcome: ${changedOutcome || '(none)'}).`,
         );
     } else {
+        // Bounded off the filesystem, before the copy — the cheapest possible refusal, and the
+        // one place where the size is known without reading anything. The engine refuses this
+        // same input at exit 3 regardless; catching it here saves the copy and lets the message
+        // name the `log:` input the user actually wrote.
+        const logStat = await fs.stat(logInput);
+        if (logStat.size > MAX_CHANGED_LOG_BYTES) {
+            core.setFailed(
+                `Sift: the \`log:\` input "${logInput}" is ${logStat.size} bytes, over the ` +
+                    `${MAX_CHANGED_LOG_BYTES} byte per-input ceiling. Check it with \`wc -lc\` ` +
+                    '(there is also a 1000000-line ceiling the engine enforces). Capture less: ' +
+                    'tee only the part of the build you want compared, or use `target-job` with ' +
+                    'the SIFT_CAPTURE markers.',
+            );
+            return;
+        }
         await fs.copyFile(logInput, changedLog); // the captured current-run log = changed.log
     }
 

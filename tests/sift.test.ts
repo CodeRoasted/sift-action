@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { engineEnv, siftArgs, type SiftInvocation } from '../src/sift.js';
+import { engineEnv, engineFailureMessage, siftArgs, type SiftInvocation } from '../src/sift.js';
 
 const baseInvocation: SiftInvocation = {
     siftBin: 'sift',
@@ -258,4 +258,54 @@ test('engineEnv is a closed env: only the operational allowlist + the pinned tri
     for (const key of Object.keys(env)) {
         assert.ok(allowed.has(key), `unexpected key in engine env: ${key}`);
     }
+});
+
+// ── The engine's exit-code contract (the T4 "enormous log" repair) ────────────
+//
+// Before this mapping existed, runSift() read the report file unconditionally after
+// `ignoreReturnCode: true`. An engine that refused — or crashed on an uncaught bad_alloc
+// (exit 134, SIGABRT) — surfaced as `ENOENT: no such file or directory, open
+// '.../report.json'`, a message about the Action's own plumbing rather than about the log.
+// These arms pin the property that made it a defect: EVERY non-report code produces a
+// message, and the two report-bearing codes produce none.
+
+test('engineFailureMessage: the two report-bearing codes are the ONLY silent ones', () => {
+    assert.equal(engineFailureMessage(0), null, 'exit 0 writes a report');
+    assert.equal(engineFailureMessage(2), null, 'exit 2 is the advisory gate — it writes a report');
+});
+
+test('engineFailureMessage: every non-report code is actionable, and none is silent', () => {
+    // The closed set (1, 3, 4) plus the shapes outside it. A `null` anywhere here is the
+    // original defect: it sends the caller on to read a file the engine never wrote.
+    for (const code of [1, 3, 4, 5, 127, 134, 139]) {
+        const message = engineFailureMessage(code);
+        assert.ok(message !== null, `exit ${code} must not read as "a report was written"`);
+        assert.ok(message.length > 40, `exit ${code} message is too thin to act on: ${message}`);
+    }
+});
+
+test('engineFailureMessage: exit 3 names the ceiling, the check, and the way out', () => {
+    const message = engineFailureMessage(3);
+    assert.ok(message !== null);
+    // The NUMBER — a refusal without it cannot be acted on.
+    assert.match(message, /134217728/, 'must state the byte ceiling');
+    assert.match(message, /1000000 lines/, 'must state the line ceiling');
+    // The CHECK — how a user decides whether their own log fits, before running anything.
+    assert.match(message, /wc -lc/);
+    // The WAY OUT — a limit with no remedy reads as "this product does not work here".
+    assert.match(message, /SIFT_CAPTURE/);
+    // And it must say this is a LIMIT, not a failure — the whole point of the repair.
+    assert.match(message, /not a crash/);
+});
+
+test('engineFailureMessage: a SIGNAL is named as one, because that is what the crash looked like', () => {
+    // 134 = 128 + SIGABRT(6) — the exact status the unbounded read used to produce. The
+    // engine's ceiling should now prevent it, so reaching here means something else broke;
+    // the message must still say "killed by a signal", never "no such file".
+    const message = engineFailureMessage(134);
+    assert.ok(message !== null);
+    assert.match(message, /signal \(6\)/);
+    assert.match(message, /out-of-memory/);
+    // Below 128 is not a signal and must not claim to be.
+    assert.doesNotMatch(engineFailureMessage(5) ?? '', /signal/);
 });

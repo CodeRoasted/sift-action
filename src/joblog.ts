@@ -20,6 +20,7 @@
 // `changed-outcome: ${{ needs.<job>.result }}` trivial for the caller.
 
 import type { getOctokit } from '@actions/github';
+import { MAX_CHANGED_LOG_BYTES } from './types.js';
 
 type Octokit = ReturnType<typeof getOctokit>;
 
@@ -144,6 +145,23 @@ export async function fetchTargetJobLog(params: FetchJobLogParams): Promise<Targ
         repo,
         job_id: job.id,
     });
+    // Bounded BEFORE sliceJobLog, which splits the whole log into a line array — the allocation
+    // that actually hurts, and several times the size of the bytes that came down the wire. The
+    // download itself is not bounded here because the API hands us a completed body, not a
+    // stream: by the time this line runs the bytes have already arrived. What this prevents is
+    // multiplying them.
+    const rawBytes =
+        typeof download.data === 'string'
+            ? Buffer.byteLength(download.data, 'utf8')
+            : (download.data as ArrayBuffer).byteLength;
+    if (rawBytes > MAX_CHANGED_LOG_BYTES) {
+        throw new Error(
+            `the log of job "${job.name}" is ${rawBytes} bytes, over the ${MAX_CHANGED_LOG_BYTES} ` +
+                'byte per-input ceiling Sift declares. Bound what you compare with the ' +
+                'SIFT_CAPTURE / SIFT_CAPTURE_END markers and set the `capture` input — a marked ' +
+                'section is diffed on its own, and is usually the part you actually care about.',
+        );
+    }
     const raw =
         typeof download.data === 'string'
             ? download.data

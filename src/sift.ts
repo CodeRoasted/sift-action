@@ -8,7 +8,7 @@
 import * as exec from '@actions/exec';
 import { promises as fs } from 'fs';
 import type { DeclaredJobWire } from './jobgraph.js';
-import type { SiftReport } from './types.js';
+import { MAX_CHANGED_LOG_BYTES, type SiftReport } from './types.js';
 
 export type FailOn = 'none' | 'significant' | 'regression';
 
@@ -44,6 +44,80 @@ export interface SiftInvocation {
 export interface SiftResult {
     report: SiftReport;
     exitCode: number; // sift's --fail-on verdict: 0 = pass, 2 = condition held
+}
+
+// The engine's CLOSED exit-code set (`sift --help` § Exit codes). Only SUCCESS and
+// GATE_TRIPPED leave a report behind; every other code means there is no file to read, and
+// reading anyway is how a real failure got reported as a filesystem error.
+//
+// This is not a defensive nicety. Before it existed, runSift() read the report file
+// unconditionally after `ignoreReturnCode: true`, so an engine that had refused — or, when
+// the log was large enough to exhaust the runner, CRASHED on an uncaught bad_alloc — surfaced
+// to the user as `ENOENT: no such file or directory, open '.../report.json'`. That message
+// names the wrong subject entirely: it points at the Action's own plumbing while the actual
+// event was "your log did not fit", and it is the last message a prospect sees before
+// deciding the tool does not work.
+const SIFT_EXIT = {
+    SUCCESS: 0,
+    USAGE_ERROR: 1,
+    GATE_TRIPPED: 2,
+    INPUT_TOO_LARGE: 3,
+    INTERNAL_ERROR: 4,
+} as const;
+
+// Thrown when the engine produced no report. Carries the exit code so callers can branch
+// without re-parsing a message.
+export class SiftEngineError extends Error {
+    constructor(
+        message: string,
+        readonly exitCode: number,
+    ) {
+        super(message);
+        this.name = 'SiftEngineError';
+    }
+}
+
+// Pure: the engine's exit code → the message a user can act on, or null when the code means
+// "a report was written". Exported for unit tests — this mapping IS the contract, and it
+// should be provable without spawning a binary.
+export function engineFailureMessage(exitCode: number): string | null {
+    switch (exitCode) {
+        case SIFT_EXIT.SUCCESS:
+        case SIFT_EXIT.GATE_TRIPPED:
+            return null;
+        case SIFT_EXIT.USAGE_ERROR:
+            return (
+                'Sift could not read one of the logs, or was called with bad arguments ' +
+                '(engine exit 1). Check the `log:` path, or the `target-job` name if you use ' +
+                "zero-plumbing sourcing — the engine's own message is in the step log above."
+            );
+        case SIFT_EXIT.INPUT_TOO_LARGE:
+            return (
+                'Sift refused this run: one of the logs is over the engine ceiling of ' +
+                `${MAX_CHANGED_LOG_BYTES} bytes / 1000000 lines per input (engine exit 3). ` +
+                'Check with `wc -lc` on the log. This is a declared limit, not a crash — the ' +
+                'engine will not diff a truncated window, because that answers a different ' +
+                'question without saying so. Narrow what you compare with the SIFT_CAPTURE ' +
+                'markers (see the `capture` input) and Sift will run on the sections you mark.'
+            );
+        case SIFT_EXIT.INTERNAL_ERROR:
+            return (
+                'The Sift engine hit an internal error (exit 4). This is a bug — please report ' +
+                'it at https://github.com/CodeRoasted/sift-action/issues with the engine ' +
+                'message from the step log above and the output of `wc -lc` on both logs.'
+            );
+        default:
+            // A code outside the closed set — in practice a signal (128+n; 134 = SIGABRT).
+            // Named explicitly because "unknown" is exactly what the old ENOENT path said.
+            return (
+                `The Sift engine exited with an unexpected status (${exitCode}). ` +
+                (exitCode > 128
+                    ? `That is a signal (${exitCode - 128}), so the engine was killed rather ` +
+                      'than returning — a runner out-of-memory kill is the usual cause. '
+                    : '') +
+                'This is a bug — please report it with the step log and `wc -lc` on both logs.'
+            );
+    }
 }
 
 // Operational, non-secret env the engine may legitimately need from the runner.
@@ -186,12 +260,20 @@ export async function runSift(invocation: SiftInvocation): Promise<SiftResult> {
             JSON.stringify(invocation.changedJobGraph.jobs),
         );
     }
-    // ignoreReturnCode: a non-zero exit is the advisory gate, not an Action error.
+    // ignoreReturnCode: exit 2 is the advisory gate, not an Action error — so the code must be
+    // INSPECTED here rather than ignored. The distinction the old code lost: `ignoreReturnCode`
+    // means "do not throw on non-zero", not "non-zero carries no information".
     // env: a scrubbed, credential-free environment (see engineEnv).
     const exitCode = await exec.exec(invocation.siftBin, siftArgs(invocation), {
         ignoreReturnCode: true,
         env: engineEnv(),
     });
+    // Checked BEFORE the read, which is the whole fix: on any failing code there is no report
+    // file, and reading first turns the engine's actionable message into an ENOENT about ours.
+    const failure = engineFailureMessage(exitCode);
+    if (failure !== null) {
+        throw new SiftEngineError(failure, exitCode);
+    }
     const raw = await fs.readFile(invocation.outputPath, 'utf8');
     const report = JSON.parse(raw) as SiftReport;
     return { report, exitCode };

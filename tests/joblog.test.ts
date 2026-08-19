@@ -12,6 +12,7 @@ import {
     stripRunnerTimestamps,
     type FetchJobLogParams,
 } from '../src/joblog.js';
+import { MAX_CHANGED_LOG_BYTES } from '../src/types.js';
 
 const T = '2026-07-06T12:34:56.7890123Z ';
 
@@ -244,4 +245,55 @@ test('DN-37.D14 mirror: the full rendering resolves exactly, and the separator i
     // being a declared containment and become a substring coincidence. Nothing else in this
     // repo states that the separator carries the meaning.
     await assert.rejects(fetchTargetJobLog(fanOutParams('shear')), /not found in this run/);
+});
+
+// ── The changed-path byte ceiling (the T4 cap-asymmetry repair) ──────────────
+//
+// The BASELINE path has been double-bounded since the adm-zip advisory; this path — the
+// other half of the same diff, and the half that grows, because it is the log of the run
+// happening right now — had no cap in either sourcing mode. The asymmetry WAS the bug.
+//
+// The bound sits before sliceJobLog deliberately: that is the call that splits the log into
+// a line array, several times the wire bytes, and it is the allocation worth preventing.
+
+function oversizeParams(bytes: number): FetchJobLogParams {
+    const job = { id: 7, name: 'build', status: 'completed', conclusion: 'success' };
+    const octokit = {
+        paginate: async () => [job],
+        rest: {
+            actions: {
+                listJobsForWorkflowRun: async () => ({ data: { jobs: [job] } }),
+                downloadJobLogsForWorkflowRun: async () => ({ data: 'x'.repeat(bytes) }),
+            },
+        },
+    };
+    return {
+        octokit: octokit as unknown as FetchJobLogParams['octokit'],
+        owner: 'o',
+        repo: 'r',
+        runId: 1,
+        jobName: 'build',
+        capture: 'off',
+    };
+}
+
+test('target-job: a log over the per-input ceiling is REFUSED, and the message names the way out', async () => {
+    await assert.rejects(
+        fetchTargetJobLog(oversizeParams(MAX_CHANGED_LOG_BYTES + 1)),
+        (error: Error) => {
+            // The number, so the user can compare it against their own `wc -c`.
+            assert.match(error.message, new RegExp(String(MAX_CHANGED_LOG_BYTES)));
+            // The remedy — a ceiling with no way past it reads as "unsupported".
+            assert.match(error.message, /SIFT_CAPTURE/);
+            return true;
+        },
+    );
+});
+
+test('target-job: exactly AT the ceiling still runs — the boundary is a capacity, not a threshold', async () => {
+    // The other direction, and the one that keeps the arm above from passing vacuously: were
+    // the comparison `>=`, or the constant wrong, this is what would catch it.
+    const out = await fetchTargetJobLog(oversizeParams(MAX_CHANGED_LOG_BYTES));
+    assert.equal(out.text.length, MAX_CHANGED_LOG_BYTES);
+    assert.equal(out.conclusion, 'success');
 });

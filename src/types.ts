@@ -180,6 +180,27 @@ export const MAX_RENDERED_BODY_BYTES = 65_536; // GitHub issue-comment hard limi
 export const MAX_BASELINE_ARTIFACT_BYTES = 32 * 1024 * 1024; // 32 MiB, COMPRESSED — gates the parse
 export const MAX_BASELINE_UNPACKED_BYTES = 256 * 1024 * 1024; // 256 MiB, DECOMPRESSED — gates extraction
 
+// Size bound on the CHANGED log — the other half of the diff, and until now the unbounded one.
+//
+// THE ASYMMETRY WAS THE BUG. The baseline path above has been double-bounded since the adm-zip
+// advisory; the changed path had no cap at all, in either of its two sourcing modes (the
+// `target-job` API download and the `log:` file input). Both feed the same engine, and the
+// changed log is the one that grows — it is the log of the run happening right now.
+//
+// WHY THIS EXACT NUMBER, AND WHY IT IS NOT A SECOND OPINION: it is the ENGINE's declared
+// per-input byte ceiling (`sift --help` § Input ceiling), restated at the boundary that can
+// refuse earlier and say more. There is deliberately ONE published ceiling: a wrapper cap
+// tighter than the engine's would silently shrink the product's documented limit, and a looser
+// one would be decoration. If they ever disagree, the engine wins by construction — it exits 3
+// and the Action reports that, which is why this cap is an OPTIMISATION (skip the download, the
+// temp write and the process spawn) and never the authority.
+//
+// The engine's OTHER dimension — 1,000,000 lines per input — is deliberately NOT mirrored here.
+// Counting lines requires materialising the whole log, which is the allocation this cap exists
+// to avoid; the engine already refuses on it, at the only place the count is free. So: bytes
+// here, lines there, one ceiling published, no dimension unguarded.
+export const MAX_CHANGED_LOG_BYTES = 128 * 1024 * 1024; // 128 MiB — mirrors the engine's ceiling
+
 // Provenance the build job stamps into the artifact meta. `head_sha` is
 // cross-checked against the trusted `workflow_run` event head_sha (defence in
 // depth); it is NEVER the source of `pr_number`.
