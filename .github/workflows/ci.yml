@@ -167,3 +167,144 @@ jobs:
       - uses: ./
         with:
           log: smoke.log
+
+  release:
+    # THE MARKETPLACE MECHANISM. A Marketplace listing can only be republished from a
+    # RELEASE — never from a tag. This repo had NO release job at all, and the cut
+    # runbook's Sift wave (`OPS-1.S11`) pushed `main` and stopped, so twelve wrapper tags
+    # shipped against exactly ONE Release (`v1.0.0`, 3 June) and the listing never moved.
+    # The step was ABSENT, not silently failing: there was nothing to fail.
+    #
+    # WHY IT LIVES IN ci.yml AND NOT ITS OWN release.yml. The gate is then `needs:`, a fact,
+    # instead of a `workflow_run` guess: the Release is created if and only if THIS tag's
+    # build, actionlint and manifest-load are all green. A second workflow on the same
+    # `push: tags` trigger would have had to re-derive that verdict and would have raced
+    # this one to the same Release object.
+    #
+    # It NEVER creates or moves a tag (`--verify-tag`), and it publishes nothing outward
+    # that the Founder's tag push did not already authorise: the tag IS the cut decision
+    # (ADR-2), this job is only its mechanical consequence.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, actionlint, manifest-load]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create/edit the Release on THIS repo — nothing else
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The annotated tag OBJECT, not just the commit it points at: the release notes
+          # are the tag message, which is where the Founder's cut sentence already lives.
+          fetch-depth: 0
+
+      - name: The tag and the manifest must declare the same version
+        # `package.json` is the Action's own consumer-version declaration (`src/sift-version.ts`
+        # documents the two independent lines and which one moves when). The workspace pin gate
+        # holds it against `package-lock.json` (INV-9) and NOTHING has ever held it against the
+        # tag. Measured 2026-08-19 across the wrapper series: `v1.5.0`…`v1.8.0` each shipped with
+        # `package.json` reading `1.3.0`, and `v1.10.0` shipped reading `1.9.0`. A Release is a
+        # public, effectively permanent object; it must not be minted against a tree that
+        # contradicts its own version.
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "v$pkg" ]; then
+            echo "::error::tag $TAG but package.json declares $pkg — bump package.json, run 'npm install' so the lock follows (INV-9), then force-MOVE the tag. Refusing to mint a Release against a tree that contradicts it."
+            exit 1
+          fi
+          echo "version coherence ✓ — $TAG == package.json $pkg"
+
+      - name: Create the GitHub Release for this wrapper tag
+        # Idempotent by construction, because the sanctioned recovery from a red cut is a
+        # force-MOVE of the tag (never delete + recreate — a delete orphans the Release to a
+        # DRAFT, and a draft is invisible to the Marketplace and to read-only tokens). On a
+        # re-run the Release is already there and this only re-asserts `--draft=false`.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists (tag was force-moved, or this is a re-run) — re-asserting published."
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          else
+            # The notes ARE the annotated tag's message. One authored surface, written at the moment
+            # of the cut, so the Marketplace entry cannot drift from the tag the way a committed
+            # CHANGELOG would — and the tag message is already where the cut's consumer-facing prose
+            # is written (`OPS-1.S11`).
+            #
+            # No generated-notes fallback, deliberately. `%(contents)` on a LIGHTWEIGHT tag does not
+            # return empty — measured on v1.0.0, git falls back to the pointed COMMIT's message — so
+            # a fallback keyed on emptiness would be plumbing with no reachable source. Blank here
+            # means an annotated tag was pushed with an empty message, and a Marketplace entry with
+            # an empty body is a defect on the product's front door, not a case to paper over.
+            msg="$(git tag -l --format='%(contents)' "$TAG")"
+            [ -n "$(printf '%s' "$msg" | tr -d '[:space:]')" ] || {
+              echo "::error::tag $TAG carries no message — it would publish an empty Marketplace entry. Force-MOVE the tag with 'git tag -f -a $TAG -m \"…\"' (never delete: a delete orphans the Release to a draft)."; exit 1; }
+            printf '%s\n' "$msg" > "$RUNNER_TEMP/notes.md"
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --latest \
+              --title "Sift Action $TAG" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+          # Assert the state, never assume it — a draft Release reads as success to the creator
+          # and as "not found" to everyone else.
+          is_draft="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+          [ "$is_draft" = "false" ] || { echo "::error::Release $TAG is still a draft — the Marketplace cannot see it."; exit 1; }
+          echo "Release $TAG published (isDraft=false) ✓"
+
+  marketplace:
+    # THE PROOF THE MECHANISM WORKED — measured, not assumed.
+    #
+    # Creating a Release is NECESSARY for the listing to advance. Whether it is SUFFICIENT is
+    # not documented by GitHub, and the public evidence is split (measured 2026-08-19):
+    #   · google-github-actions/auth advances on purely API-created releases — its `v3.0.0`,
+    #     authored by a bot on 2025-08-28 through `gh`/the REST API, IS in its listing's
+    #     release set. So the API path demonstrably can publish.
+    #   · googleapis/release-please-action, also bot-authored, has been stuck at `v3.1.2`
+    #     (2022) with every v4/v5 release absent from its listing — same manifest `name:`
+    #     throughout, so the obvious explanations do not hold.
+    # We therefore READ the listing instead of trusting either precedent. If the listing did
+    # not take the new version, that is precisely the fact the cut needs, and reading the page
+    # is the only way to obtain it.
+    #
+    # SEPARATE JOB on purpose: whether the Release object exists is one verdict and must not be
+    # muddied by a Marketplace indexing delay or an outage. A red here does NOT invalidate the
+    # Release — it says the LISTING still needs the manual "Publish this Action to the GitHub
+    # Marketplace" checkbox on the release page, which is a Founder act, not a code defect.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release
+    runs-on: ubuntu-latest
+    permissions: {}   # reads a public page; needs no token at all
+    steps:
+      - name: The public listing must resolve this version
+        env:
+          TAG: ${{ github.ref_name }}
+          # Derived from `action.yml`'s `name:` by GitHub, so it is not independently
+          # discoverable. Pinned here rather than reconstructed, and the repo-identity
+          # assertion below is what catches it if the name (and therefore the slug) ever moves.
+          SLUG: sift-structural-ci-log-diff
+        run: |
+          set -euo pipefail
+          url="https://github.com/marketplace/actions/$SLUG"
+          page="$RUNNER_TEMP/listing.html"
+          for attempt in 1 2 3 4 5 6; do
+            code="$(curl -sSL --retry 2 -o "$page" -w '%{http_code}' "$url" || echo 000)"
+            if [ "$code" != "200" ]; then
+              echo "attempt $attempt: HTTP $code"; sleep 30; continue
+            fi
+            # CONTROL FIRST. A "not found" from a probe whose subject moved is not a finding,
+            # it is a broken instrument reporting one — so prove the page still carries the
+            # payload we parse, and still describes OUR repo, before believing any absence.
+            grep -qF '"releaseData":' "$page" || {
+              echo "::error::$url no longer carries a releaseData payload — this probe is measuring nothing. Fix the probe; do not trust its verdict."; exit 1; }
+            grep -qF 'CodeRoasted/sift-action' "$page" || {
+              echo "::error::$url does not name CodeRoasted/sift-action — the slug moved (action.yml 'name:' changed?) or the listing detached. Re-derive SLUG."; exit 1; }
+            if grep -qF "\"tagName\":\"$TAG\"" "$page"; then
+              echo "Marketplace listing resolves $TAG ✓"
+              exit 0
+            fi
+            echo "attempt $attempt: listing does not yet carry $TAG — waiting for the index."
+            sleep 30
+          done
+          echo "::error::the Marketplace listing at $url still does not publish $TAG after ~3 min. The Release exists and @$TAG is usable; the LISTING did not advance. Open the release page and tick 'Publish this Action to the GitHub Marketplace' — then this job is the record that the API path alone is not enough for this listing."
+          exit 1
