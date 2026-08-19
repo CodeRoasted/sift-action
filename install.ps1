@@ -15,7 +15,7 @@
 #
 # The Windows mirror of install.sh / resolve-sift.ts: same engine-v<X.Y.Z> release, same sha256-fatal
 # check. windows-x64 only. Diff works out of the box; `--explain` works via a BYO OpenAI-compatible
-# endpoint (--explain-endpoint / $INSIGHT_LLM_ENDPOINT) — the bundled local-model pull is Linux-only.
+# endpoint (--explain-endpoint / $CODEROAST_LLM_ENDPOINT) — the bundled local-model pull is Linux-only.
 # The download is public — no token.
 param(
     [string]$Version = $env:SIFT_VERSION
