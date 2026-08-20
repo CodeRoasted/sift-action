@@ -90,7 +90,35 @@ for spec in "${CORPORA[@]}"; do
     if [ ! -f "$base" ] || [ ! -f "$changed" ]; then
         echo "skip $slug (selected logs missing: $base / $changed)" >&2; continue
     fi
-    echo "$label ($slug): baseline=$BASE_ID  changed=$CHANGED_ID" >&2
+    # THE SYNTHETIC PRECONDITION IS CHECKED HERE, IN THE RUN THAT PRODUCES THE BYTES, and nothing
+    # renders without it. Until 2026-08-20 the README below ASSERTED, with an unconditional echo,
+    # that every rendered tree "declared `SLICE.json "synthetic": true`" — and this script never
+    # opened a SLICE.json. The claim happened to be true and had no failing mode, which puts it in
+    # the same can't-FAIL family as the phrase it replaced. Its own comment said "so the fact is
+    # checkable": checkable, never checked.
+    #
+    # WHY THIS REFUSES A LICENSED CORPUS RATHER THAN ATTRIBUTING IT (canon's sibling script does
+    # the opposite, deliberately). Canon's showcase renders ALL our public samples, LogHub
+    # included — licensed third-party bytes that stay by ruling — so it must accept a licence and
+    # carry the attribution a derivative owes. This showcase's subject is CI logs with a green/red
+    # outcome; LogHub is deliberately absent (see CORPORA above), and its two corpora are
+    # fabricated fixtures by design. Here "synthetic" is the intended PRECONDITION, not an
+    # incidental property, so enforcing it is strictly stronger than attributing after the fact.
+    # And it is the containment this file specifically needs: the README inlines up to 6 000 bytes
+    # of every render (`head -c 6000` below), so third-party bytes would land INSIDE the page, not
+    # merely beside it.
+    slice_json="$corpus_dir/SLICE.json"
+    if [ ! -f "$slice_json" ] || ! grep -q '"synthetic"[[:space:]]*:[[:space:]]*true' "$slice_json"; then
+        {
+          echo "error: corpus '$slug' ($cdir) is not a declared synthetic fixture — refusing to render."
+          echo "  $slice_json is absent or does not carry \"synthetic\": true."
+          echo "  This showcase inlines its renders into a public page, so it publishes fabricated"
+          echo "  fixtures only. A licensed third-party corpus belongs in canon's showcase, which"
+          echo "  carries the attribution a derivative owes; it does not belong here."
+        } >&2
+        exit 4
+    fi
+    echo "$label ($slug): baseline=$BASE_ID  changed=$CHANGED_ID  (SLICE.json synthetic:true verified)" >&2
     cout="$OUT/$slug"; mkdir -p "$cout"
     run_diff "$cout" "silent-on-green" \
         "$base"    "green build ($BASE_ID)" \
@@ -154,16 +182,25 @@ done
       echo
     done
   done
-  # STATE THE FACT, NEVER THE VERDICT. This line used to read "public-safe by construction" — the
-  # exact phrase retired on 2026-08-18, because that is the wording under which a real third-party
-  # operational corpus reached the public hub and 16 release tarballs. The two trees rendered here
-  # really are fabricated (each carries `SLICE.json "synthetic": true`), so the fact is checkable
-  # and needs no verdict attached to it. The line is also SCOPED to what this run rendered — the
-  # old one asserted a property of whatever trees happened to be found, which is how a third
-  # corpus would inherit a claim nobody made about it.
-  echo "> The ${#shown[@]} tree(s) rendered above are synthetic fixtures — fabricated orgs, builds and"
-  echo "> paths, each declared \`SLICE.json \"synthetic\": true\`, with no third-party bytes. Our real"
-  echo "> crawled corpora stay private."
+  # STATE ONLY WHAT THIS RUN COMPUTED. This line used to read "public-safe by construction" — the
+  # exact phrase retired on 2026-08-18, because that is the wording under which real third-party
+  # operational bytes reached public surfaces before anyone had measured what was in them. (The
+  # earlier version of this comment named the exact carriers and their count; that inventory is a
+  # map for someone else to follow, and it lives in the private audit where it belongs.)
+  #
+  # The replacement was scoped to what the run rendered, which was right, but it still ASSERTED
+  # the synthetic declaration instead of reading it. It is now read per corpus, above, before
+  # anything renders — so the sentence below is an output of this run, and the run refuses and
+  # emits nothing when the declaration is missing.
+  #
+  # The second clause is the bound, and it is not decoration: a `synthetic` flag is a DECLARATION
+  # about provenance, not a measurement of content. A fabricated fixture can still contain a
+  # routable address by accident, and this page states no verdict about that.
+  echo "> Each of the ${#shown[@]} tree(s) rendered above declares \`SLICE.json \"synthetic\": true\` —"
+  echo "> fabricated orgs, builds and paths, no third-party bytes — and this run read that"
+  echo "> declaration before rendering it. A corpus without it is not rendered here at all."
+  echo "> That declaration is about where the data came from, not a scan of what is in it. Our"
+  echo "> real crawled corpora stay private."
 } > "$OUT/README.md"
 
 echo "sift showcase rendered → $OUT (${#shown[@]} dialect(s): ${shown[*]%%|*})" >&2
