@@ -34,6 +34,25 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: The runtime we prove on IS the runtime we ship on
+        # Six declarations of one fact — action.yml `runs.using`, this workflow's
+        # `node-version`, esbuild's `target` and its header prose, `engines.node`, and
+        # `@types/node`. They drifted apart for ~7 weeks (manifest node24 / everything else
+        # node20) because nothing compared them, and the cost was not theoretical: the suite
+        # below had never executed on node24, so when it finally did it died on contact.
+        #
+        # It runs BEFORE typecheck and test deliberately. Those two steps are what the skew
+        # invalidates, and a green from a suite running on the wrong major is worse than no
+        # green at all — it is a claim about an artifact nobody measured.
+        #
+        # `npm run runtime-coherence` is the same entry point a developer uses pre-push, for
+        # the reason preflight is: one definition, so local and CI cannot drift into checking
+        # different things. `--selftest` proves the extractors have teeth.
+        run: |
+          set -euo pipefail
+          python3 tools/node_runtime_coherence.py --selftest
+          npm run runtime-coherence
+
       - name: Start build-log capture (typecheck/test below append; Sift diffs it)
         run: truncate --size 0 "$GITHUB_WORKSPACE/build.log"
 
@@ -139,6 +158,13 @@ jobs:
       - uses: actions/checkout@v5
       - name: actionlint
         run: |
+          # Same swallowed-status class as the Typecheck/Test steps above, second arm: under the
+          # default `bash -e {0}` the pipeline's status is `bash`'s, and bash fed an EMPTY stdin
+          # exits 0. Measured 2026-08-22: `curl -fsSL <404> | bash` → rc=0. The failure only
+          # surfaced one line later as `./actionlint: No such file or directory` — a real error
+          # about the wrong thing, and only because a later line happened to touch the artifact.
+          # pipefail makes curl's own status the verdict.
+          set -euo pipefail
           curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash
           ./actionlint
 

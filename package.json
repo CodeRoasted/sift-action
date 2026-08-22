@@ -11,7 +11,8 @@
     "build": "tsc",
     "test": "tsc && node --test lib/tests/*.test.js",
     "package": "node esbuild.config.mjs",
-    "preflight": "tsc && node lib/tools/preflight.js"
+    "preflight": "tsc && node lib/tools/preflight.js",
+    "runtime-coherence": "python3 tools/node_runtime_coherence.py"
   },
   "dependencies": {
     "@actions/artifact": "^6.2.1",
@@ -23,7 +24,7 @@
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^20.12.0",
+    "@types/node": "^24.13.3",
     "esbuild": "^0.24.2",
     "typescript": "^5.4.5"
   },
