@@ -9,7 +9,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc",
-    "test": "tsc && node --test lib/tests/",
+    "test": "tsc && node --test lib/tests/*.test.js",
     "package": "node esbuild.config.mjs",
     "preflight": "tsc && node lib/tools/preflight.js"
   },

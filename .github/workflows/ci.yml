@@ -37,10 +37,20 @@ jobs:
       - name: Start build-log capture (typecheck/test below append; Sift diffs it)
         run: truncate --size 0 "$GITHUB_WORKSPACE/build.log"
 
+      # `shell: bash` on both steps below is load-bearing, not style. The default runner
+      # shell is `bash -e {0}`, and `-e` reads the exit status of a PIPELINE's LAST command
+      # — here `tee`, which always succeeds. So `npm test 2>&1 | tee …` reported success no
+      # matter what the suite did: these two steps were structurally incapable of failing.
+      # `shell: bash` selects `bash --noprofile --norc -eo pipefail {0}`; `pipefail` is the
+      # word that matters. Measured 2026-08-22: the node24 move made `npm test` crash before
+      # a single assertion ran (0 pass / 1 fail) and this job still reported SUCCESS — the
+      # bug was found by reading the log, which is not a control we can rely on.
       - name: Typecheck
+        shell: bash
         run: npm run typecheck 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
       - name: Test
+        shell: bash
         run: npm test 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
       - name: dist/ is in sync with src/ (the committed bundle is what runs)
