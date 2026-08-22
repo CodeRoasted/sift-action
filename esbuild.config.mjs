@@ -1,4 +1,12 @@
-// Bundles the Action to a single ESM file (dist/index.js) for `runs: using: node20`.
+// Bundles the Action to a single ESM file (dist/index.js) for `runs: using: node24`.
+//
+// THE RUNTIME MAJOR IS ONE FACT DECLARED IN FOUR PLACES and they move together: this
+// `target`, `action.yml`'s runs.using (what GitHub launches — the authority), CI's
+// setup-node (what the bundle is proven on) and `package.json`'s engines.node (what the
+// repo intends). When they disagree the shipped bundle has never executed on the runtime
+// it ships on, and CI is green about an artifact nobody ran. Measured at v1.9.6: manifest
+// node24, CI node20, esbuild node20, engines.node absent — ~7 weeks live. The workspace
+// node-runtime-coherence gate holds all four.
 //
 // The @actions toolchain (core@3 / github@9 / artifact@6) and its octokit@7 deps are
 // ESM-only, so the Action is ESM (package.json "type": "module"); ncc (CJS-only output)
@@ -50,7 +58,7 @@ const result = await build({
     bundle: true,
     platform: 'node',
     format: 'esm',
-    target: 'node20',
+    target: 'node24',
     outfile: 'dist/index.js',
     banner: { js: banner },
     legalComments: 'none',

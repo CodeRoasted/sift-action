@@ -22,7 +22,13 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          # MUST equal action.yml's `runs: using: nodeNN` — GitHub launches dist/index.js on
+          # THAT runtime, so anything proven here on a different major proves nothing about
+          # the artifact. This line read '20' against a node24 manifest for ~7 weeks: every
+          # step below was green about a bundle that had never executed on its own runtime.
+          # Moves together with action.yml, esbuild.config.mjs `target` and package.json
+          # `engines.node`; the workspace node-runtime-coherence gate holds the four.
+          node-version: '24'
           cache: 'npm'
 
       - name: Install
