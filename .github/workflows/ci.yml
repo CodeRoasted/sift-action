@@ -156,17 +156,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: actionlint
+      - name: actionlint (PINNED release asset — no remote script is executed)
+        env:
+          ACTIONLINT_VERSION: '1.7.12'
         run: |
-          # Same swallowed-status class as the Typecheck/Test steps above, second arm: under the
-          # default `bash -e {0}` the pipeline's status is `bash`'s, and bash fed an EMPTY stdin
-          # exits 0. Measured 2026-08-22: `curl -fsSL <404> | bash` → rc=0. The failure only
-          # surfaced one line later as `./actionlint: No such file or directory` — a real error
-          # about the wrong thing, and only because a later line happened to touch the artifact.
-          # pipefail makes curl's own status the verdict.
+          # TWO defects were fixed here, and only the first is about this repo's own gate.
+          #
+          # 1. SUPPLY CHAIN. This used to be
+          #    `curl -sSfL .../actionlint/main/scripts/download-actionlint.bash | bash` — arbitrary
+          #    code from a MUTABLE upstream ref, executed on the runner every run. `main` is not a
+          #    version: whatever that branch holds at the moment CI fires is what runs. The blast
+          #    radius is bounded (this job inherits `contents: read`), but "bounded" is not
+          #    "absent", and nothing here needs a remote script at all. Pinning the RELEASE ASSET
+          #    removes the execution surface rather than narrowing it, and matches the pattern the
+          #    superproject's lint.yml already uses — one shape for actionlint everywhere.
+          #
+          # 2. Swallowed status, the sibling arm of the Typecheck/Test fix above. Under the
+          #    default `bash -e {0}` the pipeline's status was BASH's, and bash fed an EMPTY stdin
+          #    exits 0 — measured, `curl -fsSL <404> | bash` → rc=0. A dead download reported a
+          #    successful install; the failure surfaced one line later as `./actionlint: No such
+          #    file or directory`, a true failure wearing the wrong cause, and only because a
+          #    later line happened to touch the artifact. `set -euo pipefail` makes curl's own
+          #    status the verdict.
           set -euo pipefail
-          curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash
-          ./actionlint
+          curl -sSfL -o /tmp/al.tgz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          tar -xzf /tmp/al.tgz -C /tmp actionlint
+          /tmp/actionlint --version
+          /tmp/actionlint
 
   manifest-load:
     # actionlint lints WORKFLOWS, not action.yml — so a broken manifest (a ${{ }} expression
