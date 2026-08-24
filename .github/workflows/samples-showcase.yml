@@ -83,7 +83,10 @@ jobs:
           mkdir -p "$PWD/bin"
           SIFT_INSTALL_DIR="$PWD/bin" sh install.sh "$VER"
           echo "SIFT=$PWD/bin/sift" >> "$GITHUB_ENV"
-          "$PWD/bin/sift" --version || true
+          # `--version` here was a no-op with a `|| true` on it: sift has no version flag, so this
+          # line printed a usage error and swallowed it. install.sh now proves liveness itself
+          # (fatally), so this step no longer needs a probe of its own — and a probe that cannot
+          # fail is worse than none.
 
       - name: Render the Sift-over-Jenkins showcase
         run: bash scripts/samples_showcase.sh "$SIFT" hub/samples showcase

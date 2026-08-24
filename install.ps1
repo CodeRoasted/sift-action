@@ -82,8 +82,20 @@ try {
         Write-Host "sift-install: $dir is not on your PATH. Add it (new shells):"
         Write-Host "  [Environment]::SetEnvironmentVariable('Path', `"`$([Environment]::GetEnvironmentVariable('Path','User'));$dir`", 'User')"
     }
-    & $dest --version 2>$null
-    if ($LASTEXITCODE -ne 0) { Write-Host "sift-install: done — run 'sift --help' to get started." }
+    # LIVENESS, not version — the Windows half of the same defect install.sh carried. This read
+    # `& $dest --version` with the non-zero branch printing the friendly line, and that branch
+    # was taken EVERY time: sift has no version flag at all (no `--version`, no `-V`; the word
+    # does not occur in sift_cli.cpp). Measured on a windows-2025 runner 2026-08-24:
+    # `error: unknown option '--version'`. So the installer's only post-write check was a
+    # guaranteed failure with its stderr swallowed, and it reported done without once executing
+    # the binary it had just sha256-verified.
+    #
+    # `--help` is a real flag and this is FATAL on purpose: a verified digest that will not run
+    # is not an install. Output discarded — a usage dump is not an epilogue, and the version was
+    # already printed above from $ver, which is what was actually installed.
+    & $dest --help *> $null
+    if ($LASTEXITCODE -ne 0) { Fail "installed $dest but it does not execute (--help exited $LASTEXITCODE) — the download verified, the binary does not run." }
+    Write-Host "sift-install: done — run 'sift --help' to get started."
 }
 finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

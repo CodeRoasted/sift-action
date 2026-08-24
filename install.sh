@@ -79,4 +79,20 @@ case ":${PATH}:" in
     *":$dir:"*) ;;
     *) echo "sift-install: $dir is not on PATH — add it: export PATH=\"$dir:\$PATH\"" >&2 ;;
 esac
-"$dir/sift" --version 2>/dev/null || echo "sift-install: done — run 'sift --help' to get started." >&2
+# LIVENESS, not version. This line read `"$dir/sift" --version || echo <friendly>` and the
+# friendly branch was taken EVERY time: sift has no version flag — no `--version`, no `-V`,
+# the word does not occur in sift_cli.cpp. So the one check standing between "sha256 verified"
+# and "installed" was a guaranteed failure whose output went to /dev/null, and the installer
+# said done without ever executing the binary it had just written. Measured 2026-08-24 on a
+# windows-2025 runner through install.ps1's identical probe: `error: unknown option
+# '--version'`.
+#
+# `--help` is a real flag (sift_cli.cpp handles -h/--help) and it is FATAL here on purpose: an
+# installer that verified a digest and then could not run the result has not installed
+# anything, and saying "done" would be the lie this line used to tell quietly. stdout is
+# discarded — a usage dump is not an install epilogue; the version was already printed above
+# from $ver, which is the value that was actually installed.
+if ! "$dir/sift" --help >/dev/null 2>&1; then
+    err "installed $dir/sift but it does not execute (--help failed) — the download verified, the binary does not run."
+fi
+echo "sift-install: done — run 'sift --help' to get started." >&2

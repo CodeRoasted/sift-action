@@ -287,27 +287,29 @@ jobs:
           # thing under test (bump.sh owns that line, and `install.sh`/`src/sift-version.ts`
           # carry the same one).
           SIFT_INSTALL_DIR: ${{ github.workspace }}\sift-bin
-        run: |
-          ./install.ps1
-          # install.ps1 ends with a TOLERATED `& $dest --version` probe: it prints a friendly
-          # line when that exits non-zero rather than failing. The generated shell's trailing
-          # `exit $LASTEXITCODE` would turn that tolerance into a red here, with no diagnosis.
-          # Every REAL failure in that script throws (Stop + Write-Error) and fails this step
-          # regardless of the exit code, so clearing it costs nothing — and the next step is
-          # where a binary that will not run is supposed to be judged, out loud.
-          $global:LASTEXITCODE = 0
+        run: ./install.ps1
 
-      - name: The installed binary must BE sift and must RUN
-        # Not `Test-Path`: a zero-byte file passes that. The installer's whole contract is a
-        # sha256-verified executable, so the assertion is an execution that prints a version.
+      - name: The installed binary must BE sift and must DIFF
+        # Not `Test-Path`: a zero-byte file passes that. And not a meta-flag probe either — the
+        # first draft of this step ran `--version`, which is how the missing-version-flag defect
+        # was found: sift has NO version flag, so that probe reds on a perfectly good binary
+        # while the three installer/showcase sites calling it swallowed the same error and
+        # reported success. The lesson is in the choice made here: assert the PRODUCT ACT, not a
+        # flag. Two logs in, a report out, exit 0 — what a user does one minute after installing.
+        #
+        # `--fail-on none` is explicit rather than relied upon: the default is `none`, but this
+        # step must red on a broken engine and never on a significant diff, and writing it down
+        # is what keeps a future default change from silently converting this into a flake.
         shell: pwsh
         run: |
           $exe = "${{ github.workspace }}\sift-bin\sift.exe"
           if (-not (Test-Path $exe)) { Write-Host "::error::install.ps1 reported success but wrote no $exe"; exit 1 }
-          $out = & $exe --version
-          if ($LASTEXITCODE -ne 0) { Write-Host "::error::the installed sift.exe exits $LASTEXITCODE on --version"; exit 1 }
-          if ([string]::IsNullOrWhiteSpace($out)) { Write-Host "::error::the installed sift.exe printed nothing on --version"; exit 1 }
-          Write-Host "installed engine reports: $out"
+          Set-Content -Path baseline.log -Value @('build start', 'compiling a.cpp', 'ok', 'build ok')
+          Set-Content -Path changed.log  -Value @('build start', 'compiling a.cpp', 'error: a.cpp:3 undefined symbol', 'build failed')
+          $out = & $exe baseline.log changed.log --format md --fail-on none 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::the installed sift.exe exits $LASTEXITCODE on a plain two-log diff"; Write-Host $out; exit 1 }
+          if ([string]::IsNullOrWhiteSpace($out)) { Write-Host "::error::the installed sift.exe produced an EMPTY report on a two-log diff"; exit 1 }
+          Write-Host "the installed engine diffed two logs and wrote $($out.Length) chars of report"
 
   release:
     # THE MARKETPLACE MECHANISM. A Marketplace listing can only be republished from a
