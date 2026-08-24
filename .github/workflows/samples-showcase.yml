@@ -17,9 +17,13 @@ on:
   workflow_dispatch:
     inputs:
       sift_version:
-        description: 'Published sift engine version to install (engine-v<X.Y.Z>)'
+        # NO DEFAULT, deliberately — see the resolve step. A literal here read '1.7.5' while the
+        # shipped pin was 1.9.6, so every dispatch that did not name a version rendered the
+        # client-facing showcase with an engine two releases old, under a header promising "the
+        # exact binary a user gets from install.sh". Empty means "use the pin", which follows
+        # bump.sh instead of rotting beside it.
+        description: 'Published sift engine version to install (engine-v<X.Y.Z>). Empty = the pin in src/sift-version.ts.'
         required: false
-        default: '1.7.5'
       samples_ref:
         description: 'coderoast-hub ref holding the samples'
         required: false
@@ -31,9 +35,9 @@ on:
         type: string
         required: false
       sift_version:
+        # Same as the dispatch input above: no default, so an omitted version resolves to the pin.
         type: string
         required: false
-        default: '1.7.5'
       samples_ref:
         type: string
         required: false
@@ -66,17 +70,36 @@ jobs:
 
       - name: Install the public sift engine (download + sha256-verify — the honest client path)
         env:
-          # dispatch/call → the input (1.7.5 default); release → derived from the tag below.
+          # dispatch/call → the input when named; release → derived from the tag; otherwise the pin.
           SIFT_VERSION_INPUT: ${{ inputs.sift_version }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
-          # Resolve the engine version: explicit input wins; else an engine-v<X> release installs THAT
-          # engine; else fall back to the current cut (1.7.5).
+          # Resolve the engine version: an explicit input wins; else an engine-v<X> release installs
+          # THAT engine; else the PIN — read from src/sift-version.ts, never written here.
+          #
+          # That last arm used to be the literal '1.7.5', with a comment calling it "the current
+          # cut". It was, once. The pin moved to 1.9.6 and this line did not, so every dispatch and
+          # every workflow_call that omitted a version rendered the PUBLIC showcase — the artifact a
+          # prospective user is invited to inspect, headed "the exact binary a user gets from
+          # install.sh" — on an engine two releases behind the one we ship. Three literals said
+          # 1.7.5 (both input defaults and this line) and nothing compared any of them to anything.
+          #
+          # Deriving removes the drift rather than checking for it: src/sift-version.ts is written
+          # ONLY by bump.sh, which pins to a PUBLISHED engine, so this arm cannot name a version
+          # that does not exist and cannot fall behind the pin. There is no literal left to rot,
+          # which is why no new gate is owed here.
           VER="$SIFT_VERSION_INPUT"
           if [ -z "$VER" ]; then
-            case "$RELEASE_TAG" in engine-v*) VER="${RELEASE_TAG#engine-v}" ;; *) VER="1.7.5" ;; esac
+            case "$RELEASE_TAG" in
+              engine-v*) VER="${RELEASE_TAG#engine-v}" ;;
+              *) VER="$(grep -oE "SIFT_VERSION[[:space:]]*=[[:space:]]*['\"][^'\"]+['\"]" src/sift-version.ts \
+                        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" ;;
+            esac
           fi
+          # An unparseable pin is a broken instrument, never a reason to install something else:
+          # a silent fallback here is exactly how the stale literal survived unnoticed.
+          [ -n "$VER" ] || { echo "::error::could not resolve a sift engine version — no input, no engine-v* release tag, and src/sift-version.ts did not parse. Refusing to render a showcase on a guessed engine."; exit 1; }
           echo "sift engine version: $VER"
           # install.sh falls back to ~/.local/bin unless SIFT_INSTALL_DIR already EXISTS + is writable —
           # so create it first, else the binary lands elsewhere than where we look for it.
