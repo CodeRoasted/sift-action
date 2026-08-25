@@ -25,7 +25,7 @@ ASSET="sift-linux-x64"
 # release set (the binary and its .sha256 must both be live before bump.sh will write it),
 # exactly as src/sift-version.ts is. Never hand-edit it to the workspace dev line: an
 # unpublished version 404s every consumer at download.
-SIFT_PINNED_VERSION="1.9.6"
+SIFT_PINNED_VERSION="1.10.0"
 err() { echo "sift-install: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || err "missing required tool: $1"; }
 need curl; need sha256sum; need awk
