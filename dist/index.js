@@ -66369,9 +66369,8 @@ function severityGlyph(severity) {
       return "\u{1F7E6}";
   }
 }
-function statusGlyph(row) {
-  const square = severityGlyph(row.severity);
-  return row.polarity === "recovery" ? `${square} \u{1F7E2}` : square;
+function polarityGlyph(polarity) {
+  return polarity === "recovery" ? "\u{1F7E2}" : "";
 }
 
 // src/frame.ts
@@ -66403,20 +66402,49 @@ function escapeHtml(text) {
 function escapeInline(text) {
   return escapeHtml(text).replace(/`/g, "&#96;").replace(/\|/g, "&#124;").replace(/\[/g, "&#91;").replace(/\]/g, "&#93;").replace(/\(/g, "&#40;").replace(/\)/g, "&#41;");
 }
+var SEVERITY_ORDER = ["critical", "high", "medium", "low"];
+function severityRank(severity) {
+  const index = SEVERITY_ORDER.indexOf(severity.toLowerCase());
+  return index === -1 ? SEVERITY_ORDER.length : index;
+}
+function groupBySeverity(rows) {
+  const sections = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    const key = row.severity.toLowerCase();
+    const section = sections.get(key);
+    if (section) {
+      section.rows.push(row);
+    } else {
+      sections.set(key, { severity: key, rows: [row] });
+    }
+  }
+  return [...sections.values()].sort((a, b) => severityRank(a.severity) - severityRank(b.severity));
+}
 function renderRow(index, row) {
-  const badge = row.severity.toUpperCase() + (row.polarity ? ` \xB7 ${row.polarity}` : "");
+  const glyph = polarityGlyph(row.polarity);
+  const badge = row.polarity ? `${glyph ? `${glyph} ` : ""}**[${row.polarity}]** ` : "";
   const where2 = row.where ? ` \xB7 in \`${escapeInline(row.where)}\`` : "";
-  return `${index}. ${statusGlyph(row)} **[${badge}]** ${escapeInline(row.summary)}${where2}`;
+  return `${index}. ${badge}${escapeInline(row.summary)}${where2}`;
+}
+function renderSection(section) {
+  const count = section.rows.length;
+  const heading = `${severityGlyph(section.severity)} <b>${escapeHtml(section.severity.toUpperCase())}</b> \u2014 ${count} ${plural(count, "change", "changes")}`;
+  const rows = section.rows.map((row, i) => renderRow(i + 1, row)).join("\n");
+  return `<details><summary>${heading}</summary>
+
+${rows}
+
+</details>`;
 }
 function renderRows(report) {
   const rows = report.ranked_changes;
   const shown = rows.slice(0, MAX_INLINE_ROWS);
-  const lines = shown.map((row, i) => renderRow(i + 1, row));
+  const blocks2 = groupBySeverity(shown).map(renderSection);
   if (rows.length > shown.length) {
     const rest = rows.length - shown.length;
-    lines.push(`_\u2026and ${groupThousands(rest)} more \u2014 see the full report below._`);
+    blocks2.push(`_\u2026and ${groupThousands(rest)} more \u2014 see the full report below._`);
   }
-  return lines.join("\n");
+  return blocks2.join("\n\n");
 }
 function renderDetails(report) {
   const { total_changes, significant_changes } = report.summary;
@@ -102379,7 +102407,7 @@ async function run() {
     await fs13.copyFile(reportJsonPath, reportPathOut);
   }
   setOutput("report-path", reportPathOut);
-  const annotationsLevel = readCommentLevel("annotations", "significant");
+  const annotationsLevel = readCommentLevel("annotations", "never");
   for (const command of buildAnnotationCommands(report, annotationsLevel)) {
     process.stdout.write(`${command}
 `);
@@ -102432,10 +102460,6 @@ async function run() {
   }
   if (gateExit !== 0) {
     setFailed(`Sift gate (--fail-on ${failOn}) tripped \u2014 see the comment / job summary for what changed.`);
-  } else if (baselineStale) {
-    setFailed(
-      `Sift: baseline is ${ageHours}h old \u2014 past the baseline-max-age=${maxAgeRaw} bound. A green run re-seeds \`${baselineName}\` and clears this.`
-    );
   }
 }
 run().catch((error2) => {

@@ -1,0 +1,71 @@
+{
+  "report_version": "0.1.0",
+  "summary": {
+    "total_changes": 618,
+    "significant_changes": 5,
+    "js_divergence": 0.2914,
+    "stability_score": 0.7086
+  },
+  "ranked_changes": [
+    {
+      "kind": "new_error_pattern",
+      "severity": "critical",
+      "significance": 0.94,
+      "summary": "New error: \"ERROR gateway: upstream payments timed out after <*>ms\" — 0 → 214 occurrences",
+      "polarity": "regression",
+      "template_id": "h:0c1f7a2b9d4e5f60718293a4b5c6d7e8",
+      "where": "src/payments",
+      "evidence": ["0x → 214x"]
+    },
+    {
+      "kind": "vanished_template",
+      "severity": "medium",
+      "significance": 0.41,
+      "summary": "Disappeared: \"INFO cache restored from key <*>\" — was 2.1% of baseline",
+      "template_id": "h:1d2e3f405162738495a6b7c8d9e0f102",
+      "evidence": ["appeared 21x on baseline, absent on changed"]
+    },
+    {
+      "kind": "resolved_error_pattern",
+      "severity": "high",
+      "significance": 0.63,
+      "summary": "Resolved error: \"ERROR sqlalchemy.exc.OperationalError: connection refused\" — 188 → 0",
+      "polarity": "recovery",
+      "template_id": "h:2e3f40516273849506b7c8d9e0f10213",
+      "evidence": ["188x → 0x"]
+    },
+    {
+      "kind": "frequency_shift",
+      "severity": "low",
+      "significance": 0.12,
+      "summary": "Frequency shift: \"INFO downloading <*> (<*> MB)\" 4.0% → 6.1%",
+      "template_id": "h:3f405162738495a6b7c8d9e0f1021324",
+      "evidence": ["40x → 61x"]
+    },
+    {
+      "kind": "frequency_shift",
+      "severity": "medium",
+      "significance": 0.37,
+      "summary": "Frequency shift: \"INFO restore dependencies completed in <*>s\" — 6.2× slower",
+      "template_id": "h:405162738495a6b7c8d9e0f102132435",
+      "evidence": ["12s → 74s"]
+    }
+  ],
+  "inputs": {
+    "baseline": {
+      "label": "baseline.log",
+      "lines_observed": 9412,
+      "unique_templates": 214,
+      "window_start_iso": "2026-08-24T06:03:11Z",
+      "window_end_iso": "2026-08-24T06:21:48Z"
+    },
+    "changed": {
+      "label": "changed.log",
+      "lines_observed": 9587,
+      "unique_templates": 219,
+      "window_start_iso": "2026-08-25T07:41:02Z",
+      "window_end_iso": "2026-08-25T08:02:19Z"
+    }
+  },
+  "markdown": "# Sift — baseline → changed\n\n**618 changes, 5 structurally significant.**\n\n## Significant changes\n\n1. **[CRITICAL · regression]** New error: \"ERROR gateway: upstream payments timed out after <*>ms\" — 0 → 214 occurrences\n2. **[MEDIUM]** Disappeared: \"INFO cache restored from key <*>\" — was 2.1% of baseline\n3. **[HIGH · recovery]** Resolved error: \"ERROR sqlalchemy.exc.OperationalError: connection refused\" — 188 → 0\n4. **[LOW]** Frequency shift: \"INFO downloading <*> (<*> MB)\" 4.0% → 6.1%\n5. **[MEDIUM]** Frequency shift: \"INFO restore dependencies completed in <*>s\" — 6.2× slower\n"
+}

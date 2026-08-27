@@ -65,17 +65,18 @@ inputs:
     default: 'auto'
   baseline-max-age:
     description: >-
-      Staleness bound on the resolved baseline: `<n>h` or `<n>d` (e.g. `72h`, `7d`). Empty (default) =
-      unbounded, the prior behaviour. The green-gated re-seed means a long red streak ages the
-      baseline without limit, degrading every diff exactly when it is most needed — this bound makes
-      that visible instead of silent. When exceeded the run still diffs, posts, and seeds (an aged
-      comparison is information), with a STALE banner in the comment and a warning annotation; the
-      step then FAILS naming age vs bound (comment mode — render mode never fails, the banner +
-      annotation carry the signal). Advisory pipelines keep their guarantee with step-level
-      `continue-on-error`. The baseline's age is always in the comment footer and the
-      `baseline-age-hours` output, bound or no bound. A malformed value fails the run (config error).
+      Staleness bound on the resolved baseline: `<n>h` or `<n>d` (e.g. `72h`, `7d`). Default `72h`;
+      empty disables the bound. The green-gated re-seed means a long red streak ages the baseline
+      without limit, degrading every diff exactly when it is most needed — this bound makes that
+      visible instead of silent. Exceeding it is a WARNING, never a failure: the run still diffs,
+      posts and seeds (an aged comparison is information) and announces itself with a STALE banner
+      in the comment plus a warning annotation, while the step's exit code stays with `fail-on`
+      alone. Raise it to match your cadence — a repo that ships weekly is not misconfigured, and
+      `72h` is only the bound that fits a near-daily trunk. The baseline's age is always in the
+      comment footer and the `baseline-age-hours` output, bound or no bound. A malformed value
+      fails the run (config error).
     required: false
-    default: ''
+    default: '72h'
   comment-tag:
     description: >-
       Optional namespace for the sticky PR comment (appended to the hidden marker and the title), so
@@ -128,14 +129,16 @@ inputs:
   annotations:
     description: >-
       Inline check-run annotations: emit a `::error|warning|notice::` workflow command for each
-      significant row when the verdict is at least this level — never | regression (regressions only) |
-      significant (drift OR regression) | always. They surface in the Checks tab / PR checks strip,
-      fire on a GREEN build (where GitHub's failure-explain is silent), and need NO write token, so a
-      fork PR's unprivileged build (mode=render) annotates fork-safely. Polarity drives the level:
-      regression → error, recovery → notice, other significant → warning. Default `significant`
-      (a clean run has no significant rows, so it stays quiet).
+      significant row when the verdict is at least this level — never (default) | regression
+      (regressions only) | significant (drift OR regression) | always. OFF by default because the
+      PR comment and the job summary already render the same result, and an annotation competes
+      with the compiler's own in the gutter where a real build error must stay findable — opt in
+      with `annotations: significant` and the surface is whole. When on they surface in the Checks
+      tab / PR checks strip, fire on a GREEN build (where GitHub's failure-explain is silent), and
+      need NO write token, so a fork PR's unprivileged build (mode=render) annotates fork-safely.
+      Polarity drives the level: regression → error, recovery → notice, other significant → warning.
     required: false
-    default: 'significant'
+    default: 'never'
   github-token:
     description: 'Token for the runs/artifacts API, the sticky comment, and artifact upload.'
     required: false
@@ -180,7 +183,7 @@ outputs:
   baseline-age-hours:
     description: 'Resolved baseline''s age in whole hours. Empty when unknown (cold start, a path= baseline, a pre-sidecar artifact) — never 0-for-unknown.'
   baseline-stale:
-    description: 'true when `baseline-max-age` is set and the resolved baseline exceeds it, else false.'
+    description: 'true when a `baseline-max-age` bound is in force and the resolved baseline exceeds it, else false. Advisory — it never fails the step.'
   report-path:
     description: >-
       Filesystem path to this run's deterministic report.json on a stable, cross-step

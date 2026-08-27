@@ -256,6 +256,7 @@ async function run(): Promise<void> {
 
     // The staleness bound (parsed BEFORE resolution — a malformed bound is a config
     // error and must fail before any API work, like a malformed baseline selector).
+    // The manifest ships `72h`; an empty value disables the bound entirely.
     const maxAgeRaw = core.getInput('baseline-max-age');
     const maxAgeHours = parseMaxAgeHours(maxAgeRaw);
 
@@ -273,8 +274,11 @@ async function run(): Promise<void> {
     // Baseline age — measured here (envelope side) so the frame stays pure. Over a
     // red streak the green-gated re-seed stops and the baseline ages without limit;
     // the report then degrades exactly when it is most needed. The age is ALWAYS
-    // surfaced (footnote + output); the bound, when set, turns "old" into a loud
-    // STALE banner + a red step — never a silent degrade.
+    // surfaced (footnote + output); the bound turns "old" into a loud STALE banner
+    // plus a warning annotation — never a silent degrade, and never a FAILED step:
+    // we cannot assume a consumer's build cadence, so a repo that ships weekly is
+    // not misconfigured and an instrument that reds its build is wrong about its
+    // own subject. The bound WARNS; `fail-on` remains the only failing axis.
     const ageHours = baseline ? baselineAgeHours(baseline.meta.created_at, Date.now()) : null;
     const baselineStale = maxAgeHours != null && ageHours != null && ageHours > maxAgeHours;
     if (baselineStale) {
@@ -383,9 +387,12 @@ async function run(): Promise<void> {
     // token, so this fires in BOTH the inline `comment` job and the UNPRIVILEGED fork `render`
     // job (mode=post returned at the top — no report), surfacing drift on a fork PR's checks
     // where GitHub's failure-explain is silent. The encode in annotations.ts is the trust
-    // boundary; nothing privileged happens here. Own axis (default `significant`): a clean run
-    // has no significant rows ⇒ no annotations.
-    const annotationsLevel = readCommentLevel('annotations', 'significant');
+    // boundary; nothing privileged happens here. Own axis, DEFAULT `never`: three renderings of
+    // one result is two too many, and annotations compete with the compiler's own in the gutter
+    // where a real build error must stay findable. The capability is whole and one input away
+    // (`annotations: significant`) — the shipped default lives in `action.yml`; this fallback
+    // only governs an invocation that bypasses the manifest.
+    const annotationsLevel = readCommentLevel('annotations', 'never');
     for (const command of buildAnnotationCommands(report, annotationsLevel)) {
         process.stdout.write(`${command}\n`);
     }
@@ -464,17 +471,6 @@ async function run(): Promise<void> {
     // would skip the consumer's artifact upload, losing the rendered comment).
     if (gateExit !== 0) {
         core.setFailed(`Sift gate (--fail-on ${failOn}) tripped — see the comment / job summary for what changed.`);
-    } else if (baselineStale) {
-        // The staleness bound FAILS VISIBLY (after the comment/seed work above, so the
-        // labeled diff still posts): a bound the user set and the baseline exceeded is a
-        // red step, never a silent degrade. Advisory callers keep their guarantee via
-        // step-level continue-on-error — the annotation + STALE banner still surface.
-        // Ordered under the gate check: a tripped gate is the louder verdict and its
-        // message wins; the stale warning annotation above fires either way.
-        core.setFailed(
-            `Sift: baseline is ${ageHours}h old — past the baseline-max-age=${maxAgeRaw} bound. ` +
-                `A green run re-seeds \`${baselineName}\` and clears this.`,
-        );
     }
 }
 

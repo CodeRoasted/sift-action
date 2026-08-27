@@ -13,7 +13,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { renderComment, STICKY_MARKER, escapeInline } from '../src/frame.js';
-import { statusGlyph, severityGlyph } from '../src/glyph.js';
+import { polarityGlyph, severityGlyph } from '../src/glyph.js';
 import { selectState, shouldComment, State } from '../src/verdict.js';
 import type { RankedChange, SiftCommentContext, SiftReport } from '../src/types.js';
 
@@ -61,15 +61,32 @@ const HEADER = '### 🔬 Sift — structural diff of your CI logs';
 // reach: an arm can state what the slot holds EXACTLY (nothing dropped, nothing
 // appended, nothing else in it), and a "this must not survive RAW" check cannot be
 // satisfied by the frame's own trusted `</details>` closing tag sitting outside it.
+//
+// It is anchored on the FULL REPORT's own <summary> line, not on the first `</summary>`
+// in the comment: the severity sections are <details> blocks too and they come first,
+// so a positional anchor would silently extract a section's rows and every arm below
+// would then hold a claim about the wrong block.
+const FULL_REPORT_OPEN = '<details><summary>Full report — ';
 const SLOT_OPEN = '</summary>\n\n';
 const SLOT_CLOSE = '\n\n</details>';
+function fullReportAt(out: string): number {
+    const at = out.indexOf(FULL_REPORT_OPEN);
+    assert.ok(at >= 0, `no full-report <details> in the comment:\n${out}`);
+    return at;
+}
 function detailsBody(out: string): string {
-    const open = out.indexOf(SLOT_OPEN);
+    const open = out.indexOf(SLOT_OPEN, fullReportAt(out));
     assert.ok(open >= 0, `no <details> slot in the comment:\n${out}`);
     const start = open + SLOT_OPEN.length;
     const end = out.indexOf(SLOT_CLOSE, start);
     assert.ok(end >= start, `unterminated <details> slot:\n${out}`);
     return out.slice(start, end);
+}
+
+// The severity-section heading the frame composes for `severity` holding `count` rows.
+function sectionHeading(severity: string, count: number): string {
+    const noun = count === 1 ? 'change' : 'changes';
+    return `<details><summary>${severityGlyph(severity)} <b>${severity.toUpperCase()}</b> — ${count} ${noun}</summary>`;
 }
 
 // ── Shared frame (every state) ──────────────────────────────────────────────
@@ -143,9 +160,12 @@ test('③ drift, verdict unknown: verbatim headline + rows verbatim + engine <de
         ),
         out,
     );
-    // Rows are the engine's content, verbatim — safely embedded (escapeInline).
+    // Rows are the engine's content, verbatim — safely embedded (escapeInline). A
+    // neutral-polarity row is now the summary ALONE behind its ordinal: the severity
+    // rides the section heading and the row carries no badge of its own.
     const firstRow = report.ranked_changes[0]!;
-    assert.ok(out.includes(`**[${firstRow.severity.toUpperCase()}]** ${escapeInline(firstRow.summary)}`), out);
+    assert.ok(out.includes(`1. ${escapeInline(firstRow.summary)}`), out);
+    assert.ok(out.includes(sectionHeading(firstRow.severity, report.ranked_changes.length)), out);
     // <details> embeds the engine markdown body.
     assert.ok(out.includes(`<details><summary>Full report — ${report.summary.total_changes} changes, ${significant} significant</summary>`), out);
     // COMPLETENESS, and only completeness. Equality on the slot, not `includes`, so a
@@ -267,44 +287,47 @@ test('④ regression, verdict unknown: verbatim headline + regression row carrie
         out.includes("🚨 Regression flagged. A new error-level pattern that wasn't in the baseline:"),
         out,
     );
-    // The regression row renders with the F-1 polarity tag and the content (safely embedded).
+    // The regression row renders with the F-1 polarity tag and the content (safely
+    // embedded). The tag is polarity ALONE — severity moved to the section heading.
     const regressionRow = report.ranked_changes.find((row) => row.polarity === 'regression')!;
     assert.ok(
-        out.includes(`**[${regressionRow.severity.toUpperCase()} · regression]** ${escapeInline(regressionRow.summary)}`),
+        out.includes(`**[regression]** ${escapeInline(regressionRow.summary)}`),
         out,
     );
     // A recovery row (the un-grep-able win) also renders its tag.
     const recoveryRow = report.ranked_changes.find((row) => row.polarity === 'recovery');
     if (recoveryRow) {
-        assert.ok(out.includes(`· recovery]** ${escapeInline(recoveryRow.summary)}`), out);
+        assert.ok(out.includes(`**[recovery]** ${escapeInline(recoveryRow.summary)}`), out);
     }
 });
 
-test('④ two independent axes: every row keeps its heat SQUARE; recovery ADDS a green circle', () => {
-    // §B.4 (PRD-6 § "Badge glyphs"): severity = a heat square ALWAYS; recovery adds a
-    // green circle as a SECOND glyph (🟧 🟢), it does NOT collapse to a bare 🟢 — else a
-    // HIGH and a LOW recovery would render identically and we'd lose the heat axis.
+test('④ two independent axes, at two altitudes: heat on the SECTION, green circle on the ROW', () => {
+    // §B.4 (PRD-6 § "Badge glyphs"): severity = a heat square; recovery = a green circle,
+    // and the two must never collapse into a git red/green diff. Since the rows are grouped
+    // by severity the square rides the SECTION heading (once) and the circle rides the ROW —
+    // the heat axis is not lost, so a HIGH recovery and a LOW recovery still differ.
     const report = load('regression.json');
     const out = renderComment(report, ctx());
     const recoveryRow = report.ranked_changes.find((row) => row.polarity === 'recovery')!;
     const regressionRow = report.ranked_changes.find((row) => row.polarity === 'regression')!;
 
     const recSquare = severityGlyph(recoveryRow.severity);
-    // The square is a heat SQUARE (not a circle), and it survives on the recovery row.
+    // The severity glyph is a heat SQUARE (not a circle), and it sits on the heading.
     assert.ok(['🟥', '🟧', '🟨', '🟦'].includes(recSquare), `severity must be a heat square: ${recSquare}`);
-    assert.equal(statusGlyph(recoveryRow), `${recSquare} 🟢`, 'recovery = its heat square + the green circle');
-    assert.ok(
-        out.includes(`${recSquare} 🟢 **[${recoveryRow.severity.toUpperCase()} · recovery]** ${escapeInline(recoveryRow.summary)}`),
-        out,
-    );
+    assert.ok(out.includes(`<summary>${recSquare} <b>${recoveryRow.severity.toUpperCase()}</b>`), out);
 
-    // A regression rides the hot square ALONE — no circle, never green.
-    assert.equal(statusGlyph(regressionRow), severityGlyph(regressionRow.severity), 'regression = square only');
-    assert.ok(!statusGlyph(regressionRow).includes('🟢'), 'a regression must never carry the green circle');
-    assert.ok(
-        out.includes(`${severityGlyph(regressionRow.severity)} **[${regressionRow.severity.toUpperCase()} · regression]**`),
-        out,
-    );
+    // The recovery ROW carries the green circle, and only the recovery row.
+    assert.equal(polarityGlyph(recoveryRow.polarity), '🟢', 'recovery = the green circle');
+    assert.ok(out.includes(`🟢 **[recovery]** ${escapeInline(recoveryRow.summary)}`), out);
+    assert.equal((out.match(/🟢/g) ?? []).length, 1, `exactly one green circle, on the recovery row:\n${out}`);
+
+    // A regression rides the section's hot square + the word ALONE — no circle, never green.
+    assert.equal(polarityGlyph(regressionRow.polarity), '', 'regression = no circle');
+    assert.ok(out.includes(`**[regression]** ${escapeInline(regressionRow.summary)}`), out);
+
+    // The heat square is stated ONCE, on the heading — never repeated per row. Both
+    // fixture rows are `high`, so a surviving per-row square would show up twice.
+    assert.equal((out.match(new RegExp(recSquare, 'g')) ?? []).length, 1, out);
 });
 
 // WHERE attribution (SRC-D-WHERE-7): the functional location renders as inline code
@@ -384,12 +407,162 @@ test('recovery (FAILURE → SUCCESS) is NOT a regression — outcome_regressed a
     assert.equal(selectState(report), State.Drift, 'a recovery must not alarm');
 });
 
-test('④ regression rows come first (engine ranks regressions at the top tier)', () => {
+test('④ the engine ranking survives grouping: a regression precedes a recovery in its section', () => {
+    // Grouping reorders NOTHING inside a section — it partitions the already-ranked list
+    // and keeps each part in the engine's own order. Both fixture rows are `high`, so they
+    // land in one section and their relative order is directly observable.
     const report = load('regression.json');
     const out = renderComment(report, ctx());
-    const firstRegression = out.indexOf('· regression]');
-    const firstRecovery = out.indexOf('· recovery]');
+    const firstRegression = out.indexOf('**[regression]**');
+    const firstRecovery = out.indexOf('**[recovery]**');
     assert.ok(firstRegression > -1 && (firstRecovery === -1 || firstRegression < firstRecovery), out);
+    assert.ok(out.includes('1. **[regression]**'), out);
+});
+
+// ── Severity sections (the triage layout) ───────────────────────────────────
+//
+// The ranked rows are partitioned into ONE collapsible <details> per severity,
+// hottest first, with the heat badge stated once on the section heading. It is
+// FRAMING only: no row's text is re-authored, and the engine's ranking survives
+// inside each section (asserted in the ④ arm above).
+
+// Sections in the order the frame must emit them, whatever order the rows arrive in.
+const LADDER = ['critical', 'high', 'medium', 'low'];
+
+test('sections run hottest-first, and that order is NOT the engine\'s row order', () => {
+    const report = load('multi_severity.json');
+    const out = renderComment(report, ctx());
+
+    // The fixture's rows arrive critical, medium, high, low, medium — so an identity
+    // "group in first-appearance order" would put MEDIUM before HIGH, and an inverted
+    // ladder would put LOW first. Both are red here; only the ruled order passes.
+    const engineOrder = report.ranked_changes.map((row) => row.severity);
+    assert.deepEqual(
+        engineOrder,
+        ['critical', 'medium', 'high', 'low', 'medium'],
+        'the fixture must arrive OUT of ladder order, else this arm cannot see the sort',
+    );
+
+    const at = LADDER.map((severity) => {
+        const index = out.indexOf(`<b>${severity.toUpperCase()}</b>`);
+        assert.ok(index > -1, `no ${severity.toUpperCase()} section in:\n${out}`);
+        return index;
+    });
+    for (let i = 1; i < at.length; i += 1) {
+        assert.ok(
+            at[i - 1]! < at[i]!,
+            `${LADDER[i - 1]!.toUpperCase()} must precede ${LADDER[i]!.toUpperCase()} — got offsets ` +
+                `${at[i - 1]} and ${at[i]} in:\n${out}`,
+        );
+    }
+});
+
+test('one badge per section: the heading carries severity, no row repeats it', () => {
+    const report = load('multi_severity.json');
+    const out = renderComment(report, ctx());
+    const inline = out.slice(0, fullReportAt(out)); // the row block, not the engine body
+
+    // Counts, per severity: exactly one heading, exactly one heat square, and the
+    // per-row chip the old layout printed (`**[HIGH]**`, `**[HIGH · recovery]**`) gone.
+    for (const severity of LADDER) {
+        const rows = report.ranked_changes.filter((row) => row.severity === severity);
+        assert.ok(rows.length > 0, `fixture must exercise ${severity}`);
+        assert.equal(
+            (inline.match(new RegExp(sectionHeading(severity, rows.length).replace(/[|\\{}()[\]^$+*?.]/g, '\\$&'), 'g')) ?? []).length,
+            1,
+            `${severity}: one heading, with its own count:\n${inline}`,
+        );
+        assert.equal(
+            (inline.match(new RegExp(severityGlyph(severity), 'g')) ?? []).length,
+            1,
+            `${severity}: the heat square is stated once, on the heading:\n${inline}`,
+        );
+        assert.ok(
+            !inline.includes(`**[${severity.toUpperCase()}]**`) &&
+                !inline.includes(`**[${severity.toUpperCase()} · `),
+            `${severity}: a row still repeats the severity chip:\n${inline}`,
+        );
+    }
+
+    // What a row DOES keep is the axis the heading cannot carry — its direction.
+    assert.ok(inline.includes('**[regression]**'), inline);
+    assert.ok(inline.includes('🟢 **[recovery]**'), inline);
+});
+
+test('every section is a COLLAPSED <details> — the full report\'s own affordance, not a second one', () => {
+    const report = load('multi_severity.json');
+    const out = renderComment(report, ctx());
+    const severities = new Set(report.ranked_changes.map((row) => row.severity));
+    assert.equal(severities.size, 4, 'fixture must span four severities');
+
+    // One <details> per section plus the full report's, opening and closing balanced.
+    assert.equal((out.match(/<details>/g) ?? []).length, severities.size + 1, out);
+    assert.equal((out.match(/<\/details>/g) ?? []).length, severities.size + 1, out);
+    // COLLAPSED: `<details open>` would render the ▼ state and is a different affordance
+    // from the one the full report uses. No section may carry it.
+    assert.ok(!/<details\s+open/.test(out), `a section renders expanded:\n${out}`);
+    // A blank line follows each <summary> — without it GitHub renders the markdown list
+    // inside the block as literal text, which would silently flatten every row.
+    assert.equal(
+        (out.match(/<\/summary>\n\n/g) ?? []).length,
+        severities.size + 1,
+        `a block is missing the blank line that makes its markdown render:\n${out}`,
+    );
+});
+
+test('rows are numbered inside their own section, in the engine\'s order', () => {
+    const report = load('multi_severity.json');
+    const out = renderComment(report, ctx());
+    // MEDIUM holds two rows: the ordinals restart at 1 per section, and the two keep
+    // the order the engine ranked them in (cache-restored first, dependencies second).
+    const medium = report.ranked_changes.filter((row) => row.severity === 'medium');
+    assert.equal(medium.length, 2);
+    assert.ok(out.includes(`1. ${escapeInline(medium[0]!.summary)}`), out);
+    assert.ok(out.includes(`2. ${escapeInline(medium[1]!.summary)}`), out);
+    // …and the CRITICAL section's single row is `1.`, not `3.` — the numbering is
+    // per-section, not a global counter carried across the blocks.
+    assert.ok(out.includes('1. **[regression]** New error:'), out);
+});
+
+test('a severity outside the ladder gets its OWN section after LOW — never folded into it', () => {
+    // A tier the frame does not know must surface as itself: folding it into `low`
+    // would print a heat badge the engine never claimed. It sorts after the known
+    // ladder (unknown heat is not a promotion) and keeps its own name.
+    const base = load('multi_severity.json');
+    const exotic: RankedChange = {
+        kind: 'frequency_shift',
+        severity: 'blocker',
+        significance: 0.5,
+        summary: 'Frequency shift: "INFO warming pool" 1.0% → 9.0%',
+    };
+    const report: SiftReport = { ...base, ranked_changes: [exotic, ...base.ranked_changes] };
+    const out = renderComment(report, ctx());
+    assert.ok(out.includes('<b>BLOCKER</b> — 1 change'), out);
+    assert.ok(out.indexOf('<b>LOW</b>') < out.indexOf('<b>BLOCKER</b>'), out);
+    assert.ok(out.includes(escapeInline(exotic.summary)), 'the unknown-tier row must still render');
+});
+
+test('the inline cap stays GLOBAL: the remainder notice sits outside every section', () => {
+    // The cap bounds the comment, not each section: it takes the top N of the RANKED
+    // list and the notice that follows belongs to no severity. A per-section cap would
+    // let 4 severities carry 4N rows, which is the bloat the cap exists to prevent.
+    const base = load('multi_severity.json');
+    const many: RankedChange[] = Array.from({ length: 26 }, (_, i) => ({
+        kind: 'frequency_shift',
+        severity: i % 2 === 0 ? 'high' : 'low',
+        significance: 0.5,
+        summary: `Frequency shift: "INFO step ${i}" 1.0% → 9.0%`,
+    }));
+    const out = renderComment({ ...base, ranked_changes: many }, ctx());
+    // 26 rows, 20 shown ⇒ 6 in the remainder; 10 high + 10 low among the first 20.
+    assert.ok(out.includes('_…and 6 more — see the full report below._'), out);
+    assert.ok(out.includes('<b>HIGH</b> — 10 changes'), out);
+    assert.ok(out.includes('<b>LOW</b> — 10 changes'), out);
+    // Outside: the notice follows the last section's close, and precedes the full report.
+    const noticeAt = out.indexOf('_…and 6 more');
+    assert.ok(out.lastIndexOf('</details>', noticeAt) > -1, out);
+    assert.ok(noticeAt < fullReportAt(out), 'the notice must sit above the full report');
+    assert.ok(!out.includes('"INFO step 20"'), 'a capped-out row leaked into a section');
 });
 
 // ── Determinism (contract § 4) ──────────────────────────────────────────────
@@ -495,11 +668,15 @@ function maliciousReport(): SiftReport {
 }
 
 test('safe embedding: content cannot break out of the <details> block', () => {
-    const out = renderComment(maliciousReport(), ctx());
-    // Exactly ONE real <details> and </details> — the frame's own. The content's
-    // </details> (in the row AND the body) are escaped, so they do not count.
-    assert.equal((out.match(/<details>/g) ?? []).length, 1, out);
-    assert.equal((out.match(/<\/details>/g) ?? []).length, 1, out);
+    const report = maliciousReport();
+    const out = renderComment(report, ctx());
+    // Exactly as many real <details>/</details> as the frame itself composes — one per
+    // severity section plus the full report — and the two counts agree. The content's
+    // </details> (in the row AND the body) are escaped, so they do not count; a single
+    // unescaped one would break the balance.
+    const sections = new Set(report.ranked_changes.map((row) => row.severity.toLowerCase())).size;
+    assert.equal((out.match(/<details>/g) ?? []).length, sections + 1, out);
+    assert.equal((out.match(/<\/details>/g) ?? []).length, sections + 1, out);
     // The frame's own trailer is the LAST content in the string: the body was composed
     // INSIDE the block, and nothing from it runs past the footer. That is a claim about
     // renderComment's composition, and only that. It reads the RAW markdown, whose last
@@ -738,8 +915,10 @@ test('evidence reaches the reader: folded member + remainder notice land inside 
     }
 
     const out = renderComment(report, ctx());
-    const detailsAt = out.indexOf('<details>');
-    assert.ok(detailsAt >= 0, out);
+    // The FULL REPORT's block, not the first <details> in the comment — the severity
+    // sections open earlier, and anchoring on them would let an inline row satisfy an
+    // assertion that is supposed to be about the collapsed body.
+    const detailsAt = fullReportAt(out);
 
     // Present, and present in the ONE place that can carry it — after the <details> opening.
     // A hit before it would mean the row block grew an evidence channel of its own, which is

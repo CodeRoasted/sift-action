@@ -86,7 +86,9 @@ function annotationCommand(row: RankedChange): string {
 //
 // The surface carries its OWN level (a separate axis from pr-comment / fail-on,
 // contract § 3), reusing `shouldComment` VERBATIM (§ B.3.8): below the level ⇒ no
-// annotations. With the `significant` default a clean run has no significant rows,
+// annotations. The SHIPPED level is `never` (action.yml), so this builder returns an
+// empty list unless the caller opted in — a default, not a capability cut: at
+// `significant` the surface is whole, and a clean run has no significant rows there,
 // so `significant ≡ always ≡ zero annotations` on clean. Cold start (report null)
 // ⇒ no rows ⇒ empty. Rows are already ranked (regressions first) and are the
 // significant set; the cap is a defensive tail-bound.

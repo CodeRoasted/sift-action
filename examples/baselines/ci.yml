@@ -74,7 +74,9 @@ jobs:
           target-job: build
           baseline: artifact=sift-baseline-main-ci
           baseline-name: sift-baseline-main-ci       # publish back under the same name
-          baseline-max-age: 72h                      # a red streak stops the re-seed; past this the diff announces its staleness instead of silently aging
+          baseline-max-age: 72h                      # the shipped default, stated for clarity: a red streak stops the re-seed,
+                                                     # and past this the diff announces its staleness (a warning) instead of
+                                                     # silently aging. Raise it if your trunk is quieter than daily.
           # publish-baseline: auto → verdict-gated re-seed (a FAILURE/UNSTABLE/ABORTED push keeps the old baseline)
           # changed-outcome: auto → the build job's own native conclusion, forwarded to the engine
 
@@ -97,5 +99,7 @@ jobs:
           target-job: build
           baseline: artifact=sift-baseline-ci-pr-${{ github.event.number }}
           baseline-name: sift-baseline-ci-pr-${{ github.event.number }}
+          baseline-max-age: ''                       # deliberately UNBOUNDED: a per-PR baseline legitimately ages
+                                                     # between pushes, so the 72h default would only manufacture noise
           comment-tag: vs-previous-run
           pr-comment: significant                    # quiet unless something moved since the last push

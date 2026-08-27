@@ -9,8 +9,8 @@
 // the Action never re-authors a row (contract § 1; PRD-6 — "rows are the
 // engine's, not ours"). Copy below is governed by PRD-6 § "Surface: Sift PR comment".
 
-import type { SiftReport, SiftCommentContext } from './types.js';
-import { statusGlyph } from './glyph.js';
+import type { RankedChange, SiftReport, SiftCommentContext } from './types.js';
+import { polarityGlyph, severityGlyph } from './glyph.js';
 import { State, selectState } from './verdict.js';
 
 // Hidden sticky-comment key (contract § 4): list comments, PATCH the marked one
@@ -105,34 +105,89 @@ export function escapeInline(text: string): string {
         .replace(/\)/g, '&#41;');
 }
 
-// Inline row badge (§B.4 visual parity — PRD-6 § "Badge glyphs"). The no-ANSI
-// comment carries the heat ladder + recovery-green as emoji on THESE top-N rows only
-// (the <details> body / to_markdown stays emoji-free; annotations use native icons).
-// Two independent axes (statusGlyph): a heat SQUARE for severity ALWAYS, plus a green
-// CIRCLE as a second glyph on a recovery — `🟧 🟢 **[HIGH · recovery]**`,
-// `🟥 **[CRITICAL · regression]**`. The text badge `[SEVERITY · polarity]` stays
-// verbatim beneath the glyphs (the screen-reader / no-emoji fallback). Severity is
-// uppercased (wire form is lowercase); polarity rides inside the badge when present
-// (F-1). Badge fields are engine-enum strings (trusted); the `summary` is engine
-// CONTENT — verbatim, safely embedded (escapeInline).
-function renderRow(index: number, row: SiftReport['ranked_changes'][number]): string {
-    const badge = row.severity.toUpperCase() + (row.polarity ? ` · ${row.polarity}` : '');
+// ── Rows, grouped into collapsible severity sections ────────────────────────
+// Severity is what an operator triages on, so it is the SECTION axis: one collapsed
+// <details> per severity, hottest first, the heat badge stated ONCE on the heading
+// instead of repeated on every row beneath it. The affordance is the same disclosure
+// triangle the full report already uses — deliberately not a second, invented one.
+// Grouping and collapsing are FRAMING: no row's text is touched (contract § 1).
+
+// The triage ladder, hottest first. A severity the ladder does not know is NOT
+// dropped and NOT folded into `low`: it forms its own section after the known tiers,
+// in the engine's own first-appearance order, so a new engine tier surfaces as itself
+// rather than vanishing into a bucket that would misstate its heat.
+const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low'];
+
+function severityRank(severity: string): number {
+    const index = SEVERITY_ORDER.indexOf(severity.toLowerCase());
+    return index === -1 ? SEVERITY_ORDER.length : index;
+}
+
+interface SeveritySection {
+    severity: string; // lowercased wire form; the heading uppercases it
+    rows: RankedChange[];
+}
+
+// Rows arrive already RANKED by the engine (regressions at the top tier). Grouping
+// preserves that order inside each section, and a Map preserves insertion order, so
+// two unknown tiers keep the engine's own sequence; `Array#sort` is stable (ES2019),
+// so equal ranks never reshuffle. Same report ⇒ same sections, same order.
+function groupBySeverity(rows: readonly RankedChange[]): SeveritySection[] {
+    const sections = new Map<string, SeveritySection>();
+    for (const row of rows) {
+        const key = row.severity.toLowerCase();
+        const section = sections.get(key);
+        if (section) {
+            section.rows.push(row);
+        } else {
+            sections.set(key, { severity: key, rows: [row] });
+        }
+    }
+    return [...sections.values()].sort((a, b) => severityRank(a.severity) - severityRank(b.severity));
+}
+
+// One row inside its section. The severity chip is GONE from the row — the heading it
+// sits under carries it, and repeating it was the duplication this layout removes.
+// What stays is the axis the heading CANNOT carry: polarity (F-1), as the green
+// recovery circle plus the direction word. Neutral rows carry neither — an absent
+// direction renders nothing, no empty badge. `polarity` is an engine ENUM (trusted);
+// the `summary` is engine CONTENT — verbatim, safely embedded (escapeInline).
+function renderRow(index: number, row: RankedChange): string {
+    const glyph = polarityGlyph(row.polarity);
+    const badge = row.polarity ? `${glyph ? `${glyph} ` : ''}**[${row.polarity}]** ` : '';
     // WHERE attribution (SRC-D-WHERE-7 tier 1): the functional location after the summary,
     // as inline code. `where` is engine CONTENT (canon-extracted, fork-attacker-reachable)
     // → escapeInline; the surrounding backticks are frame-controlled. Absent ⇒ nothing.
     const where = row.where ? ` · in \`${escapeInline(row.where)}\`` : '';
-    return `${index}. ${statusGlyph(row)} **[${badge}]** ${escapeInline(row.summary)}${where}`;
+    return `${index}. ${badge}${escapeInline(row.summary)}${where}`;
+}
+
+// One collapsed severity section. The heading is frame-controlled (a glyph, the
+// severity token, a count), so it is composed raw — except the severity token itself,
+// which is escapeHtml'd: it is an engine enum today, but it lands inside a <summary>
+// ELEMENT here, where an unexpected `</summary>` would break the comment's structure
+// rather than merely its text. Cheap at an enum, and it keeps the widened blast
+// radius of the new HTML context closed at the boundary.
+function renderSection(section: SeveritySection): string {
+    const count = section.rows.length;
+    const heading =
+        `${severityGlyph(section.severity)} <b>${escapeHtml(section.severity.toUpperCase())}</b>` +
+        ` — ${count} ${plural(count, 'change', 'changes')}`;
+    const rows = section.rows.map((row, i) => renderRow(i + 1, row)).join('\n');
+    return `<details><summary>${heading}</summary>\n\n${rows}\n\n</details>`;
 }
 
 function renderRows(report: SiftReport): string {
     const rows = report.ranked_changes;
     const shown = rows.slice(0, MAX_INLINE_ROWS);
-    const lines = shown.map((row, i) => renderRow(i + 1, row));
+    const blocks = groupBySeverity(shown).map(renderSection);
     if (rows.length > shown.length) {
         const rest = rows.length - shown.length;
-        lines.push(`_…and ${groupThousands(rest)} more — see the full report below._`);
+        // Outside every section: the remainder is not a severity, and the cap is
+        // global (the top-N of the RANKED set), not per-section.
+        blocks.push(`_…and ${groupThousands(rest)} more — see the full report below._`);
     }
-    return lines.join('\n');
+    return blocks.join('\n\n');
 }
 
 // The collapsed full report: the engine's markdown body, safely embedded. The

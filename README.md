@@ -78,7 +78,9 @@ Every default is overridable — the annotated tour (all knobs optional):
     fail-on: regression              # the advisory gate — exit code only (none | significant | regression)
     pr-comment: always               # sticky PR comment level
     commit-comment: never            # commit comment on push runs (needs contents: write)
-    annotations: significant         # inline ::error/::warning/::notice on the Checks tab (token-free)
+    annotations: never               # inline ::error/::warning/::notice on the Checks tab (token-free);
+                                     # OFF by default — opt in with `significant`
+    baseline-max-age: 7d             # staleness bound on the resolved baseline (default 72h; empty = off)
     comment-tag: vs-main             # namespace for a SECOND sticky comment in the same job
     changed-outcome: auto            # this run's NATIVE verdict token, forwarded verbatim to the engine
                                      # (auto = target-job's own conclusion; else ${{ needs.<job>.result }})
@@ -126,13 +128,14 @@ against `main`'s last green out of the box). Every part of that is overridable:
   `auto`/`branch=` look for on the resolved run). Compose per-job / per-PR names with expressions.
 - **`publish-baseline`** controls seeding: `auto` (PRs always; pushes/tags green-gated) ·
   `always` · `never`.
-- **`baseline-max-age`** bounds the resolved baseline's **staleness** (`72h`, `7d`; empty =
-  unbounded). The green-gated re-seed means a long red streak ages the baseline without limit —
-  every diff then compares against an ever-older green, silently. With a bound set, an exceeded
-  baseline still diffs and posts (an aged comparison is information) but **announces itself**: a
-  stale banner in the comment, a warning annotation, and a failed step naming age vs bound
-  (advisory pipelines keep `continue-on-error` on the step). The age is always in the comment
-  footer and the `baseline-age-hours` output, bound or no bound.
+- **`baseline-max-age`** bounds the resolved baseline's **staleness** (`72h`, `7d`; **default
+  `72h`**, empty disables it). The green-gated re-seed means a long red streak ages the baseline
+  without limit — every diff then compares against an ever-older green, silently. An exceeded
+  baseline still diffs, posts and seeds (an aged comparison is information) but **announces
+  itself**: a stale banner in the comment and a warning annotation. **It is a warning, never a
+  failure** — your build cadence is yours, a repo that ships weekly is not misconfigured, and
+  `fail-on` stays the only axis that touches the exit code. Raise the bound to match your cadence.
+  The age is always in the comment footer and the `baseline-age-hours` output, bound or no bound.
 - **`comment-tag`** namespaces the sticky comment, so two diffs in one job (vs `main` **and** vs
   the PR's previous run) each keep their own comment.
 
@@ -144,10 +147,12 @@ canonical topology — main/tag runs diff vs the main baseline and re-seed it; P
 
 ## Inline annotations
 
-Sift also emits the significant rows as native **check-run annotations** (`::error` / `::warning` /
+Sift can also emit the significant rows as native **check-run annotations** (`::error` / `::warning` /
 `::notice`) — they show in the **Checks** tab and the PR "checks were not successful" strip, inline with
-the run. `annotations` controls the level, its own axis: `never` | `regression` | `significant` (default
-— drift or regression) | `always`. Polarity drives the severity:
+the run. **They are OFF by default** (`annotations: never`) — the PR comment and the job summary already
+render the same result, and an annotation competes with the compiler's own in the gutter where a real
+build error must stay findable. Opt in and the surface is whole: `annotations` takes `never` (default) |
+`regression` | `significant` (drift or regression) | `always`. Polarity drives the severity:
 
 - a **regression** row → `::error::`
 - a **recovery** (the un-grep-able win) → `::notice::`
@@ -156,8 +161,8 @@ the run. `annotations` controls the level, its own axis: `never` | `regression` 
 They **fire on a green build** too — exactly where GitHub's own "Explain error" is silent (it only fires
 on a *red* check). The message is the engine's ranked `summary` + its first evidence line, **verbatim**;
 there is **no `file:line` anchor** — Sift diffs *logs*, not source, so it never guesses a source location
-(the full report stays in the PR comment + `<details>`). A clean run has no significant rows, so the
-default `significant` stays quiet.
+(the full report stays in the PR comment + `<details>`). A clean run has no significant rows, so even
+`significant` stays quiet on a green, unchanged build.
 
 **Annotations are fork-safe by construction.** They are GitHub *workflow commands* written to stdout —
 they need **no write token** — so the unprivileged `mode: render` build job (the `on: pull_request` job
@@ -261,9 +266,9 @@ Without the cache step it still works — it just re-downloads the model each ru
 By default (one workflow), a fork PR gets a **read-only** token, so the sticky comment
 and baseline upload **can't write**. The Action does **not** silently no-op — it warns,
 the **advisory gate still applies** (the diff runs, `fail-on` gates), **and the [inline
-annotations](#inline-annotations) still surface** (they are token-free stdout workflow
-commands), so a fork PR keeps a structural signal even without the two-workflow pattern.
-Safe default.
+annotations](#inline-annotations) still surface if you turned them on** (they are token-free
+stdout workflow commands — off by default, `annotations: significant` arms them), so a fork PR
+can keep a visible structural signal even without the two-workflow pattern. Safe default.
 
 To actually **post comments on fork PRs**, use the two-workflow pattern (the secure
 alternative to `pull_request_target`) — see [`examples/fork-safe/`](examples/fork-safe/):
@@ -339,12 +344,12 @@ a local shell.
 | `baseline` | no | `auto` | Baseline **selection**: `auto` \| `branch=<name>` \| `artifact=<name>` (named baseline, repo-wide) \| `path=<file>` \| `none`. Malformed values fail the run — never a silent fallback. See [Choosing the baseline](#choosing-the-baseline--you-are-king). |
 | `baseline-name` | no | `sift-baseline-log` | Artifact name this run **publishes** its log under (and what `auto`/`branch=` resolvers look for). |
 | `publish-baseline` | no | `auto` | `auto` (PRs always seed; pushes/tags verdict-gated: FAILURE/UNSTABLE/ABORTED never re-seeds) \| `always` \| `never`. |
-| `baseline-max-age` | no | _(unbounded)_ | Staleness bound on the resolved baseline (`<n>h` \| `<n>d`). Exceeded ⇒ stale banner + warning annotation + failed step (still diffs, posts, seeds). Malformed values fail the run. See [Choosing the baseline](#choosing-the-baseline--you-are-king). |
+| `baseline-max-age` | no | `72h` | Staleness bound on the resolved baseline (`<n>h` \| `<n>d`; empty disables it). Exceeded ⇒ stale banner + warning annotation, **never a failed step** (still diffs, posts, seeds). Malformed values fail the run. See [Choosing the baseline](#choosing-the-baseline--you-are-king). |
 | `comment-tag` | no | _(none)_ | Namespaces the sticky comment (marker + title) so two sift invocations in one job keep separate comments. |
 | `changed-outcome` | no | `auto` | This run's **native** CI verdict token, forwarded verbatim to the engine (four-class-aware: UNSTABLE is never folded into FAILURE). `auto` = `target-job`'s own conclusion; set `${{ needs.<job>.result }}` when sourcing via `log:`, else the engine reads the log's console tail / no verdict. |
 | `pr-comment` | no | `always` | `never` \| `regression` \| `significant` \| `always` — sticky PR comment at/above this verdict. |
 | `commit-comment` | no | `never` | `never` \| `regression` \| `significant` \| `always` — commit comment on push at/above this verdict (needs `contents: write`). |
-| `annotations` | no | `significant` | `never` \| `regression` \| `significant` \| `always` — inline check-run annotations (`::error`/`::warning`/`::notice`) at/above this verdict. Fork-safe (stdout workflow commands, no token); fires on green. See [Inline annotations](#inline-annotations). |
+| `annotations` | no | `never` | `never` \| `regression` \| `significant` \| `always` — inline check-run annotations (`::error`/`::warning`/`::notice`) at/above this verdict. **Off by default**; opt in with `significant`. Fork-safe (stdout workflow commands, no token); fires on green. See [Inline annotations](#inline-annotations). |
 | `github-token` | no | `${{ github.token }}` | Runs/artifacts API + comment + artifact upload. |
 
 ## Outputs
@@ -362,7 +367,7 @@ Set on **every** run, whatever the comment config — branch on them in a later 
 | `changed-outcome` | This run's engine-resolved verdict (same values). |
 | `outcome-regressed` | `true` when the run verdict got strictly worse (`Success < Unstable < Failure`; Aborted/Unknown excluded). |
 | `baseline-age-hours` | Resolved baseline's age in whole hours; empty when unknown (cold start, `path=` baseline, pre-sidecar artifact) — never 0-for-unknown. |
-| `baseline-stale` | `true` when `baseline-max-age` is set and exceeded, else `false`. |
+| `baseline-stale` | `true` when a `baseline-max-age` bound is in force and the resolved baseline exceeds it, else `false`. Advisory — it never fails the step. |
 | `report-path` | Path to this run's `report.json` on a stable, cross-step location (empty on cold start). A later step on the **same runner** can narrate it with `sift explain --report <path>` — same content as the comment; no credential. |
 
 ## Architecture
@@ -373,7 +378,11 @@ verdict headline, state selection, footer) and the GitHub transport (sticky
 comment, baseline artifact, check status). A bad row is an engine fix at the
 root — never re-authored here.
 
-- `src/frame.ts` — the pure, deterministic comment renderer (the governed copy).
+- `src/frame.ts` — the pure, deterministic comment renderer (the governed copy). The ranked rows
+  are grouped into one **collapsible section per severity**, hottest first (CRITICAL → HIGH →
+  MEDIUM → LOW), with the heat badge stated once on the section heading instead of repeated on
+  every row; a row keeps only what the heading cannot carry — its `regression` / `recovery`
+  direction. Grouping is framing: no row's text is touched.
 - `src/annotations.ts` — the pure check-run annotation builder + the workflow-command encoder (the stdout-surface trust boundary, the `escapeInline` analogue).
 - `src/verdict.ts` — the four-state machine (cold-start / clean / drift / regression).
 - `src/baseline.ts` — baseline source selection (auto / branch= / artifact= / path= / none) via the GitHub API.
