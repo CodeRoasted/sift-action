@@ -84,9 +84,12 @@ function detailsBody(out: string): string {
 }
 
 // The severity-section heading the frame composes for `severity` holding `count` rows.
-function sectionHeading(severity: string, count: number): string {
+// `disclosed` selects the open spelling — the hottest section ships disclosed, every
+// other section collapsed (asserted on its own below).
+function sectionHeading(severity: string, count: number, disclosed = false): string {
     const noun = count === 1 ? 'change' : 'changes';
-    return `<details><summary>${severityGlyph(severity)} <b>${severity.toUpperCase()}</b> — ${count} ${noun}</summary>`;
+    const tag = disclosed ? '<details open>' : '<details>';
+    return `${tag}<summary>${severityGlyph(severity)} <b>${severity.toUpperCase()}</b> — ${count} ${noun}</summary>`;
 }
 
 // ── Shared frame (every state) ──────────────────────────────────────────────
@@ -165,7 +168,7 @@ test('③ drift, verdict unknown: verbatim headline + rows verbatim + engine <de
     // rides the section heading and the row carries no badge of its own.
     const firstRow = report.ranked_changes[0]!;
     assert.ok(out.includes(`1. ${escapeInline(firstRow.summary)}`), out);
-    assert.ok(out.includes(sectionHeading(firstRow.severity, report.ranked_changes.length)), out);
+    assert.ok(out.includes(sectionHeading(firstRow.severity, report.ranked_changes.length, true)), out);
     // <details> embeds the engine markdown body.
     assert.ok(out.includes(`<details><summary>Full report — ${report.summary.total_changes} changes, ${significant} significant</summary>`), out);
     // COMPLETENESS, and only completeness. Equality on the slot, not `includes`, so a
@@ -468,7 +471,7 @@ test('one badge per section: the heading carries severity, no row repeats it', (
         const rows = report.ranked_changes.filter((row) => row.severity === severity);
         assert.ok(rows.length > 0, `fixture must exercise ${severity}`);
         assert.equal(
-            (inline.match(new RegExp(sectionHeading(severity, rows.length).replace(/[|\\{}()[\]^$+*?.]/g, '\\$&'), 'g')) ?? []).length,
+            (inline.match(new RegExp(sectionHeading(severity, rows.length, severity === LADDER[0]).replace(/[|\\{}()[\]^$+*?.]/g, '\\$&'), 'g')) ?? []).length,
             1,
             `${severity}: one heading, with its own count:\n${inline}`,
         );
@@ -489,24 +492,84 @@ test('one badge per section: the heading carries severity, no row repeats it', (
     assert.ok(inline.includes('🟢 **[recovery]**'), inline);
 });
 
-test('every section is a COLLAPSED <details> — the full report\'s own affordance, not a second one', () => {
+test('the HOTTEST section is disclosed, exactly one, and everything below it is collapsed', () => {
+    // The affordance is the full report's own disclosure triangle for every section; what
+    // differs is the STARTING state, and only for index 0. The reason is the product's
+    // contract, not taste: the governed headline copy ends in a colon, so an all-collapsed
+    // comment opens with a sentence pointing at nothing — the incident must be readable at
+    // the top. Below index 0, and for the full report, collapsed is the shipped state.
     const report = load('multi_severity.json');
     const out = renderComment(report, ctx());
     const severities = new Set(report.ranked_changes.map((row) => row.severity));
     assert.equal(severities.size, 4, 'fixture must span four severities');
 
-    // One <details> per section plus the full report's, opening and closing balanced.
-    assert.equal((out.match(/<details>/g) ?? []).length, severities.size + 1, out);
+    // One <details> per section plus the full report's, opening and closing balanced —
+    // counted across BOTH spellings, so an `open` block still counts as a block.
+    const opens = out.match(/<details(?: open)?>/g) ?? [];
+    assert.equal(opens.length, severities.size + 1, out);
     assert.equal((out.match(/<\/details>/g) ?? []).length, severities.size + 1, out);
-    // COLLAPSED: `<details open>` would render the ▼ state and is a different affordance
-    // from the one the full report uses. No section may carry it.
-    assert.ok(!/<details\s+open/.test(out), `a section renders expanded:\n${out}`);
+
+    // EXACTLY ONE is disclosed. Two arms, and they fail for different reasons: the count
+    // reds if the open state spreads (or is lost), and the position reds if the ladder
+    // sort inverts under it — which would disclose the COOLEST section, a strictly worse
+    // failure than a merely reordered list, because the comment would then open on the
+    // least urgent finding while the worst one hides.
+    assert.equal(opens.filter((tag) => tag === '<details open>').length, 1, `exactly one disclosed section:\n${out}`);
+    assert.equal(opens[0], '<details open>', `the DISCLOSED block must be the first one:\n${out}`);
+    assert.ok(
+        out.startsWith(`${STICKY_MARKER}\n${HEADER}`) &&
+            out.indexOf('<details open>') < out.indexOf('<details>'),
+        `a collapsed block precedes the disclosed one:\n${out}`,
+    );
+    // Named, not just positional: the disclosed block is CRITICAL's on this fixture,
+    // which is the hottest severity present.
+    assert.ok(
+        out.includes(`<details open><summary>${severityGlyph('critical')} <b>CRITICAL</b>`),
+        `the hottest section is not the disclosed one:\n${out}`,
+    );
+    // The full report stays collapsed — this pass did not touch it.
+    assert.ok(out.includes(`\n\n${FULL_REPORT_OPEN}`), `the full report must stay collapsed:\n${out}`);
+
     // A blank line follows each <summary> — without it GitHub renders the markdown list
     // inside the block as literal text, which would silently flatten every row.
     assert.equal(
         (out.match(/<\/summary>\n\n/g) ?? []).length,
         severities.size + 1,
         `a block is missing the blank line that makes its markdown render:\n${out}`,
+    );
+});
+
+test('the disclosed section is the HOTTEST, not the first the engine happened to rank', () => {
+    // The arm above cannot see this, and the reason is worth stating rather than assuming:
+    // on `multi_severity.json` the engine ranks the CRITICAL regression first, so dropping
+    // the ladder sort leaves CRITICAL at index 0 and the right section is still disclosed
+    // by accident. Measured — removing the sort reds two other arms and NOT that one.
+    //
+    // So this arm inverts the input: the engine's own order runs coolest-first. With the
+    // sort, CRITICAL is disclosed; without it, LOW is — and the comment would then open on
+    // the least urgent finding while the incident hides behind a closed triangle. That is a
+    // strictly worse failure than a merely reordered list, which is why it gets its own arm.
+    const base = load('multi_severity.json');
+    const coolestFirst: RankedChange[] = [
+        { kind: 'frequency_shift', severity: 'low', significance: 0.1, summary: 'Frequency shift: "INFO warming pool" 1.0% → 2.0%' },
+        { kind: 'frequency_shift', severity: 'medium', significance: 0.4, summary: 'Frequency shift: "INFO restore deps" — 6.2x slower' },
+        { kind: 'new_error_pattern', severity: 'critical', significance: 0.9, polarity: 'regression', summary: 'New error: "ERROR gateway: upstream timed out" — 0 -> 214' },
+    ];
+    const out = renderComment({ ...base, ranked_changes: coolestFirst }, ctx());
+
+    assert.ok(
+        out.includes(`<details open><summary>${severityGlyph('critical')} <b>CRITICAL</b>`),
+        `CRITICAL must be the disclosed section even though the engine ranked it LAST — ` +
+            `the ladder decides disclosure, not arrival order:\n${out}`,
+    );
+    assert.ok(
+        out.includes(`<details><summary>${severityGlyph('low')} <b>LOW</b>`),
+        `LOW arrived first and must still ship COLLAPSED:\n${out}`,
+    );
+    assert.equal(
+        (out.match(/<details open>/g) ?? []).length,
+        1,
+        `exactly one disclosed section:\n${out}`,
     );
 });
 
@@ -671,11 +734,12 @@ test('safe embedding: content cannot break out of the <details> block', () => {
     const report = maliciousReport();
     const out = renderComment(report, ctx());
     // Exactly as many real <details>/</details> as the frame itself composes — one per
-    // severity section plus the full report — and the two counts agree. The content's
-    // </details> (in the row AND the body) are escaped, so they do not count; a single
-    // unescaped one would break the balance.
+    // severity section plus the full report — and the two counts agree. Both spellings are
+    // counted: the hottest section ships disclosed (`<details open>`) and is still a block.
+    // The content's </details> (in the row AND the body) are escaped, so they do not count;
+    // a single unescaped one would break the balance.
     const sections = new Set(report.ranked_changes.map((row) => row.severity.toLowerCase())).size;
-    assert.equal((out.match(/<details>/g) ?? []).length, sections + 1, out);
+    assert.equal((out.match(/<details(?: open)?>/g) ?? []).length, sections + 1, out);
     assert.equal((out.match(/<\/details>/g) ?? []).length, sections + 1, out);
     // The frame's own trailer is the LAST content in the string: the body was composed
     // INSIDE the block, and nothing from it runs past the footer. That is a claim about

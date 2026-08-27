@@ -162,25 +162,36 @@ function renderRow(index: number, row: RankedChange): string {
     return `${index}. ${badge}${escapeInline(row.summary)}${where}`;
 }
 
-// One collapsed severity section. The heading is frame-controlled (a glyph, the
-// severity token, a count), so it is composed raw — except the severity token itself,
-// which is escapeHtml'd: it is an engine enum today, but it lands inside a <summary>
-// ELEMENT here, where an unexpected `</summary>` would break the comment's structure
-// rather than merely its text. Cheap at an enum, and it keeps the widened blast
-// radius of the new HTML context closed at the boundary.
-function renderSection(section: SeveritySection): string {
+// One severity section. The heading is frame-controlled (a glyph, the severity token,
+// a count), so it is composed raw — except the severity token itself, which is
+// escapeHtml'd: it is an engine enum today, but it lands inside a <summary> ELEMENT
+// here, where an unexpected `</summary>` would break the comment's structure rather
+// than merely its text. Cheap at an enum, and it keeps the widened blast radius of the
+// new HTML context closed at the boundary.
+//
+// `disclosed` opens the block. Exactly ONE section is disclosed — the hottest, index 0
+// — and the reason is the product's contract rather than taste: the governed headline
+// copy ends in a colon ("It slipped through:"), so a comment whose every section is
+// collapsed opens with a sentence pointing at nothing. Precision-first means 1 alert =
+// 1 true incident, and the incident must be READABLE at the top of the comment. The
+// noise the layout was ruled against is the REPEATED per-row chip, not the finding
+// itself. Everything below index 0, and the full report, stays collapsed.
+function renderSection(section: SeveritySection, disclosed: boolean): string {
     const count = section.rows.length;
     const heading =
         `${severityGlyph(section.severity)} <b>${escapeHtml(section.severity.toUpperCase())}</b>` +
         ` — ${count} ${plural(count, 'change', 'changes')}`;
     const rows = section.rows.map((row, i) => renderRow(i + 1, row)).join('\n');
-    return `<details><summary>${heading}</summary>\n\n${rows}\n\n</details>`;
+    return `<details${disclosed ? ' open' : ''}><summary>${heading}</summary>\n\n${rows}\n\n</details>`;
 }
 
 function renderRows(report: SiftReport): string {
     const rows = report.ranked_changes;
     const shown = rows.slice(0, MAX_INLINE_ROWS);
-    const blocks = groupBySeverity(shown).map(renderSection);
+    // Index 0 is the hottest section by the ladder — whatever severity that is on this
+    // report. Deliberately positional, not a CRITICAL special case: a report whose worst
+    // finding is MEDIUM still discloses its worst finding.
+    const blocks = groupBySeverity(shown).map((section, i) => renderSection(section, i === 0));
     if (rows.length > shown.length) {
         const rest = rows.length - shown.length;
         // Outside every section: the remainder is not a severity, and the cap is

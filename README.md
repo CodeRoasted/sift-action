@@ -382,7 +382,9 @@ root — never re-authored here.
   are grouped into one **collapsible section per severity**, hottest first (CRITICAL → HIGH →
   MEDIUM → LOW), with the heat badge stated once on the section heading instead of repeated on
   every row; a row keeps only what the heading cannot carry — its `regression` / `recovery`
-  direction. Grouping is framing: no row's text is touched.
+  direction. The **hottest section opens by default** so the incident is readable at the top of
+  the comment; every other section, and the full report, starts collapsed. Grouping is framing:
+  no row's text is touched.
 - `src/annotations.ts` — the pure check-run annotation builder + the workflow-command encoder (the stdout-surface trust boundary, the `escapeInline` analogue).
 - `src/verdict.ts` — the four-state machine (cold-start / clean / drift / regression).
 - `src/baseline.ts` — baseline source selection (auto / branch= / artifact= / path= / none) via the GitHub API.

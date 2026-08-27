@@ -66426,11 +66426,11 @@ function renderRow(index, row) {
   const where2 = row.where ? ` \xB7 in \`${escapeInline(row.where)}\`` : "";
   return `${index}. ${badge}${escapeInline(row.summary)}${where2}`;
 }
-function renderSection(section) {
+function renderSection(section, disclosed) {
   const count = section.rows.length;
   const heading = `${severityGlyph(section.severity)} <b>${escapeHtml(section.severity.toUpperCase())}</b> \u2014 ${count} ${plural(count, "change", "changes")}`;
   const rows = section.rows.map((row, i) => renderRow(i + 1, row)).join("\n");
-  return `<details><summary>${heading}</summary>
+  return `<details${disclosed ? " open" : ""}><summary>${heading}</summary>
 
 ${rows}
 
@@ -66439,7 +66439,7 @@ ${rows}
 function renderRows(report) {
   const rows = report.ranked_changes;
   const shown = rows.slice(0, MAX_INLINE_ROWS);
-  const blocks2 = groupBySeverity(shown).map(renderSection);
+  const blocks2 = groupBySeverity(shown).map((section, i) => renderSection(section, i === 0));
   if (rows.length > shown.length) {
     const rest = rows.length - shown.length;
     blocks2.push(`_\u2026and ${groupThousands(rest)} more \u2014 see the full report below._`);
