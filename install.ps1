@@ -30,7 +30,7 @@ $Asset = 'sift-windows-x64.exe'
 # The default engine pin. ./bump.sh OWNS this line — derived from the PUBLISHED release set
 # (binary + .sha256 both live) exactly as src/sift-version.ts and install.sh are. Never
 # hand-edit it to the workspace dev line: an unpublished version 404s at download.
-$SiftPinnedVersion = '1.10.0'
+$SiftPinnedVersion = '1.10.1'
 function Fail($msg) { Write-Error "sift-install: $msg"; exit 1 }
 
 # 1. platform — only windows-x64 is published today.
