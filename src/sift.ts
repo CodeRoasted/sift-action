@@ -120,6 +120,102 @@ export function engineFailureMessage(exitCode: number): string | null {
     }
 }
 
+// RFC 8259 §7: every character below U+0020 MUST be escaped inside a JSON string. Tab, LF
+// and CR are excluded from the count below — not because they are legal raw inside a string
+// (they are not), but because they are also legal WHITESPACE between tokens, so their raw
+// presence is not on its own evidence of a defect. Every other byte in the range is.
+const CONTROL_BYTE_CEILING = 0x20;
+const STRUCTURAL_WHITESPACE_BYTES: readonly number[] = [0x09, 0x0a, 0x0d];
+
+// What we can say about an artefact that is not JSON. Counted and located, never QUOTED:
+// the bytes came from the user's CI log, and this message lands in a job annotation — a
+// published surface. "Logs never leave the CI" is a perimeter, so this reports SHAPE.
+export interface UnreadableReportFacts {
+    reportBytes: number;
+    rawControlBytes: number;
+    firstControlByteOffset: number | null;
+}
+
+// Measured on the BYTES, not on the decoded string: a byte offset a user can reach with
+// `dd`/`wc -c` is one unit, and mixing a character index with a byte length would be two.
+// Control bytes are single-byte in UTF-8 and never appear as continuation bytes (>= 0x80),
+// so scanning the buffer is exact rather than approximate.
+export function measureUnreadableReport(raw: string): UnreadableReportFacts {
+    const buffer = Buffer.from(raw, 'utf8');
+    let rawControlBytes = 0;
+    let firstControlByteOffset: number | null = null;
+    for (let offset = 0; offset < buffer.length; offset++) {
+        const byte = buffer[offset]!;
+        if (byte >= CONTROL_BYTE_CEILING || STRUCTURAL_WHITESPACE_BYTES.includes(byte)) {
+            continue;
+        }
+        rawControlBytes++;
+        firstControlByteOffset ??= offset;
+    }
+    return { reportBytes: buffer.length, rawControlBytes, firstControlByteOffset };
+}
+
+// The parser's own message can carry a fragment of the artefact (V8 quotes context around
+// the offending token), and the artefact is exactly what we have just proven contains raw
+// control bytes. Neutralise them rather than drop the message: when rawControlBytes is 0
+// this string is the ONLY diagnostic we have.
+function withControlBytesNeutralised(message: string): string {
+    let neutralised = '';
+    for (const character of message) {
+        const code = character.codePointAt(0) ?? 0;
+        neutralised +=
+            code < CONTROL_BYTE_CEILING
+                ? `\\x${code.toString(16).padStart(2, '0')}`
+                : character;
+    }
+    return neutralised;
+}
+
+// Pure, and exported for tests for the same reason engineFailureMessage is: this diagnosis
+// IS the contract, and it should be provable without spawning an engine or writing a file.
+export function unreadableReportMessage(
+    outputPath: string,
+    exitCode: number,
+    facts: UnreadableReportFacts,
+    parserMessage: string,
+): string {
+    const shape =
+        facts.rawControlBytes > 0
+            ? `${facts.rawControlBytes} raw control byte(s) — value < 0x20 outside tab/LF/CR, ` +
+              'which RFC 8259 §7 requires a JSON writer to escape — first at byte offset ' +
+              `${facts.firstControlByteOffset}`
+            : 'no raw control byte, so the malformation is something else';
+    return (
+        `The Sift ENGINE wrote an unreadable report. It exited ${exitCode} (a report-bearing ` +
+        `code) and the file at ${outputPath} EXISTS, but it is not valid JSON. This is a defect ` +
+        'in the engine that produced the artefact — not a missing report, and not a problem ' +
+        'with your log, your workflow inputs, or your permissions. ' +
+        `Measured on the artefact: ${facts.reportBytes} bytes, ${shape}. ` +
+        `Parser: ${withControlBytesNeutralised(parserMessage)}. ` +
+        'The Action FAILS here rather than posting nothing, because a Sift comment that ' +
+        'silently does not appear is indistinguishable from "Sift found nothing to report" — ' +
+        'and a false all-clear is the one outcome a precision-first tool cannot ship. ' +
+        'Please report it at https://github.com/CodeRoasted/sift-action/issues with this ' +
+        'message and the engine version.'
+    );
+}
+
+// Distinct from SiftEngineError, and the distinction is the whole point of the class:
+// SiftEngineError means "the engine produced NO report", this one means "the engine
+// produced a report and got it WRONG". Collapsing them would send the user hunting for a
+// file that is sitting on disk. Carries the facts typed, so a caller can branch on the
+// shape without re-parsing prose.
+export class SiftReportUnreadableError extends Error {
+    constructor(
+        message: string,
+        readonly exitCode: number,
+        readonly facts: UnreadableReportFacts,
+    ) {
+        super(message);
+        this.name = 'SiftReportUnreadableError';
+    }
+}
+
 // Operational, non-secret env the engine may legitimately need from the runner.
 // PATH (any libc subprocess), HOME / TMPDIR (temp-file resolution). Deliberately
 // NOT here: LD_LIBRARY_PATH (the binary is portable, system-lib only) and every
@@ -275,8 +371,38 @@ export async function runSift(invocation: SiftInvocation): Promise<SiftResult> {
         throw new SiftEngineError(failure, exitCode);
     }
     const raw = await fs.readFile(invocation.outputPath, 'utf8');
-    const report = JSON.parse(raw) as SiftReport;
-    return { report, exitCode };
+    // The exit-code check above was built for "engine failed, no file". It is DEFEATED by
+    // "engine succeeded, bad file": engineFailureMessage() returns null on 0 and 2, so a
+    // report-bearing code with a malformed artefact walks straight into JSON.parse and the
+    // user gets a bare SyntaxError attributed to sift-action — the same wrong-subject
+    // failure the SIFT_EXIT block above exists to prevent, entered through the other door.
+    //
+    // This is a DIAGNOSTIC, not a gate: it does not repair the artefact and must not read
+    // as if it had. It names the engine as the source and says unparseable, never absent.
+    //
+    // FAIL rather than degrade, and the argument is the exit code's provenance. Degrading
+    // would mean trusting exit 0 as "nothing significant changed" — but that code comes
+    // from the very component that has just demonstrated it does not validate its own
+    // output. "The engine did not error out" and "your logs are clean" are not the same
+    // claim, and nothing here can tell them apart. Posting nothing would render our bug as
+    // the user's all-clear. `fail-on` does not soften this: it governs verdicts about the
+    // user's code, and exits 1/3/4 already fail irrespective of it — an unreadable report
+    // belongs in that set, and only reached this line because the exit code lied.
+    try {
+        return { report: JSON.parse(raw) as SiftReport, exitCode };
+    } catch (error) {
+        const facts = measureUnreadableReport(raw);
+        throw new SiftReportUnreadableError(
+            unreadableReportMessage(
+                invocation.outputPath,
+                exitCode,
+                facts,
+                error instanceof Error ? error.message : String(error),
+            ),
+            exitCode,
+            facts,
+        );
+    }
 }
 
 // `sift explain-setup`: download + SHA-256-verify + cache the pinned model + inference server from the

@@ -102093,6 +102093,42 @@ function engineFailureMessage(exitCode) {
       return `The Sift engine exited with an unexpected status (${exitCode}). ` + (exitCode > 128 ? `That is a signal (${exitCode - 128}), so the engine was killed rather than returning \u2014 a runner out-of-memory kill is the usual cause. ` : "") + "This is a bug \u2014 please report it with the step log and `wc -lc` on both logs.";
   }
 }
+var CONTROL_BYTE_CEILING = 32;
+var STRUCTURAL_WHITESPACE_BYTES = [9, 10, 13];
+function measureUnreadableReport(raw) {
+  const buffer2 = Buffer.from(raw, "utf8");
+  let rawControlBytes = 0;
+  let firstControlByteOffset = null;
+  for (let offset = 0; offset < buffer2.length; offset++) {
+    const byte = buffer2[offset];
+    if (byte >= CONTROL_BYTE_CEILING || STRUCTURAL_WHITESPACE_BYTES.includes(byte)) {
+      continue;
+    }
+    rawControlBytes++;
+    firstControlByteOffset ??= offset;
+  }
+  return { reportBytes: buffer2.length, rawControlBytes, firstControlByteOffset };
+}
+function withControlBytesNeutralised(message) {
+  let neutralised = "";
+  for (const character of message) {
+    const code = character.codePointAt(0) ?? 0;
+    neutralised += code < CONTROL_BYTE_CEILING ? `\\x${code.toString(16).padStart(2, "0")}` : character;
+  }
+  return neutralised;
+}
+function unreadableReportMessage(outputPath, exitCode, facts, parserMessage) {
+  const shape = facts.rawControlBytes > 0 ? `${facts.rawControlBytes} raw control byte(s) \u2014 value < 0x20 outside tab/LF/CR, which RFC 8259 \xA77 requires a JSON writer to escape \u2014 first at byte offset ${facts.firstControlByteOffset}` : "no raw control byte, so the malformation is something else";
+  return `The Sift ENGINE wrote an unreadable report. It exited ${exitCode} (a report-bearing code) and the file at ${outputPath} EXISTS, but it is not valid JSON. This is a defect in the engine that produced the artefact \u2014 not a missing report, and not a problem with your log, your workflow inputs, or your permissions. Measured on the artefact: ${facts.reportBytes} bytes, ${shape}. Parser: ${withControlBytesNeutralised(parserMessage)}. The Action FAILS here rather than posting nothing, because a Sift comment that silently does not appear is indistinguishable from "Sift found nothing to report" \u2014 and a false all-clear is the one outcome a precision-first tool cannot ship. Please report it at https://github.com/CodeRoasted/sift-action/issues with this message and the engine version.`;
+}
+var SiftReportUnreadableError = class extends Error {
+  constructor(message, exitCode, facts) {
+    super(message);
+    this.exitCode = exitCode;
+    this.facts = facts;
+    this.name = "SiftReportUnreadableError";
+  }
+};
 var ENGINE_ENV_PASSTHROUGH = ["PATH", "HOME", "TMPDIR"];
 function engineEnv() {
   const env = { LC_ALL: "C", LANG: "C", TZ: "UTC" };
@@ -102190,8 +102226,21 @@ async function runSift(invocation) {
     throw new SiftEngineError(failure, exitCode);
   }
   const raw = await fs12.readFile(invocation.outputPath, "utf8");
-  const report = JSON.parse(raw);
-  return { report, exitCode };
+  try {
+    return { report: JSON.parse(raw), exitCode };
+  } catch (error2) {
+    const facts = measureUnreadableReport(raw);
+    throw new SiftReportUnreadableError(
+      unreadableReportMessage(
+        invocation.outputPath,
+        exitCode,
+        facts,
+        error2 instanceof Error ? error2.message : String(error2)
+      ),
+      exitCode,
+      facts
+    );
+  }
 }
 async function runExplainSetup(siftBin) {
   const exitCode = await exec3.exec(siftBin, ["explain-setup"], {

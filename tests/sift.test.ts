@@ -6,7 +6,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { engineEnv, engineFailureMessage, siftArgs, type SiftInvocation } from '../src/sift.js';
+import {
+    engineEnv,
+    engineFailureMessage,
+    measureUnreadableReport,
+    siftArgs,
+    unreadableReportMessage,
+    type SiftInvocation,
+} from '../src/sift.js';
 
 const baseInvocation: SiftInvocation = {
     siftBin: 'sift',
@@ -308,4 +315,94 @@ test('engineFailureMessage: a SIGNAL is named as one, because that is what the c
     assert.match(message, /out-of-memory/);
     // Below 128 is not a signal and must not claim to be.
     assert.doesNotMatch(engineFailureMessage(5) ?? '', /signal/);
+});
+// --- the unreadable-report diagnostic -------------------------------------------------
+// The engine can exit 0 and still leave an artefact that is not JSON (a raw control byte
+// out of a CI log, serialized unescaped). These prove the DIAGNOSIS without spawning an
+// engine, the same way the engineFailureMessage tests above do.
+
+// Control bytes are built, never typed: a literal one in a source file is exactly the
+// hazard under test, and it does not survive tooling that assumes ASCII.
+const NUL = String.fromCharCode(0x00);
+const SOH = String.fromCharCode(0x01);
+const UNIT_SEP = String.fromCharCode(0x1f);
+
+test('measureUnreadableReport: counts the illegal control bytes and locates the FIRST', () => {
+    const raw = `{"where":["a${SOH}b","c${NUL}d"]}`;
+    const facts = measureUnreadableReport(raw);
+    assert.equal(facts.rawControlBytes, 2);
+    assert.equal(facts.firstControlByteOffset, raw.indexOf(SOH));
+    assert.equal(facts.reportBytes, Buffer.byteLength(raw, 'utf8'));
+});
+
+test('measureUnreadableReport: tab/LF/CR are STRUCTURAL whitespace and are not counted', () => {
+    // A prettified report is full of them legally; counting them would make every
+    // multi-line artefact look defective and destroy the diagnostic's meaning.
+    const facts = measureUnreadableReport('{\n\t"a": 1\r\n}');
+    assert.equal(facts.rawControlBytes, 0);
+    assert.equal(facts.firstControlByteOffset, null);
+});
+
+test('measureUnreadableReport: the size is BYTES, not characters — one unit, not two', () => {
+    // 'e' + combining acute is 2 chars / 3 bytes; an offset the user reaches with `dd`
+    // must be in the same unit as the length reported beside it.
+    const raw = `{"t":"é${UNIT_SEP}"}`;
+    const facts = measureUnreadableReport(raw);
+    assert.equal(facts.reportBytes, Buffer.byteLength(raw, 'utf8'));
+    assert.notEqual(facts.reportBytes, raw.length);
+    assert.equal(facts.rawControlBytes, 1);
+});
+
+test('unreadableReportMessage: blames the ENGINE, and says UNPARSEABLE rather than ABSENT', () => {
+    // The whole point of the guard: the old path reported an engine defect as the
+    // Action's own failure, and an existing-but-bad file as a missing one.
+    const message = unreadableReportMessage(
+        '/tmp/report.json',
+        0,
+        { reportBytes: 4096, rawControlBytes: 3, firstControlByteOffset: 1234 },
+        'Unexpected token',
+    );
+    assert.match(message, /ENGINE/);
+    assert.match(message, /EXISTS/);
+    assert.match(message, /not valid JSON/);
+    // The absence claim is what the old path made. Assert the NEGATION positively —
+    // "not a missing report" is the whole distinction, so a blanket ban on the phrase
+    // would forbid the very sentence that carries it.
+    assert.doesNotMatch(message, /no such file|ENOENT/i);
+    assert.match(message, /not a missing report/);
+    // Every number carries its unit and its coordinate.
+    assert.match(message, /4096 bytes/);
+    assert.match(message, /3 raw control byte\(s\)/);
+    assert.match(message, /byte offset 1234/);
+});
+
+test('unreadableReportMessage: the parser text is NEUTRALISED — no raw control byte escapes', () => {
+    // The parser quotes a fragment of the artefact, and the artefact is what we have just
+    // proven carries raw control bytes. This message lands in a job annotation.
+    const message = unreadableReportMessage(
+        '/tmp/report.json',
+        2,
+        { reportBytes: 10, rawControlBytes: 1, firstControlByteOffset: 5 },
+        `Unexpected token ${SOH} at 5`,
+    );
+    for (const character of message) {
+        assert.ok(
+            (character.codePointAt(0) ?? 0) >= 0x20,
+            `raw control byte leaked into the annotation: ${JSON.stringify(character)}`,
+        );
+    }
+    assert.match(message, /\\x01/);
+});
+
+test('unreadableReportMessage: zero control bytes does NOT claim a control byte', () => {
+    // A truncated or half-written report is a different defect; the diagnostic must not
+    // assert the control-byte cause when it did not measure one.
+    const message = unreadableReportMessage(
+        '/tmp/report.json',
+        0,
+        { reportBytes: 12, rawControlBytes: 0, firstControlByteOffset: null },
+        'Unexpected end of JSON input',
+    );
+    assert.match(message, /no raw control byte/);
+    assert.doesNotMatch(message, /byte offset null/);
 });
