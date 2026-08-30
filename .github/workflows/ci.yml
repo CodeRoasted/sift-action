@@ -99,9 +99,10 @@ jobs:
         # the pin being hand-edited.
         run: |
           set -euo pipefail
-          ver="$(grep -oE "SIFT_VERSION\s*=\s*['\"][^'\"]+['\"]" src/sift-version.ts \
-                 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
-          [ -n "$ver" ] || { echo "::error::could not parse SIFT_VERSION from src/sift-version.ts"; exit 1; }
+          # scripts/engine_pin.sh is the ONE parse of the pin, shared with wall-time.yml —
+          # which measures the engine a user receives, and would silently measure a
+          # different binary than this gate probes if it re-rolled its own regex.
+          ver="$(scripts/engine_pin.sh)"
           echo "engine pin: $ver"
           base="https://github.com/CodeRoasted/sift-action/releases/download/engine-v$ver"
           rc=0
@@ -142,7 +143,40 @@ jobs:
         # for why a hand-rebuilt vector would defeat the purpose.
         run: npm run preflight
 
+      # The three steps below bracket the dogfood run to record what it COST and what it was
+      # measured ON. GitHub already times every step; the half that was missing is the INPUT
+      # SIZE, and a duration without its input size cannot support — or refute — a public
+      # speed claim. With both, every push writes one parseable record into the run log, so
+      # the claim is re-derivable from history at any time instead of being re-measured by
+      # hand. (Measured 2026-08-30 over 152 runs: the step's own duration was already
+      # recoverable from the API, but no run in the history carried its input size.)
+      #
+      # ADVISORY, and structurally so: all three carry continue-on-error, they assert
+      # nothing, and they have no failure branch. This must never become a gate — CI wall
+      # time on a shared runner is noisy (measured p50 2.7 s / p90 3.8 s / max 22 s over 113
+      # instrumented runs), and a threshold over that noise would fail builds for reasons
+      # that have nothing to do with the change under test.
+      - name: Sift dogfood — record the input size (the half GitHub's own timing lacks)
+        id: sift-input
+        if: ${{ always() && github.event.pull_request.head.repo.fork != true }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          log="$GITHUB_WORKSPACE/build.log"
+          bytes=0; lines=0
+          if [ -f "$log" ]; then
+            bytes=$(stat -c%s "$log" || echo 0)
+            lines=$(wc -l < "$log" || echo 0)
+          fi
+          {
+            echo "bytes=$bytes"
+            echo "lines=$lines"
+            echo "started=$(date +%s.%N)"
+          } >> "$GITHUB_OUTPUT"
+          echo "sift-dogfood: input build.log = $bytes bytes, $lines lines"
+
       - name: Sift — structural diff of this run's typecheck/test log (advisory, dogfoods THIS code)
+        id: sift
         if: ${{ always() && github.event.pull_request.head.repo.fork != true }}
         continue-on-error: true    # advisory: a Sift error must NEVER fail this build
         uses: ./    # the local action (dist/ was just rebuilt above), NOT @v1 — so the PR's own code eats its dog food
@@ -151,6 +185,43 @@ jobs:
           fail-on: none
           commit-comment: regression
           changed-outcome: ${{ job.status }}   # the NATIVE token — the engine maps it four-class (ADR 0025)
+
+      - name: Sift dogfood — emit the wall-time record (advisory; never gates)
+        if: ${{ always() && github.event.pull_request.head.repo.fork != true }}
+        continue-on-error: true
+        env:
+          IN_BYTES: ${{ steps.sift-input.outputs.bytes }}
+          IN_LINES: ${{ steps.sift-input.outputs.lines }}
+          STARTED: ${{ steps.sift-input.outputs.started }}
+          TOTAL_CHANGES: ${{ steps.sift.outputs.total-changes }}
+          SIG_CHANGES: ${{ steps.sift.outputs.significant-changes }}
+          STATE: ${{ steps.sift.outputs.state }}
+        run: |
+          set -uo pipefail
+          elapsed=""
+          if [ -n "${STARTED:-}" ]; then
+            elapsed=$(echo "$(date +%s.%N) - $STARTED" | bc || echo "")
+          fi
+          # ONE line, fixed `SIFT-WALLTIME` prefix and `k=v` fields, on stdout: the run log is
+          # the durable surface that already spans the whole history, and a fixed prefix makes
+          # the whole history parseable in one sweep without a database to keep in sync.
+          # `significant=0` is recorded rather than hidden BECAUSE it disqualifies the row as a
+          # sample of the product's path: nothing was ranked or rendered. It is NOT a claim that
+          # such a row is faster — measured on the desk ladder 2026-08-30, a 0-significant pair
+          # ran within 1.08x of a 176-significant one at the same byte count, because wall time
+          # here tracks BYTES, not change counts. A reader must be able to EXCLUDE those rows,
+          # which requires seeing them.
+          echo "SIFT-WALLTIME runner=ubuntu-latest bytes=${IN_BYTES:-} lines=${IN_LINES:-} elapsed_s=${elapsed:-} total_changes=${TOTAL_CHANGES:-} significant=${SIG_CHANGES:-} state=${STATE:-}"
+          {
+            echo "### Sift dogfood — wall time (advisory)"
+            echo ""
+            echo "| input bytes | input lines | step wall time | total changes | significant | state |"
+            echo "|---:|---:|---:|---:|---:|:--|"
+            echo "| ${IN_BYTES:-?} | ${IN_LINES:-?} | ${elapsed:-?} s | ${TOTAL_CHANGES:-?} | ${SIG_CHANGES:-?} | ${STATE:-?} |"
+            echo ""
+            echo "_Advisory only. \`significant=0\` disqualifies the row as a throughput sample:"
+            echo "the ranking/rendering path is never entered, so the time is not comparable._"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   actionlint:
     runs-on: ubuntu-latest
