@@ -184,7 +184,7 @@ jobs:
           log: build.log
           fail-on: none
           commit-comment: regression
-          changed-outcome: ${{ job.status }}   # the NATIVE token — the engine maps it four-class (ADR 0025)
+          changed-outcome: ${{ job.status }}   # the NATIVE token — the engine maps it four-class (ADR-17.D5)
 
       - name: Sift dogfood — emit the wall-time record (advisory; never gates)
         if: ${{ always() && github.event.pull_request.head.repo.fork != true }}
