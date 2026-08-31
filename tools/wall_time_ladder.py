@@ -81,7 +81,18 @@ def runner_coordinate() -> dict:
     except OSError:
         pass
     # Present only on GitHub-hosted runners; absent at a desk, and the absence is the answer.
-    for var in ("ImageOS", "ImageVersion", "RUNNER_OS", "RUNNER_ARCH", "RUNNER_NAME"):
+    #
+    # `RUNNER_NAME` IS DELIBERATELY NOT COLLECTED, and this comment is the whole reason.
+    # This payload is written to `wall-time.json` and uploaded as an Actions artifact of a
+    # PUBLIC repository. Every other name here is a hardware or image COORDINATE, which is
+    # what makes a wall time falsifiable; `RUNNER_NAME` is an IDENTIFIER and answers no
+    # question the ladder asks — on a GitHub-hosted runner it is a scheduling label
+    # ("GitHub Actions 5"), and on a self-hosted runner it is the box's registered name.
+    # So it was worth nothing while `runs-on` said `ubuntu-latest`, and worth an internal
+    # machine name published to the world the day someone changed that line. Removing the
+    # field removes the coupling; a comment at `runs-on` would only have asked the next
+    # person to notice it.
+    for var in ("ImageOS", "ImageVersion", "RUNNER_OS", "RUNNER_ARCH"):
         if os.environ.get(var):
             coord[var] = os.environ[var]
     return coord

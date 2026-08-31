@@ -9,6 +9,12 @@
 # never reach our box, and the number we want is the one a stranger's CI produces — our
 # fleet's hardware is not what a claim about "your CI" may be measured on.
 #
+# `wall-time.json` below is uploaded as an artifact of this PUBLIC repo, so whatever the
+# ladder puts in it is published. The runner coordinate it attaches is hardware and image
+# only — `tools/wall_time_ladder.py` deliberately does not collect `RUNNER_NAME`, which is an
+# identifier rather than a coordinate and would have published this fleet's box name the day
+# the line above changed. Anything added to that payload is subject to the same reading.
+#
 # The engine under test is the PUBLISHED pin (scripts/engine_pin.sh -> the release asset),
 # not a build from source: a claim about what users get must be measured on what users get.
 name: Wall time (manual study)
