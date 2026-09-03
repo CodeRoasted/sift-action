@@ -116,12 +116,29 @@ function baselineSourceLabel(spec: BaselineSpec): string | undefined {
 // (`${XDG_CACHE_HOME:-~/.cache}/coderoast`) is the caller's one-line `actions/cache` step — see the
 // README explain example. (Deliberately NOT a bundled @actions/cache: it pulls a heavy SDK + extra
 // advisories into this fork-reachable Action; the maintained `actions/cache` action is the clean path.)
+// A TIMEOUT IS A PROVISIONING FAILURE AND LANDS WHERE EVERY OTHER ONE LANDS — the same
+// core.warning, never core.setFailed. That is the whole point of bounding this inside the
+// Action rather than around it: a `timeout-minutes:` in the consumer's workflow (this is a
+// `node24` JavaScript action, so it has no steps of its own to carry one) would kill the
+// step and mark the run FAILED — turning an opt-in, explicitly advisory narrative into a
+// hard build failure, which is strictly worse for the consumer than the hang it replaces.
+// An in-process bound is the only placement that can be caught and degraded.
 async function provisionExplain(siftBin: string): Promise<void> {
-    if (!(await runExplainSetup(siftBin))) {
+    const result = await runExplainSetup(siftBin);
+    if (result.ok) return;
+    if (result.timedOutAfterMs !== undefined) {
         core.warning(
-            'explain: model/server provisioning failed; emitting the deterministic report without a narrative.',
+            `explain: model/server provisioning (\`sift explain-setup\`, a ~2.4 GB download) ` +
+                `${result.detail}. The run CONTINUES: the deterministic report and the advisory gate ` +
+                `are unaffected — only the AI narrative is omitted. A cold download on a slow runner ` +
+                `is the usual cause; cache the model across runs with a one-line actions/cache step on ` +
+                `~/.cache/coderoast (see the README explain example).`,
         );
+        return;
     }
+    core.warning(
+        `explain: model/server provisioning ${result.detail}; emitting the deterministic report without a narrative.`,
+    );
 }
 
 // Machine-readable verdict — set on EVERY run (PR or push), before any comment decision, so a

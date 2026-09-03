@@ -247,6 +247,13 @@ standard step — the engine caches under `~/.cache/coderoast`:
 Without the cache step it still works — it just re-downloads the model each run. Leave `explain` unset
 (the default) for the lean diff-only path; the model is never downloaded unless you opt in.
 
+**Provisioning is time-bounded at 15 minutes.** It runs in your CI, so it is never allowed to stall
+there: the download has its own connect and stalled-transfer bounds, and the Action puts a wall-clock
+bound around the whole provisioning step on top of them, because a wedged process reports no exit code
+and would otherwise burn your minutes silently. Hitting the bound is treated exactly like every other
+provisioning failure — a **warning**, never a failed run: you get the full deterministic report and the
+same gate, just without the narrative. If you ever see it on a cold run, the cache step above is the fix.
+
 ## Platform & supply chain
 
 - **Runner:** linux x64 (`ubuntu-latest`) — **this Action** downloads the linux-x64
@@ -339,7 +346,7 @@ a local shell.
 | `log` | unless `target-job` | — | Path to the captured current-run log to diff. |
 | `sift-binary` | no | _(auto)_ | Override path to a `sift` binary. Default: download + sha256-verify the version-pinned `sift-linux-x64` release asset. |
 | `fail-on` | no | `none` | `none` \| `significant` \| `regression` — advisory gate (exit code only; the comment never says "blocked"). |
-| `explain` | no | `false` | `true` opts into an AI narrative header: the Action provisions a pinned, checksum-verified **local** model + server (no credential, fork-safe — nothing leaves the runner) and adds a short plain-English story. Advisory + fail-soft — never blocks or changes the gate. Adds a ~2.4 GB model download (cache it — see [Explain](#explain-opt-in-ai-narrative)) + a few seconds of CPU. |
+| `explain` | no | `false` | `true` opts into an AI narrative header: the Action provisions a pinned, checksum-verified **local** model + server (no credential, fork-safe — nothing leaves the runner) and adds a short plain-English story. Advisory + fail-soft — never blocks or changes the gate, and provisioning is bounded at 15 minutes so it cannot stall your run. Adds a ~2.4 GB model download (cache it — see [Explain](#explain-opt-in-ai-narrative)) + a few seconds of CPU. |
 | `explain-model` | no | _(pinned)_ | Advanced: override the model name passed to `sift --explain`. Leave unset for the auto-provisioned default. |
 | `baseline` | no | `auto` | Baseline **selection**: `auto` \| `branch=<name>` \| `artifact=<name>` (named baseline, repo-wide) \| `path=<file>` \| `none`. Malformed values fail the run — never a silent fallback. See [Choosing the baseline](#choosing-the-baseline--you-are-king). |
 | `baseline-name` | no | `sift-baseline-log` | Artifact name this run **publishes** its log under (and what `auto`/`branch=` resolvers look for). |

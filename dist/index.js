@@ -102063,6 +102063,7 @@ async function resolveSift(override, workDir) {
 
 // src/sift.ts
 var exec3 = __toESM(require_exec(), 1);
+import { spawn } from "node:child_process";
 import { promises as fs12 } from "fs";
 var SIFT_EXIT = {
   SUCCESS: 0,
@@ -102242,12 +102243,85 @@ async function runSift(invocation) {
     );
   }
 }
-async function runExplainSetup(siftBin) {
-  const exitCode = await exec3.exec(siftBin, ["explain-setup"], {
-    ignoreReturnCode: true,
-    env: engineEnv()
+var EXPLAIN_SETUP_TIMEOUT_MS = 15 * 60 * 1e3;
+var EXPLAIN_SETUP_KILL_GRACE_MS = 5e3;
+function describeBudget(ms) {
+  return ms >= 6e4 ? `${Math.round(ms / 6e4)}-minute` : `${(ms / 1e3).toFixed(1)}-second`;
+}
+function killExplainSetupGroup(child, signal) {
+  if (child.pid === void 0) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {
+    }
+  }
+}
+async function runExplainSetup(siftBin, timeoutMs = EXPLAIN_SETUP_TIMEOUT_MS) {
+  return new Promise((resolve2) => {
+    info(`[command]${siftBin} explain-setup`);
+    const child = spawn(siftBin, ["explain-setup"], {
+      env: engineEnv(),
+      detached: true,
+      // own process group — see killExplainSetupGroup
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const relay = {};
+    for (const signal of ["SIGINT", "SIGTERM"]) {
+      relay[signal] = () => {
+        killExplainSetupGroup(child, "SIGKILL");
+        process.exit(signal === "SIGINT" ? 130 : 143);
+      };
+      process.on(signal, relay[signal]);
+    }
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(bound);
+      for (const [signal, handler2] of Object.entries(relay)) {
+        process.removeListener(signal, handler2);
+      }
+      resolve2(result);
+    };
+    child.stdout?.on("data", (b) => process.stdout.write(b));
+    child.stderr?.on("data", (b) => process.stderr.write(b));
+    const bound = setTimeout(() => {
+      killExplainSetupGroup(child, "SIGTERM");
+      const escalate = setTimeout(
+        () => killExplainSetupGroup(child, "SIGKILL"),
+        EXPLAIN_SETUP_KILL_GRACE_MS
+      );
+      escalate.unref();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      child.removeAllListeners();
+      child.on("error", () => {
+      });
+      child.unref();
+      finish({
+        ok: false,
+        timedOutAfterMs: timeoutMs,
+        detail: `exceeded its ${describeBudget(timeoutMs)} bound and was terminated`
+      });
+    }, timeoutMs);
+    child.on(
+      "error",
+      (error2) => finish({ ok: false, detail: `could not be started (${error2.message})` })
+    );
+    child.on("close", (code, signal) => {
+      if (code === 0) {
+        finish({ ok: true, detail: "ok" });
+        return;
+      }
+      finish({
+        ok: false,
+        detail: signal !== null ? `was killed by ${signal}` : `exited with code ${code}`
+      });
+    });
   });
-  return exitCode === 0;
 }
 
 // src/main.ts
@@ -102283,11 +102357,17 @@ function baselineSourceLabel(spec) {
   }
 }
 async function provisionExplain(siftBin) {
-  if (!await runExplainSetup(siftBin)) {
+  const result = await runExplainSetup(siftBin);
+  if (result.ok) return;
+  if (result.timedOutAfterMs !== void 0) {
     warning(
-      "explain: model/server provisioning failed; emitting the deterministic report without a narrative."
+      `explain: model/server provisioning (\`sift explain-setup\`, a ~2.4 GB download) ${result.detail}. The run CONTINUES: the deterministic report and the advisory gate are unaffected \u2014 only the AI narrative is omitted. A cold download on a slow runner is the usual cause; cache the model across runs with a one-line actions/cache step on ~/.cache/coderoast (see the README explain example).`
     );
+    return;
   }
+  warning(
+    `explain: model/server provisioning ${result.detail}; emitting the deterministic report without a narrative.`
+  );
 }
 function setSiftOutputs(state3, report) {
   setOutput("state", state3);

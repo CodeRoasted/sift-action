@@ -92,7 +92,10 @@ inputs:
       ~2.4 GB model download (cache it across runs with a one-line `actions/cache` step on
       `~/.cache/coderoast` — see the README explain example) + a few seconds of CPU inference; the
       deterministic report is ALWAYS produced regardless (the narrative is advisory and fail-soft — never
-      blocks or changes the gate). Cloud BYO is CLI-only and never via the Action.
+      blocks or changes the gate). Provisioning is bounded at 15 minutes of wall clock: a wedged download
+      reports no exit code, so without a bound it would stall your job silently. Hitting the bound is a
+      WARNING like any other provisioning failure, never a failed run. Cloud BYO is CLI-only and never
+      via the Action.
     required: false
     default: 'false'
   explain-model:

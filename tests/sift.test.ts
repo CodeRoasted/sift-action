@@ -6,10 +6,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { promises as fsp } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import {
     engineEnv,
     engineFailureMessage,
     measureUnreadableReport,
+    runExplainSetup,
     siftArgs,
     unreadableReportMessage,
     type SiftInvocation,
@@ -405,4 +410,123 @@ test('unreadableReportMessage: zero control bytes does NOT claim a control byte'
     );
     assert.match(message, /no raw control byte/);
     assert.doesNotMatch(message, /byte offset null/);
+});
+
+// ── The Action-level bound on `sift explain-setup` ──────────────────────────
+//
+// The engine's libcurl bound stops a stalled TRANSFER; it cannot stop a wedged PROCESS,
+// which produces no exit code and so never reaches the fail-soft degrade. These exercise
+// the bound itself against real child processes — a timeout path that has never executed
+// is not a timeout path. Fake engines are shell scripts because runExplainSetup always
+// appends the literal `explain-setup` argument; the scripts ignore it.
+
+const fakeEngines: string[] = [];
+
+async function fakeEngine(name: string, body: string): Promise<string> {
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'sift-explain-setup-'));
+    const file = path.join(dir, name);
+    await fsp.writeFile(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    fakeEngines.push(dir);
+    return file;
+}
+
+test.after(async () => {
+    for (const dir of fakeEngines) await fsp.rm(dir, { recursive: true, force: true });
+});
+
+test('runExplainSetup: a hanging engine is BOUNDED — it resolves, and says it timed out', async () => {
+    // `sleep 600` with no output is the hang the libcurl bound cannot see: alive, silent,
+    // producing no exit code. Without the bound this call never resolves.
+    const bin = await fakeEngine('hang', 'sleep 600');
+    const started = Date.now();
+    const result = await runExplainSetup(bin, 300);
+    const elapsed = Date.now() - started;
+
+    assert.equal(result.ok, false, 'a bounded hang must not read as success');
+    assert.equal(result.timedOutAfterMs, 300, 'the caller branches on this to name the cause');
+    assert.match(result.detail, /bound and was terminated/);
+    assert.ok(elapsed < 10_000, `must resolve at the bound, not wait for the child (took ${elapsed} ms)`);
+});
+
+test('runExplainSetup: the bound RESOLVES rather than throwing — the fail-soft path needs a value', async () => {
+    // If the timeout rejected, provisionExplain's `await` would propagate and fail the
+    // Action: the exact hard-failure outcome the in-process bound exists to avoid.
+    const bin = await fakeEngine('hang2', 'sleep 600');
+    await assert.doesNotReject(() => runExplainSetup(bin, 200));
+});
+
+test('runExplainSetup: a child that ignores SIGTERM is still bounded (escalation, not patience)', async () => {
+    const bin = await fakeEngine('stubborn', 'trap "" TERM\nsleep 600');
+    const started = Date.now();
+    const result = await runExplainSetup(bin, 300);
+    assert.equal(result.ok, false);
+    assert.equal(result.timedOutAfterMs, 300);
+    assert.ok(Date.now() - started < 10_000, 'the bound must not depend on the child cooperating');
+});
+
+test('runExplainSetup: a successful engine returns ok with no timeout marker', async () => {
+    const bin = await fakeEngine('ok', 'exit 0');
+    const result = await runExplainSetup(bin, 30_000);
+    assert.equal(result.ok, true);
+    assert.equal(result.timedOutAfterMs, undefined, 'a clean run must not look like a timeout');
+});
+
+test('runExplainSetup: a non-zero exit degrades and names the code, not the bound', async () => {
+    const bin = await fakeEngine('fail', 'exit 3');
+    const result = await runExplainSetup(bin, 30_000);
+    assert.equal(result.ok, false);
+    assert.equal(result.timedOutAfterMs, undefined);
+    assert.match(result.detail, /exited with code 3/);
+});
+
+test('runExplainSetup: a missing engine binary degrades, never throws', async () => {
+    const result = await runExplainSetup('/nonexistent/sift-binary-that-is-not-there', 30_000);
+    assert.equal(result.ok, false);
+    assert.equal(result.timedOutAfterMs, undefined);
+    assert.match(result.detail, /could not be started/);
+});
+
+test('runExplainSetup: the engine child gets the SCRUBBED env (contract §6.1 item 1) — no GITHUB_TOKEN', async () => {
+    // The rewrite from exec.exec to spawn had to preserve toolrunner's `result.env =
+    // options.env`, i.e. env REPLACEMENT rather than merge. Asserted at the child, not by
+    // reading the source: a merge would leak the token into the process that parses
+    // attacker-controlled log content on a fork PR.
+    const previous = process.env.GITHUB_TOKEN;
+    process.env.GITHUB_TOKEN = 'leak-canary-value';
+    try {
+        const out = await fsp.mkdtemp(path.join(os.tmpdir(), 'sift-env-'));
+        const probe = path.join(out, 'env.txt');
+        const bin = await fakeEngine('envprobe', `printenv > ${probe}\nexit 0`);
+        const result = await runExplainSetup(bin, 30_000);
+        assert.equal(result.ok, true);
+        const seen = await fsp.readFile(probe, 'utf8');
+        assert.ok(!seen.includes('leak-canary-value'), 'GITHUB_TOKEN must not reach the engine');
+        assert.match(seen, /^LC_ALL=C$/m, 'the deterministic locale scrub must still be applied');
+        await fsp.rm(out, { recursive: true, force: true });
+    } finally {
+        if (previous === undefined) delete process.env.GITHUB_TOKEN;
+        else process.env.GITHUB_TOKEN = previous;
+    }
+});
+
+test('runExplainSetup: the cancellation relay is REMOVED on settle — no listener leak', async () => {
+    // The relay exists only while the detached child is alive. If it outlived the call,
+    // every subsequent SIGINT/SIGTERM in the run would hit a handler that calls
+    // process.exit() on behalf of a child that is long gone.
+    const before = { int: process.listenerCount('SIGINT'), term: process.listenerCount('SIGTERM') };
+
+    const ok = await fakeEngine('relay-ok', 'exit 0');
+    await runExplainSetup(ok, 30_000);
+    assert.equal(process.listenerCount('SIGINT'), before.int, 'SIGINT handler leaked after a clean run');
+    assert.equal(process.listenerCount('SIGTERM'), before.term, 'SIGTERM handler leaked after a clean run');
+
+    const hang = await fakeEngine('relay-hang', 'sleep 600');
+    await runExplainSetup(hang, 200);
+    assert.equal(process.listenerCount('SIGINT'), before.int, 'SIGINT handler leaked after a timeout');
+    assert.equal(process.listenerCount('SIGTERM'), before.term, 'SIGTERM handler leaked after a timeout');
+
+    const bad = await fakeEngine('relay-fail', 'exit 7');
+    await runExplainSetup(bad, 30_000);
+    assert.equal(process.listenerCount('SIGINT'), before.int, 'SIGINT handler leaked after a failure');
+    assert.equal(process.listenerCount('SIGTERM'), before.term, 'SIGTERM handler leaked after a failure');
 });
