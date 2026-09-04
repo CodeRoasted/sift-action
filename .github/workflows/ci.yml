@@ -76,6 +76,14 @@ jobs:
         # `runs: main: dist/index.js` — GitHub executes the COMMITTED bundle, not
         # src/. A stale dist silently ships old behaviour, so re-bundle and fail if
         # the committed dist differs. The #1 JS-action footgun; this gate kills it.
+        #
+        # THERE IS NO EXEMPT CLASS OF src/ EDIT, AND "comments only" IS THE ONE THAT
+        # LOOKS EXEMPT. esbuild drops comments everywhere EXCEPT in array/object-literal
+        # element position, which it preserves verbatim into the bundle. Measured
+        # 2026-08-12: a citation rewrite in the argument array built by `siftArgs()`
+        # (src/sift.ts) reached dist/index.js and held main red for five consecutive
+        # pushes over three days, because a comment-only diff was read as owing no
+        # repackage. Regenerate and look; never reason about whether a change "counts".
         run: |
           npm run package
           if ! git diff --quiet --exit-code dist/; then
