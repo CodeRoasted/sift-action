@@ -98,6 +98,15 @@ test('an unsupported platform fails with an actionable message, never a wrong-ar
                          'must carry a remedy, not just a refusal');
             assert.doesNotMatch(error.message, /Windows assets are a fast-follow/,
                                 'Windows IS published — this claim sent users away from a real binary');
+            // macOS delivery was RULED OUT by the Founder on 2026-09-04: the CLI ships on
+            // Linux and Windows only. The platform spoofed above IS darwin, so this arm sits
+            // on exactly the reader the ruling is about. Asserted in BOTH directions — the
+            // promise must be gone AND the status must be stated, because silently dropping
+            // "fast-follow" would leave a macOS reader with a refusal and no disposition.
+            assert.doesNotMatch(error.message, /macOS[^.]*fast-follow/i,
+                                'macOS is not a delivery target — no asset may be promised for it');
+            assert.match(error.message, /macOS is not a supported platform/,
+                         'a macOS reader must be told the status, not just refused');
             assert.doesNotMatch(error.message, /bibles\/|technical_docs\//,
                                 'a public runtime string must not cite a private superproject path');
             return true;

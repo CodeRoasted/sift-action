@@ -102043,7 +102043,7 @@ async function resolveSift(override, workDir) {
   }
   if (process.platform !== "linux" || process.arch !== "x64") {
     throw new Error(
-      `This Action downloads the linux-x64 engine asset; this runner is ${process.platform}/${process.arch}. Run the Sift step on a linux x64 runner, or set 'sift-binary:' to a path you provide. On Windows outside Actions, install the published standalone CLI (sift-windows-x64.exe) with install.ps1 \u2014 see the README. arm and macOS assets are a fast-follow.`
+      `This Action downloads the linux-x64 engine asset; this runner is ${process.platform}/${process.arch}. Run the Sift step on a linux x64 runner, or set 'sift-binary:' to a path you provide. On Windows outside Actions, install the published standalone CLI (sift-windows-x64.exe) with install.ps1 \u2014 see the README. arm assets are a fast-follow; macOS is not a supported platform.`
     );
   }
   const base = `https://github.com/${RELEASE_REPO}/releases/download/engine-v${SIFT_VERSION}`;

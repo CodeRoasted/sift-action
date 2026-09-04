@@ -261,7 +261,8 @@ same gate, just without the narrative. If you ever see it on a cold run, the cac
   rather than running a wrong-arch binary. That is a statement about the Action, not
   about what the engine publishes: **`sift-windows-x64.exe` is published** on every
   `engine-v*` release and `install.ps1` installs it as a standalone CLI (see
-  [Other CI / Jenkins](#other-ci--jenkins)). **arm and macOS assets are a fast-follow.**
+  [Other CI / Jenkins](#other-ci--jenkins)). **Linux x64 and Windows x64 are the delivered
+  platforms; arm is a fast-follow. macOS is not a delivery target.**
 - **Binary distribution:** the Action downloads the **version-pinned**
   `sift-linux-x64` release asset and **verifies its sha256** before executing it —
   a checksum mismatch is fatal (the asset is a supply-chain surface: the Action
@@ -306,7 +307,7 @@ binary. With no argument you get the version the installer is pinned to, so the 
 run months apart installs the same bytes; `latest` is available but must be **asked for**:
 
 ```sh
-# Linux / macOS shell (macOS asset is a fast-follow):
+# Linux (sh) — the published CLI asset is linux-x64:
 curl -fsSL https://raw.githubusercontent.com/CodeRoasted/sift-action/main/install.sh | sh
 # a different version:    ...install.sh | sh -s -- <X.Y.Z>
 # the moving target:      ...install.sh | sh -s -- latest      # not reproducible, and it says so

@@ -16,8 +16,8 @@
 // ubuntu-latest). On any other platform we fail with an actionable message rather
 // than download a wrong-arch binary. That is THIS ACTION's scope, not the engine's:
 // sift-windows-x64.exe is published on every engine-v* release — see the correction
-// at resolveSift() below, which this line contradicted. arm and macOS are the
-// fast-follow.
+// at resolveSift() below, which this line contradicted. arm is the fast-follow;
+// macOS is NOT a delivery target -- Linux and Windows are the shipped platforms.
 
 import * as core from '@actions/core';
 import * as exec from '@actions/exec';
@@ -88,7 +88,7 @@ export async function resolveSift(override: string, workDir: string): Promise<st
                 `runner, or set 'sift-binary:' to a path you provide. ` +
                 `On Windows outside Actions, install the published standalone CLI ` +
                 `(sift-windows-x64.exe) with install.ps1 — see the README. ` +
-                `arm and macOS assets are a fast-follow.`,
+                `arm assets are a fast-follow; macOS is not a supported platform.`,
         );
     }
 

@@ -14,7 +14,8 @@
 # never "latest").
 #
 # Mirrors the GitHub Action's resolve-sift.ts exactly: same engine-v<X.Y.Z> release, same asset,
-# same sha256-fatal check. linux-x64 only today (arm/macOS are a fast-follow); refuses anything else
+# same sha256-fatal check. linux-x64 only here (arm is a fast-follow; macOS is not a delivery
+# target -- Linux and Windows are the shipped platforms); refuses anything else
 # rather than install a wrong-arch binary. The download is public — no token needed.
 set -eu
 
@@ -33,7 +34,7 @@ need curl; need sha256sum; need awk
 # 1. platform — only linux-x64 is published today.
 os="$(uname -s 2>/dev/null || echo unknown)"
 arch="$(uname -m 2>/dev/null || echo unknown)"
-[ "$os" = "Linux" ] || err "only Linux is published today (got '$os') — use the GitHub Action, or build from source."
+[ "$os" = "Linux" ] || err "this installer publishes linux-x64 only (got '$os'). On Windows use install.ps1, which installs the published sift-windows-x64.exe. macOS is not a supported platform."
 case "$arch" in
     x86_64 | amd64) ;;
     *) err "only x86_64 is published today (got '$arch')." ;;
