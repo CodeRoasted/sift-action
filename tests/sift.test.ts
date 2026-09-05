@@ -40,7 +40,7 @@ test('siftArgs: outcome flags are ABSENT when no token — the engine ladder mus
     assert.ok(!args.includes('--changed-outcome'));
 });
 
-test('siftArgs: native tokens forward VERBATIM (no adapter-side translation — SRC-SP-2)', () => {
+test('siftArgs: native tokens forward VERBATIM (no adapter-side translation — ADR-17.D5)', () => {
     const args = siftArgs({ ...baseInvocation, baselineOutcome: 'success', changedOutcome: 'cancelled' });
     const b = args.indexOf('--baseline-outcome');
     const c = args.indexOf('--changed-outcome');

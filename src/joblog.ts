@@ -98,7 +98,7 @@ export interface TargetJobLog {
      * The target job's conclusion ('success' | 'failure' | 'cancelled' | …) — GitHub's
      * NATIVE verdict token. `changed-outcome: auto` forwards it verbatim to the engine
      * (`--changed-outcome`), which maps it through the GitHub semantic package
-     * (ADR-17.D5) — the adapter never translates (SRC-SP-2).
+     * (ADR-17.D5) — the adapter never translates.
      */
     conclusion: string | null;
 }

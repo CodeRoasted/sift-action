@@ -122,8 +122,8 @@ export const CONTEXT_VERSION = '0.2.0';
 export const BASELINE_ARTIFACT_NAME = 'sift-baseline-log';
 
 // The baseline artifact's stamped provenance sidecar (ADR-17.D5): the publishing
-// run stamps its NATIVE CI verdict token (verbatim — the adapter never translates,
-// SRC-SP-2) so the next run can forward it as `--baseline-outcome`. Absent sidecar /
+// run stamps its NATIVE CI verdict token (verbatim — the adapter never translates) so
+// the next run can forward it as `--baseline-outcome`. Absent sidecar /
 // empty token ⇒ no flag ⇒ the engine's SRC-D-OUT-RUN-1 ladder falls to the console
 // tail, then Unknown — absence is the designed degenerate path, never an error.
 export const BASELINE_META_FILE = 'sift-baseline-meta.json';
