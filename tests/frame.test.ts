@@ -333,7 +333,7 @@ test('④ two independent axes, at two altitudes: heat on the SECTION, green cir
     assert.equal((out.match(new RegExp(recSquare, 'g')) ?? []).length, 1, out);
 });
 
-// WHERE attribution (SRC-D-WHERE-7): the functional location renders as inline code
+// WHERE attribution (LSRC-23): the functional location renders as inline code
 // after the summary, composing with the badge. Engine CONTENT → escapeInline.
 function whereReport(where: string): SiftReport {
     const row: RankedChange = {

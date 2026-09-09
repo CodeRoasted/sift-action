@@ -155,7 +155,7 @@ function groupBySeverity(rows: readonly RankedChange[]): SeveritySection[] {
 function renderRow(index: number, row: RankedChange): string {
     const glyph = polarityGlyph(row.polarity);
     const badge = row.polarity ? `${glyph ? `${glyph} ` : ''}**[${row.polarity}]** ` : '';
-    // WHERE attribution (SRC-D-WHERE-7 tier 1): the functional location after the summary,
+    // WHERE attribution (LSRC-23 tier 1): the functional location after the summary,
     // as inline code. `where` is engine CONTENT (canon-extracted, fork-attacker-reachable)
     // → escapeInline; the surrounding backticks are frame-controlled. Absent ⇒ nothing.
     const where = row.where ? ` · in \`${escapeInline(row.where)}\`` : '';
