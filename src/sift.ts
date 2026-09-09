@@ -23,7 +23,7 @@ export interface SiftInvocation {
     // The runs' NATIVE CI verdict tokens, verbatim (ADR-17.D5) — forwarded as
     // `--baseline-outcome` / `--changed-outcome`; the ENGINE's dialect package maps
     // them — the adapter never translates. Empty ⇒ flag omitted ⇒ the engine's
-    // SRC-D-OUT-RUN-1 ladder falls to the console tail, then Unknown.
+    // run-outcome ladder (ADR-17.D5) falls to the console tail, then Unknown.
     baselineOutcome: string;
     changedOutcome: string;
     failOn: FailOn;
