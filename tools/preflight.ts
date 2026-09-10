@@ -34,7 +34,7 @@
 //
 // THE BOUNDARY THAT REMAINS, stated so the next reader does not re-derive the wrong lesson: the
 // widenings cover TWO coordinates — the verdict pair (four cells) and the `--changed-job-graph`
-// declaration (three cells, section A′ — the FOURTH instance of this class, named by DN-37.D18
+// declaration (three cells, section A′ — the FOURTH instance of this class, named by ADR-22.D13
 // before it could become the fifth discovery). Every other conditional in `siftArgs` is still
 // exercised in a single combination, and a mutation aimed at one of those would still green here.
 // This file's sentence is *"the pinned engine ACCEPTS what the Action emits"*;
@@ -87,7 +87,7 @@ const VERDICT_CELLS: ReadonlyArray<{ name: string; baselineOutcome: string; chan
 // diagnostic naming the missing coordinate and enumerating the composed vocabularies ("error:
 // --baseline-outcome / --changed-outcome need --outcome-vocabulary. … the composed vocabularies
 // are: \"github\", \"gitlab\", \"jenkins\", \"test_frameworks\""). A usage error, not a SIGABRT:
-// the CLI refuses before constructing the config (DN-37.D18 — fail-closed is a property of the
+// the CLI refuses before constructing the config (ADR-22.D13 — fail-closed is a property of the
 // OUTCOME, and a CLI has an exit code and must use it). This probe went red on exactly this bump
 // and the declaration moved with the pin, which is this constant doing its one job.
 //
@@ -193,7 +193,7 @@ async function main(): Promise<void> {
     }
 
     // ── A′) the `--changed-job-graph` coordinate, in its three ship shapes ───────────────────
-    // The graph is the wire jobgraph.ts produces (DN-37.D18), and each shape below is one the
+    // The graph is the wire jobgraph.ts produces (ADR-22.D13), and each shape below is one the
     // Action REALLY emits — not a synthetic corner. The verdict cells above stay graph-FREE
     // because acquisition-absent is itself a ship shape (a denied `contents: read`, a missing
     // GITHUB_WORKFLOW_REF), so both halves of the conditional stay driven on the real engine.
@@ -218,7 +218,7 @@ async function main(): Promise<void> {
         {
             // `log:` sourcing with no outcome wiring: the graph's conclusions are the ONLY
             // declared verdicts, so the vocabulary rides on them alone — the exact pairing branch
-            // DN-37.D18 added, driven with no run token to mask it.
+            // ADR-22.D13 added, driven with no run token to mask it.
             name: 'graph conclusions only, no run tokens',
             jobs: [{ key: 'build', display: 'build', needs: ['deps'], conclusion: 'failure' },
                    { key: 'deps', display: 'deps', needs: [], conclusion: '' }],

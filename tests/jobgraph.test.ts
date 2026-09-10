@@ -1,4 +1,4 @@
-// The Action-side producer of the DN-37.D18 wire (jobgraph.ts). These arms pin the pure halves —
+// The Action-side producer of the ADR-22.D13 wire (jobgraph.ts). These arms pin the pure halves —
 // the YAML → declared-jobs parse and the declared ⋈ rendered join — against the contract the
 // engine consumes. The acquisition rules mirror the crawler's producer (the same wire, a second
 // transport), so every refusal here is a contract clause, not a style choice: verbatim `name:`,

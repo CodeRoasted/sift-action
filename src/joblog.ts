@@ -115,7 +115,7 @@ export async function fetchTargetJobLog(params: FetchJobLogParams): Promise<Targ
         run_id: runId,
         per_page: 100,
     });
-    // Exact name first; a reusable-workflow job renders under the rendering grammar DN-37.D14
+    // Exact name first; a reusable-workflow job renders under the rendering grammar ADR-22.D13
     // states (cited, never restated — tests/joblog.test.ts carries its mirror witness). The query
     // is this consumer's own: the user names the INNER job and the caller prefix is unknown here,
     // so the fallback matches by unique SUFFIX.

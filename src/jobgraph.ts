@@ -1,4 +1,4 @@
-// The CHANGED run's declared `needs:` job graph — this Action's producer of the DN-37.D18
+// The CHANGED run's declared `needs:` job graph — this Action's producer of the ADR-22.D13
 // wire (`--changed-job-graph`, a JSON file behind a flag). The engine folds a required-check
 // aggregator row into the member that actually failed, but only from a DECLARED graph: `needs:`
 // is a static list in the workflow file that cannot carry expressions, which is what makes the
@@ -41,7 +41,7 @@ export interface RenderedJob {
     conclusion: string;
 }
 
-// The DN-37.D18 wire entry. ALL FOUR FIELDS ALWAYS TRAVEL — `key` and `display` are required by
+// The ADR-22.D13 wire entry. ALL FOUR FIELDS ALWAYS TRAVEL — `key` and `display` are required by
 // the engine and never defaulted from each other (a graph keyed on the wrong coordinate folds
 // nothing and reads exactly like a clean run); empty strings are first-class statements, not
 // omissions.
@@ -52,7 +52,7 @@ export interface DeclaredJobWire {
     conclusion: string;
 }
 
-// The reusable-workflow rendering separator (DN-37.D14 — cited, never restated; the grammar's
+// The reusable-workflow rendering separator (ADR-22.D13 — cited, never restated; the grammar's
 // mirror witness lives in tests/joblog.test.ts).
 const REUSABLE_SEPARATOR = ' / ';
 
@@ -147,9 +147,9 @@ export function joinDeclaredJobs(
         //
         // ⚠ A CONCLUSION IS DECLARED FOR EXACTLY ONE RENDERED JOB, OR NOT AT ALL. When a declared
         // job fans out, GitHub emits N conclusions and NO row for the caller; rolling those N into
-        // one would make us the author of a verdict the platform did not state (DN-37.D16 — the
+        // one would make us the author of a verdict the platform did not state (ADR-20.D23 — the
         // refusal stands; the fan-out's verdicts travel below at the grain the platform declared
-        // them). Empty is NOT DECLARED (DN-32.D7) — a third state, and the honest one.
+        // them). Empty is NOT DECLARED (ADR-22.D10) — a third state, and the honest one.
         joined.push({
             key: job.key,
             display: members.length > 0 ? anchor : '',

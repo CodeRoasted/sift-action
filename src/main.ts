@@ -336,7 +336,7 @@ async function run(): Promise<void> {
         if (explain) {
             await provisionExplain(siftBin);
         }
-        // The CHANGED run's declared `needs:` job graph (jobgraph.ts — the DN-37.D18 wire), so the
+        // The CHANGED run's declared `needs:` job graph (jobgraph.ts — the ADR-22.D13 wire), so the
         // engine can fold a required-check aggregator row into the member that actually failed.
         // Fail-soft: acquisition failure ⇒ null ⇒ no flag ⇒ the fold is inert and the run is
         // untouched (needs `contents: read`; the log line names it when denied).

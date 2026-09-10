@@ -34,7 +34,7 @@ export interface SiftInvocation {
     // deterministic report + the gate exit code untouched. No credential — the Action never carries one.
     explain?: boolean;
     explainModel?: string; // advanced override; default = the auto-provisioned pinned model
-    // The CHANGED run's declared `needs:` job graph (DN-37.D18 — a JSON file behind
+    // The CHANGED run's declared `needs:` job graph (ADR-22.D13 — a JSON file behind
     // `--changed-job-graph`), produced by jobgraph.ts. ABSENT (undefined) ⇒ no flag ⇒ the fold is
     // inert; a present-but-empty `jobs` array declares a workflow with zero jobs — different facts,
     // and the engine acts on the difference. There is deliberately no baseline half: the fold
@@ -275,7 +275,7 @@ export function siftArgs(invocation: SiftInvocation): string[] {
         '--channel',
         'annotated',
         // ADR-14.D9 — the transport is DECLARED, symmetrically, and `none` is the honest answer
-        // for this stream: DN-32.D6 established that what this Action diffs is `build.log`, raw
+        // for this stream: ADR-22.D10 established that what this Action diffs is `build.log`, raw
         // build output with no delivery prefix to unwind.
         //
         // `--transport` sets BOTH sides from one token, which is the point: deduction is
@@ -294,7 +294,7 @@ export function siftArgs(invocation: SiftInvocation): string[] {
         '--transport',
         'none',
     ];
-    // DN-32.D6 — a caller-declared verdict is a PAIR: the native token AND the vocabulary that
+    // ADR-22.D10 — a caller-declared verdict is a PAIR: the native token AND the vocabulary that
     // interprets it. Unconditional and not an input, for the same reason as `--channel` above: it
     // is a fact about WHO SUPPLIES the verdict — this Action runs on GitHub Actions and forwards
     // GitHub's own `conclusion` / `job.status` — never a fact about the log's bytes.
@@ -309,7 +309,7 @@ export function siftArgs(invocation: SiftInvocation): string[] {
     //
     // Sent whenever ANY declared verdict is present — a run token on either side, or a job
     // conclusion inside the declared graph, which the engine interprets through this SAME
-    // vocabulary (DN-37.D18: same declarer, same run; a second vocabulary field would be a second
+    // vocabulary (ADR-22.D13: same declarer, same run; a second vocabulary field would be a second
     // enumeration of one concept). Without it a run token resolves against the stream's dialect,
     // which a raw build log does not have — the token then resolves to nothing and every rule that
     // reads the verdict silently does not apply — and a graph conclusion is REFUSED outright: the
@@ -326,7 +326,7 @@ export function siftArgs(invocation: SiftInvocation): string[] {
     if (invocation.changedOutcome) {
         args.push('--changed-outcome', invocation.changedOutcome);
     }
-    // DN-37.D18 — the declared `needs:` graph rides as a FILE: `needs` is genuinely nested, and
+    // ADR-22.D13 — the declared `needs:` graph rides as a FILE: `needs` is genuinely nested, and
     // flat flags cannot carry a nesting without inventing a separator convention JSON already
     // spells. Present ⇒ the flag names the path runSift() writes; absent ⇒ no flag, fold inert.
     if (invocation.changedJobGraph) {

@@ -117,7 +117,7 @@ test('fetchTargetJobLog: exact name match, completed job, cleaned log + conclusi
 // was satisfied by matching the WRONG row, and by a lookup that ignored the name entirely. The
 // property it names was never false; it was never checked either.
 //
-// Repaired to the standard the DN-37.D14 mirror below sets: the log is keyed by id, and the two
+// Repaired to the standard the ADR-22.D13 mirror below sets: the log is keyed by id, and the two
 // candidate rows declare OPPOSITE conclusions, so a wrong resolution fails on two independent
 // axes at once. Verified by mutation — inverting the lookup's precedence (rendering before exact)
 // leaves the OLD form of this arm green and reds this one.
@@ -170,10 +170,10 @@ test('fetchTargetJobLog: missing, ambiguous, and not-completed jobs all THROW wi
     );
 });
 
-// ── DN-37.D14 — the RENDERING GRAMMAR, mirrored ──────────────────────────────
+// ── ADR-22.D13 — the RENDERING GRAMMAR, mirrored ──────────────────────────────
 //
 // A reusable-workflow job renders as `"<caller job> / <inner name>"`. That grammar is
-// stated ONCE (DN-37.D14) and consumed here and in the engine, and the two consumers
+// stated ONCE (ADR-22.D13) and consumed here and in the engine, and the two consumers
 // cannot share a literal: this repo is PUBLIC, the engine repo is PRIVATE, and the only
 // artifact they both hold is the published binary — which carries no source text. Literal
 // single-sourcing was costed and is unreachable.
@@ -225,7 +225,7 @@ function fanOutParams(jobName: string): FetchJobLogParams {
     };
 }
 
-test('DN-37.D14 mirror: an inner name resolves through the "<caller> / <inner>" rendering, and it is THAT job', async () => {
+test('ADR-22.D13 mirror: an inner name resolves through the "<caller> / <inner>" rendering, and it is THAT job', async () => {
     const out = await fetchTargetJobLog(fanOutParams('cargo shear'));
     // Identity, twice, on two independent axes. `rust-ci / Format` is the sibling under the
     // same anchor and declares the OPPOSITE conclusion, so a wrong pick cannot pass both.
@@ -233,7 +233,7 @@ test('DN-37.D14 mirror: an inner name resolves through the "<caller> / <inner>" 
     assert.equal(out.conclusion, 'failure');
 });
 
-test('DN-37.D14 mirror: the full rendering resolves exactly, and the separator is load-bearing', async () => {
+test('ADR-22.D13 mirror: the full rendering resolves exactly, and the separator is load-bearing', async () => {
     // The exact-name path takes precedence and lands on the same row — the anchor's own
     // rendering is a legal name in its own right.
     const exact = await fetchTargetJobLog(fanOutParams('rust-ci / Format'));

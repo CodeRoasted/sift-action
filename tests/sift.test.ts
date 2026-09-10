@@ -48,9 +48,9 @@ test('siftArgs: native tokens forward VERBATIM (no adapter-side translation — 
     assert.ok(c >= 0 && args[c + 1] === 'cancelled', 'changed token must ride verbatim (never folded to red)');
 });
 
-// A caller-declared verdict is a PAIR (DN-32.D6): the native token AND the vocabulary that
+// A caller-declared verdict is a PAIR (ADR-22.D10): the native token AND the vocabulary that
 // interprets it. This arm pins the BICONDITIONAL — vocabulary present iff a verdict is declared —
-// across all four run-token cells (the graph coordinate, the pair's third input since DN-37.D18,
+// across all four run-token cells (the graph coordinate, the pair's third input since ADR-22.D13,
 // has its own arms below), and it exists because the cost of breaking it is a hard failure on
 // EVERY consumer run.
 //
@@ -128,7 +128,7 @@ test('siftArgs: --channel=annotated is ALWAYS declared — this Action fetches t
     assert.equal(args[idx + 1], 'annotated', 'the Action fetches the runner RAW job log, not the stripped form');
 });
 
-// ── The declared `needs:` job graph (DN-37.D18) ─────────────────────────────
+// ── The declared `needs:` job graph (ADR-22.D13) ─────────────────────────────
 
 test('siftArgs: --changed-job-graph is ABSENT when no graph — absent is a first-class state, not an empty file', () => {
     const args = siftArgs(baseInvocation);
@@ -137,7 +137,7 @@ test('siftArgs: --changed-job-graph is ABSENT when no graph — absent is a firs
 
 test('siftArgs: the graph rides as the FILE PATH runSift writes — a declared-empty graph still rides', () => {
     // `[]` is "declared, zero jobs" — a different fact from absent, and the engine acts on the
-    // difference (DN-37.D18: one flag, two states, no companion marker).
+    // difference (ADR-22.D13: one flag, two states, no companion marker).
     const args = siftArgs({ ...baseInvocation, changedJobGraph: { path: '/tmp/g.json', jobs: [] } });
     const idx = args.indexOf('--changed-job-graph');
     assert.ok(idx >= 0, 'a declared graph must ride, even when it declares zero jobs');
@@ -168,7 +168,7 @@ test('siftArgs: a graph CONCLUSION is a declared verdict — the vocabulary pair
 });
 
 test('siftArgs: an all-empty-conclusion graph declares no verdict — NO vocabulary rides on it', () => {
-    // Empty is NOT DECLARED (DN-32.D7) — nothing to interpret, so nothing is declared to
+    // Empty is NOT DECLARED (ADR-22.D10) — nothing to interpret, so nothing is declared to
     // interpret it with. The biconditional stays exact: vocabulary iff something carries a verdict.
     const inert = {
         path: '/tmp/g.json',
@@ -190,7 +190,7 @@ test('siftArgs: --transport=none is ALWAYS declared — deduction is suppressed,
     // per-side deduction disagrees precisely when the two sides differ most — measured on this
     // Action's own invocation: `baseline api-rfc3339-line-prefix (deduced), changed none (deduced)`
     // on a homologous pair, costing the UNIT (1 of 16 rows kept a real unit). `none` is the honest
-    // declaration: both acquisition paths feed prefix-free bytes (DN-32.D6 build.log; joblog.ts
+    // declaration: both acquisition paths feed prefix-free bytes (ADR-22.D10 build.log; joblog.ts
     // strips runner timestamps before sift sees a byte). One token sets BOTH sides, so asymmetry
     // cannot arise. The engine-side acceptance is the peek reading `none (declared)` — a
     // `(deduced)` that happens to say none is the defect wearing the fix's clothes; THIS arm pins

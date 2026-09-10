@@ -102167,8 +102167,8 @@ function siftArgs(invocation) {
     // form this line declares.
     "--channel",
     "annotated",
-    // DN-35.D12 — the transport is DECLARED, symmetrically, and `none` is the honest answer
-    // for this stream: DN-32.D6 established that what this Action diffs is `build.log`, raw
+    // ADR-14.D9 — the transport is DECLARED, symmetrically, and `none` is the honest answer
+    // for this stream: ADR-22.D10 established that what this Action diffs is `build.log`, raw
     // build output with no delivery prefix to unwind.
     //
     // `--transport` sets BOTH sides from one token, which is the point: deduction is
