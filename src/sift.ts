@@ -274,7 +274,7 @@ export function siftArgs(invocation: SiftInvocation): string[] {
         // form this line declares.
         '--channel',
         'annotated',
-        // DN-35.D12 — the transport is DECLARED, symmetrically, and `none` is the honest answer
+        // ADR-14.D9 — the transport is DECLARED, symmetrically, and `none` is the honest answer
         // for this stream: DN-32.D6 established that what this Action diffs is `build.log`, raw
         // build output with no delivery prefix to unwind.
         //
@@ -285,7 +285,7 @@ export function siftArgs(invocation: SiftInvocation): string[] {
         // changed none (deduced)` on a homologous pair — same API, same repo, same workflow.
         // The cost was not the verdict (identical either way) but the UNIT: 1 of 16 rows kept a
         // real unit under the asymmetry against 12 of 12 when both sides agreed, which starves
-        // the DN-31.D9 roll-up of the attribution it acts on.
+        // the ADR-20.D11 roll-up of the attribution it acts on.
         //
         // Declaring it here makes asymmetry impossible by construction rather than refusable
         // after the fact — there is nothing to refuse when the answer is known. Unconditional and

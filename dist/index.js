@@ -102178,7 +102178,7 @@ function siftArgs(invocation) {
     // changed none (deduced)` on a homologous pair — same API, same repo, same workflow.
     // The cost was not the verdict (identical either way) but the UNIT: 1 of 16 rows kept a
     // real unit under the asymmetry against 12 of 12 when both sides agreed, which starves
-    // the DN-31.D9 roll-up of the attribution it acts on.
+    // the ADR-20.D11 roll-up of the attribution it acts on.
     //
     // Declaring it here makes asymmetry impossible by construction rather than refusable
     // after the fact — there is nothing to refuse when the answer is known. Unconditional and
