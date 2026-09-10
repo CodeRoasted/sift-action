@@ -342,8 +342,8 @@ async function run(): Promise<void> {
         // untouched (needs `contents: read`; the log line names it when denied).
         //
         // The workflow YAML is read at the BASE ref on a PR — a TRUST boundary, not only a
-        // correctness one (DN-37.D7). On a fork PR the head-ref file is CONTRIBUTOR-CONTROLLED and
-        // the run did not use it: a fork could shape the fold — and therefore the report's #1
+        // correctness one (ADR-22.D13). On a fork PR the head-ref file is CONTRIBUTOR-CONTROLLED
+        // and the run did not use it: a fork could shape the fold — and therefore the report's #1
         // row — by editing a workflow file that never executed. Base-ref is both the correct
         // branch and the trusted one, so do not "simplify" this back to the head ref. On a
         // push/tag run, `github.context.sha` IS the declaration the run executed.

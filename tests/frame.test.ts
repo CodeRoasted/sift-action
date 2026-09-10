@@ -210,7 +210,7 @@ test('③ drift, verdict SUCCESS: the cache-died hero headline (verbatim)', () =
     );
 });
 
-// ── ③ bis — the suppression gap at CENSUS-ERA numbers (DN-37.D31) ───────────
+// ── ③ bis — the suppression gap at CENSUS-ERA numbers (ADR-20.D15) ───────────
 //
 // Until `total_changes` was restored as the pre-cut census, the aligned spine — the
 // one THIS Action consumes, via the CLI's `diff_logs_aligned` — assigned
@@ -241,7 +241,7 @@ test('③ drift: the census-era gap renders literally, and the zero-gap boundary
         renderComment(at(973, 22), ctx()),
     );
 
-    // The pre-restore shape, which is what a regression of DN-37.D31 would print again.
+    // The pre-restore shape, which is what a regression of ADR-20.D15 would print again.
     assert.ok(
         renderComment(at(22, 22), ctx()).includes(
             '🔍 22 structural changes worth a look — 0 of 22 diffs are noise.',
@@ -261,7 +261,7 @@ test('③ drift: the census-era gap renders literally, and the zero-gap boundary
 });
 
 // The invariant `significant <= total` is the ENGINE's, asserted where each spine
-// finalizes its summary and deliberately NOWHERE downstream (DN-37.D31: a defensive
+// finalizes its summary and deliberately NOWHERE downstream (ADR-20.D15: a defensive
 // clamp at a render site converts an invariant break into a plausible number). This
 // arm does not re-litigate that ruling — it CHARACTERIZES what this surface does if
 // the invariant is ever breached upstream, because the answer differs from the two

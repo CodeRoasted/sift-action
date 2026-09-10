@@ -190,7 +190,7 @@ export interface ResolveJobGraphParams {
     workflowRef: string | undefined;
     /**
      * The ref the workflow YAML is read at — the TRUSTED one, chosen by the caller (main.ts
-     * states the DN-37.D7 trust argument where the choice is made).
+     * states the ADR-22.D13 trust argument where the choice is made).
      */
     contentRef: string;
     info: (message: string) => void;
