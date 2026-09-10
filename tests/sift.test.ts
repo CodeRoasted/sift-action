@@ -186,7 +186,7 @@ test('siftArgs: an all-empty-conclusion graph declares no verdict — NO vocabul
 });
 
 test('siftArgs: --transport=none is ALWAYS declared — deduction is suppressed, never relied on', () => {
-    // DN-35.D12. Deduction is content-sensitive and content is exactly what a diff varies, so
+    // ADR-14.D9. Deduction is content-sensitive and content is exactly what a diff varies, so
     // per-side deduction disagrees precisely when the two sides differ most — measured on this
     // Action's own invocation: `baseline api-rfc3339-line-prefix (deduced), changed none (deduced)`
     // on a homologous pair, costing the UNIT (1 of 16 rows kept a real unit). `none` is the honest
