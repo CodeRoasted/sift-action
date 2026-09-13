@@ -1,9 +1,10 @@
 # Sift Action
 
-Structural diff of your CI logs, on every PR. Sift diffs this run's log against
-the **last green run on your base branch** and posts **one sticky comment** —
-ranked by what matters, with the noise suppressed — plus an optional advisory
-gate. Deterministic; runs entirely in your CI (your logs never leave it).
+Structural diff of your CI logs, on every PR. Sift diffs one job's log against
+that job's log from the **last green run on your base branch** and posts **one
+sticky comment** — ranked by what matters, with the noise suppressed — plus an
+optional advisory gate. Deterministic; runs entirely in your CI (your logs never
+leave it).
 
 The whole integration:
 
@@ -38,7 +39,6 @@ jobs:
     permissions:
       actions: write          # read the build job's log + baselines; upload this run's baseline
       pull-requests: write    # post/update the sticky comment
-      contents: read          # read this workflow's `needs:` graph (optional — see below)
     steps:
       - name: Sift Log Diff
         uses: CodeRoasted/sift-action@v1
@@ -50,12 +50,12 @@ The first green run on the base branch seeds the baseline; every PR gets a diff
 automatically thereafter (self-bootstrapping). No prior green run ⇒ an honest
 "no baseline yet" comment.
 
-With `contents: read`, Sift also reads this workflow's declared `needs:` job
-graph and hands it to the engine, so a failure surfacing on a required-check
-**aggregator** job is folded into the member job that actually failed instead
-of being reported against the aggregator. Optional and fail-soft: without the
-permission the diff runs exactly as before — aggregator rows just don't fold
-(the run log says so).
+**Sift diffs one job today, not the whole run.** Each Sift step compares the log of
+the one job it is pointed at (`target-job`, or the file you pass as `log:`) with
+that job's log from the baseline run; the logs of the run's other jobs are not
+read. Diffing the whole run is what comes next: every job in one comparison, so a
+job added or removed, or a failure that moves from one job to another, reads as
+one structural change.
 
 ## Advanced usage
 

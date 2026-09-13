@@ -1,5 +1,5 @@
 name: 'Sift — structural CI-log diff'
-description: 'Diffs this run''s logs against the last green run on the base branch; posts one sticky PR comment + an advisory gate.'
+description: 'Diffs one job''s CI log against the last green run on the base branch; posts one sticky PR comment + an advisory gate.'
 author: 'CodeRoast'
 branding:
   icon: 'git-pull-request'
@@ -197,10 +197,13 @@ outputs:
 
 # Permissions the caller workflow must grant (contract § 6):
 #   actions: read       — resolve the base branch's last green run + its artifact
-#   contents: read      — checkout / API
 #   pull-requests: write — post/update the sticky comment (PR runs)
 #   actions: write      — upload this run's baseline-log artifact
 #   contents: write     — ONLY if commit-comment is set (push-mode commit comments); else omit
+# Not requested: `contents: read`. The Action diffs one job's log and needs no repository file.
+# Its one optional repository read, the workflow's `needs:` graph, serves only the aggregator
+# fold, which needs findings from two jobs, so the grant buys nothing until the Action diffs the
+# whole run.
 # Fork PRs get a read-only token: the comment/artifact writes degrade with a
 # warning (the advisory gate still applies).
 
