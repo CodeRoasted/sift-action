@@ -10,7 +10,7 @@ import * as exec from '@actions/exec';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { promises as fs } from 'fs';
 import type { DeclaredJobWire } from './jobgraph.js';
-import { MAX_CHANGED_LOG_BYTES, type SiftReport } from './types.js';
+import { MAX_CHANGED_LOG_BYTES, MAX_ENGINE_LINE_BYTES, type SiftReport } from './types.js';
 
 export type FailOn = 'none' | 'significant' | 'regression';
 
@@ -96,8 +96,11 @@ export function engineFailureMessage(exitCode: number): string | null {
         case SIFT_EXIT.INPUT_TOO_LARGE:
             return (
                 'Sift refused this run: one of the logs is over the engine ceiling of ' +
-                `${MAX_CHANGED_LOG_BYTES} bytes / 1000000 lines per input (engine exit 3). ` +
-                'Check with `wc -lc` on the log. This is a declared limit, not a crash — the ' +
+                `${MAX_CHANGED_LOG_BYTES} bytes / 1000000 lines per input, or has a line over ` +
+                `${MAX_ENGINE_LINE_BYTES} bytes per line (engine exit 3). ` +
+                'Check with `wc -lc` on the log, and find long lines with ' +
+                `\`LC_ALL=C awk 'length($0) > ${MAX_ENGINE_LINE_BYTES}' <log>\`. ` +
+                'This is a declared limit, not a crash — the ' +
                 'engine will not diff a truncated window, because that answers a different ' +
                 'question without saying so. Narrow what you compare with the SIFT_CAPTURE ' +
                 'markers (see the `capture` input) and Sift will run on the sections you mark.'

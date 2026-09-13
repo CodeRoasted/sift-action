@@ -32,6 +32,7 @@ import {
     BASELINE_ARTIFACT_NAME,
     CONTEXT_VERSION,
     MAX_CHANGED_LOG_BYTES,
+    MAX_ENGINE_LINE_BYTES,
     SIFT_COMMENT_DIR,
     type SiftCommentContext,
     type SiftReport,
@@ -239,7 +240,8 @@ async function run(): Promise<void> {
             core.setFailed(
                 `Sift: the \`log:\` input "${logInput}" is ${logStat.size} bytes, over the ` +
                     `${MAX_CHANGED_LOG_BYTES} byte per-input ceiling. Check it with \`wc -lc\` ` +
-                    '(there is also a 1000000-line ceiling the engine enforces). Capture less: ' +
+                    '(the engine also enforces a 1000000-line ceiling and a ' +
+                    `${MAX_ENGINE_LINE_BYTES}-byte per-line ceiling). Capture less: ` +
                     'tee only the part of the build you want compared, or use `target-job` with ' +
                     'the SIFT_CAPTURE markers.',
             );

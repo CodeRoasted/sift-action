@@ -62882,6 +62882,7 @@ var MAX_RENDERED_BODY_BYTES = 65536;
 var MAX_BASELINE_ARTIFACT_BYTES = 32 * 1024 * 1024;
 var MAX_BASELINE_UNPACKED_BYTES = 256 * 1024 * 1024;
 var MAX_CHANGED_LOG_BYTES = 128 * 1024 * 1024;
+var MAX_ENGINE_LINE_BYTES = 4 * 1024 * 1024;
 
 // src/baseline.ts
 function parseBaselineSpec(raw) {
@@ -102087,7 +102088,7 @@ function engineFailureMessage(exitCode) {
     case SIFT_EXIT.USAGE_ERROR:
       return "Sift could not read one of the logs, or was called with bad arguments (engine exit 1). Check the `log:` path, or the `target-job` name if you use zero-plumbing sourcing \u2014 the engine's own message is in the step log above.";
     case SIFT_EXIT.INPUT_TOO_LARGE:
-      return `Sift refused this run: one of the logs is over the engine ceiling of ${MAX_CHANGED_LOG_BYTES} bytes / 1000000 lines per input (engine exit 3). Check with \`wc -lc\` on the log. This is a declared limit, not a crash \u2014 the engine will not diff a truncated window, because that answers a different question without saying so. Narrow what you compare with the SIFT_CAPTURE markers (see the \`capture\` input) and Sift will run on the sections you mark.`;
+      return `Sift refused this run: one of the logs is over the engine ceiling of ${MAX_CHANGED_LOG_BYTES} bytes / 1000000 lines per input, or has a line over ${MAX_ENGINE_LINE_BYTES} bytes per line (engine exit 3). Check with \`wc -lc\` on the log, and find long lines with \`LC_ALL=C awk 'length($0) > ${MAX_ENGINE_LINE_BYTES}' <log>\`. This is a declared limit, not a crash \u2014 the engine will not diff a truncated window, because that answers a different question without saying so. Narrow what you compare with the SIFT_CAPTURE markers (see the \`capture\` input) and Sift will run on the sections you mark.`;
     case SIFT_EXIT.INTERNAL_ERROR:
       return "The Sift engine hit an internal error (exit 4). This is a bug \u2014 please report it at https://github.com/CodeRoasted/sift-action/issues with the engine message from the step log above and the output of `wc -lc` on both logs.";
     default:
@@ -102437,7 +102438,7 @@ async function run() {
     const logStat = await fs13.stat(logInput);
     if (logStat.size > MAX_CHANGED_LOG_BYTES) {
       setFailed(
-        `Sift: the \`log:\` input "${logInput}" is ${logStat.size} bytes, over the ${MAX_CHANGED_LOG_BYTES} byte per-input ceiling. Check it with \`wc -lc\` (there is also a 1000000-line ceiling the engine enforces). Capture less: tee only the part of the build you want compared, or use \`target-job\` with the SIFT_CAPTURE markers.`
+        `Sift: the \`log:\` input "${logInput}" is ${logStat.size} bytes, over the ${MAX_CHANGED_LOG_BYTES} byte per-input ceiling. Check it with \`wc -lc\` (the engine also enforces a 1000000-line ceiling and a ${MAX_ENGINE_LINE_BYTES}-byte per-line ceiling). Capture less: tee only the part of the build you want compared, or use \`target-job\` with the SIFT_CAPTURE markers.`
       );
       return;
     }

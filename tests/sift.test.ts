@@ -302,8 +302,10 @@ test('engineFailureMessage: exit 3 names the ceiling, the check, and the way out
     // The NUMBER — a refusal without it cannot be acted on.
     assert.match(message, /134217728/, 'must state the byte ceiling');
     assert.match(message, /1000000 lines/, 'must state the line ceiling');
+    assert.match(message, /4194304 bytes per line/, 'must state the per-line ceiling');
     // The CHECK — how a user decides whether their own log fits, before running anything.
     assert.match(message, /wc -lc/);
+    assert.match(message, /LC_ALL=C awk 'length\(\$0\) > 4194304'/, 'must give the long-line check');
     // The WAY OUT — a limit with no remedy reads as "this product does not work here".
     assert.match(message, /SIFT_CAPTURE/);
     // And it must say this is a LIMIT, not a failure — the whole point of the repair.

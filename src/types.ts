@@ -195,11 +195,14 @@ export const MAX_BASELINE_UNPACKED_BYTES = 256 * 1024 * 1024; // 256 MiB, DECOMP
 // and the Action reports that, which is why this cap is an OPTIMISATION (skip the download, the
 // temp write and the process spawn) and never the authority.
 //
-// The engine's OTHER dimension — 1,000,000 lines per input — is deliberately NOT mirrored here.
-// Counting lines requires materialising the whole log, which is the allocation this cap exists
-// to avoid; the engine already refuses on it, at the only place the count is free. So: bytes
-// here, lines there, one ceiling published, no dimension unguarded.
+// The engine's OTHER two dimensions — 1,000,000 lines per input, and 4,194,304 bytes in any one
+// line — are deliberately NOT mirrored here. Both need a scan of the whole log, which is the work
+// this cap exists to skip; the engine already refuses on both during its own read, where the
+// count is free. So: bytes here, lines and line length there, one ceiling published, no
+// dimension unguarded.
 export const MAX_CHANGED_LOG_BYTES = 128 * 1024 * 1024; // 128 MiB — mirrors the engine's ceiling
+// Named only so a message can state it; the engine is the one that enforces it.
+export const MAX_ENGINE_LINE_BYTES = 4 * 1024 * 1024; // 4 MiB — mirrors the engine's per-line bound
 
 // Provenance the build job stamps into the artifact meta. `head_sha` is
 // cross-checked against the trusted `workflow_run` event head_sha (defence in
