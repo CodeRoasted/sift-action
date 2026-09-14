@@ -229,8 +229,7 @@ export async function resolveChangedJobGraph(
         const message = error instanceof Error ? error.message : String(error);
         info(
             `Sift: no declared job graph — could not read ${path}@${contentRef.slice(0, 12)} ` +
-                `(${message}). The \`needs:\` fold needs \`contents: read\`; without it the diff ` +
-                'still runs, aggregator rows just do not fold.',
+                `(${message}). The diff still runs; aggregator rows do not fold.`,
         );
         return null;
     }

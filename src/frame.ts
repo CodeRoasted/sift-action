@@ -237,13 +237,15 @@ function cleanBody(report: SiftReport): string {
     const headline = `✅ No structural change. ${baseline} → ${changed} log lines, same behaviour.`;
     if (total === 0) {
         // Degenerate clean (e.g. identical inputs): nothing was weighed, so the
-        // suppression line would read "dropped all 0 as noise" — omit it.
+        // second line would read "weighed 0 surface diffs" — omit it.
         return headline;
     }
-    const grouped = groupThousands(total);
+    // The gap is never called noise (PRD-6 § "The four states"): the total mixes rows merged
+    // into a finding, rows withheld as false absence claims and rows below significance, and
+    // only the last is noise (ADR-20.D15). The copy states the observed total and no cause.
     return (
         `${headline}\n` +
-        `Sift weighed ${grouped} surface diffs and dropped all ${grouped} as noise — counts, ordering, IDs that carry no signal.`
+        `Sift weighed ${groupThousands(total)} surface diffs and found no structural change worth a look among them.`
     );
 }
 
@@ -258,22 +260,19 @@ function changedRunSucceeded(report: SiftReport): boolean {
 // ③ Drift — significant > 0, no regression. The cache-died hero lands here.
 function driftBody(report: SiftReport): string {
     const significant = report.summary.significant_changes;
-    const suppressed = report.summary.total_changes - significant;
+    // The observed total, never the gap: see cleanBody.
+    const observed = groupThousands(report.summary.total_changes);
     const headline =
         changedRunSucceeded(report)
             ? // run verdict SUCCESS — the hero
               '🔍 Green build, changed behaviour. Your tests passed; the shape of your logs didn\'t.\n' +
-              `${significant} ${plural(significant, 'change', 'changes')} worth a look, ${groupThousands(
-                  suppressed,
-              )} are noise.`
+              `${significant} ${plural(significant, 'change', 'changes')} worth a look, out of ${observed} observed.`
             : // build unknown / red
               `🔍 ${significant} structural ${plural(
                   significant,
                   'change',
                   'changes',
-              )} worth a look — ${groupThousands(suppressed)} of ${groupThousands(
-                  report.summary.total_changes,
-              )} diffs are noise.`;
+              )} worth a look, out of ${observed} observed.`;
     return `${headline}\n\n${renderRows(report)}\n\n${renderDetails(report)}`;
 }
 

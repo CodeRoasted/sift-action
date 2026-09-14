@@ -341,7 +341,8 @@ async function run(): Promise<void> {
         // The CHANGED run's declared `needs:` job graph (jobgraph.ts — the ADR-22.D13 wire), so the
         // engine can fold a required-check aggregator row into the member that actually failed.
         // Fail-soft: acquisition failure ⇒ null ⇒ no flag ⇒ the fold is inert and the run is
-        // untouched (needs `contents: read`; the log line names it when denied).
+        // untouched. The documented workflows grant no read of the workflow file, so under them the
+        // fold stays inert and one log line says so.
         //
         // The workflow YAML is read at the BASE ref on a PR — a TRUST boundary, not only a
         // correctness one (ADR-22.D13). On a fork PR the head-ref file is CONTRIBUTOR-CONTROLLED

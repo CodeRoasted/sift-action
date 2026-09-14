@@ -133,20 +133,20 @@ test('② clean with suppression: verbatim copy, the 851→0 pitch, no <details>
     assert.ok(out.includes('✅ No structural change. 12,043 → 12,058 log lines, same behaviour.'), out);
     assert.ok(
         out.includes(
-            'Sift weighed 851 surface diffs and dropped all 851 as noise — counts, ordering, IDs that carry no signal.',
+            'Sift weighed 851 surface diffs and found no structural change worth a look among them.',
         ),
         out,
     );
+    assert.ok(!out.includes('noise'), `the gap is never called noise (ADR-20.D15):\n${out}`);
     assert.ok(!out.includes('<details>'), 'clean state has nothing to drill into');
 });
 
-test('② clean (no diffs at all): suppression line is omitted, not "dropped all 0"', () => {
+test('② clean (no diffs at all): the weighed line is omitted, not "weighed 0"', () => {
     const report = load('clean_empty.json');
     assert.equal(selectState(report), State.Clean);
     const out = renderComment(report, ctx());
     assert.ok(out.includes('✅ No structural change.'), out);
-    assert.ok(!out.includes('dropped all 0'), 'must not read "dropped all 0 as noise"');
-    assert.ok(!out.includes('weighed'), out);
+    assert.ok(!out.includes('weighed'), 'must not read "weighed 0 surface diffs"');
 });
 
 // ── ③ Drift (significant > 0, no regression) ────────────────────────────────
@@ -155,11 +155,10 @@ test('③ drift, verdict unknown: verbatim headline + rows verbatim + engine <de
     const report = load('drift.json'); // outcome-free fixture = Unknown verdict
     assert.equal(selectState(report), State.Drift);
     const significant = report.summary.significant_changes;
-    const suppressed = report.summary.total_changes - significant;
     const out = renderComment(report, ctx());
     assert.ok(
         out.includes(
-            `🔍 ${significant} structural changes worth a look — ${suppressed} of ${report.summary.total_changes} diffs are noise.`,
+            `🔍 ${significant} structural changes worth a look, out of ${report.summary.total_changes} observed.`,
         ),
         out,
     );
@@ -199,44 +198,42 @@ test('③ drift, verdict SUCCESS: the cache-died hero headline (verbatim)', () =
         changed_outcome: 'SUCCESS',
     });
     const significant = report.summary.significant_changes;
-    const suppressed = report.summary.total_changes - significant;
     const out = renderComment(report, ctx());
     assert.ok(
         out.includes(
             "🔍 Green build, changed behaviour. Your tests passed; the shape of your logs didn't.\n" +
-                `${significant} changes worth a look, ${suppressed} are noise.`,
+                `${significant} changes worth a look, out of ${report.summary.total_changes} observed.`,
         ),
         out,
     );
 });
 
-// ── ③ bis — the suppression gap at CENSUS-ERA numbers (ADR-20.D15) ───────────
+// ── ③ bis — the observed total at CENSUS-ERA numbers (ADR-20.D15) ───────────
 //
 // Until `total_changes` was restored as the pre-cut census, the aligned spine — the
 // one THIS Action consumes, via the CLI's `diff_logs_aligned` — assigned
-// `significant_changes` into `total_changes`. So on real bytes the gap was a
-// structural zero and this headline printed "0 of 22 diffs are noise": the
-// suppression half of the pitch was dead output. Measured after the restore, same
-// pair: total 973, significant 22.
+// `significant_changes` into `total_changes`, so on real bytes the headline's total
+// was the significant count again. Measured after the restore, same pair: total 973,
+// significant 22.
 //
-// The two drift arms above compute their expectation as `total - significant`, which
-// is the render's own formula — they hold the SHAPE of the sentence and are green for
-// any arithmetic, right or wrong. This arm pins LITERALS at the measured numbers, and
-// pins the other side of the boundary with them: the same fixture at significant ===
-// total must print the zero-gap sentence. One of the two strings is wrong the moment
-// the subtraction, the grouping or the census itself moves, and neither can be
-// satisfied by printing a constant.
-test('③ drift: the census-era gap renders literally, and the zero-gap boundary with it', () => {
+// The two drift arms above read the total back from the fixture — they hold the SHAPE
+// of the sentence and are green for any census. This arm pins LITERALS at the measured
+// numbers, the pre-restore shape beside them, and a grouped total, so neither the
+// census nor the grouping can move without one of the three strings going wrong. The
+// headline states the observed total and never the gap: the gap mixes rows merged into
+// a finding, rows withheld as false absence claims and rows below significance, and
+// only the last is noise.
+test('③ drift: the census-era total renders literally, grouped, and never as a gap', () => {
     const base = load('drift.json');
     const at = (total: number, significant: number): SiftReport => ({
         ...base,
         summary: { ...base.summary, total_changes: total, significant_changes: significant },
     });
 
-    // The measured post-restore pair. 973 − 22 = 951, three digits, ungrouped.
+    // The measured post-restore pair.
     assert.ok(
         renderComment(at(973, 22), ctx()).includes(
-            '🔍 22 structural changes worth a look — 951 of 973 diffs are noise.',
+            '🔍 22 structural changes worth a look, out of 973 observed.',
         ),
         renderComment(at(973, 22), ctx()),
     );
@@ -244,40 +241,17 @@ test('③ drift: the census-era gap renders literally, and the zero-gap boundary
     // The pre-restore shape, which is what a regression of ADR-20.D15 would print again.
     assert.ok(
         renderComment(at(22, 22), ctx()).includes(
-            '🔍 22 structural changes worth a look — 0 of 22 diffs are noise.',
+            '🔍 22 structural changes worth a look, out of 22 observed.',
         ),
         renderComment(at(22, 22), ctx()),
     );
 
-    // The census routinely clears a thousand on a real CI log, and the suppressed value
-    // rides `groupThousands` at a call site no fixture has ever pushed past three digits
+    // The census routinely clears a thousand on a real CI log, and the total rides
+    // `groupThousands` at a call site no fixture has ever pushed past three digits
     // (the function's comma path is proven elsewhere, on line counts — this pins the SITE).
-    assert.ok(
-        renderComment(at(12043, 22), ctx()).includes(
-            '🔍 22 structural changes worth a look — 12,021 of 12,043 diffs are noise.',
-        ),
-        renderComment(at(12043, 22), ctx()),
-    );
-});
-
-// The invariant `significant <= total` is the ENGINE's, asserted where each spine
-// finalizes its summary and deliberately NOWHERE downstream (ADR-20.D15: a defensive
-// clamp at a render site converts an invariant break into a plausible number). This
-// arm does not re-litigate that ruling — it CHARACTERIZES what this surface does if
-// the invariant is ever breached upstream, because the answer differs from the two
-// unsigned C++ render sites by construction: a JS number is a double, so the
-// subtraction yields a visible negative and never the ~1.8e19 an unsigned wrap
-// produces. Visibly wrong, not plausibly wrong — which is why no clamp is owed here
-// either, and the reason is a language fact worth pinning rather than assuming.
-test('a breached census invariant surfaces as a visible negative, never a wrapped magnitude', () => {
-    const base = load('drift.json');
-    const breached: SiftReport = {
-        ...base,
-        summary: { ...base.summary, total_changes: 22, significant_changes: 973 },
-    };
-    const out = renderComment(breached, ctx());
-    assert.ok(out.includes('-951 of 22 diffs are noise.'), out);
-    assert.ok(!/\d{15,}/.test(out), `an unsigned-wrap-sized magnitude reached the comment:\n${out}`);
+    const grouped = renderComment(at(12043, 22), ctx());
+    assert.ok(grouped.includes('🔍 22 structural changes worth a look, out of 12,043 observed.'), grouped);
+    assert.ok(!grouped.includes('noise'), `the gap is never called noise (ADR-20.D15):\n${grouped}`);
 });
 
 // ── ④ Regression (a row has polarity === regression) ────────────────────────

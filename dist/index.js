@@ -66331,7 +66331,7 @@ async function resolveChangedJobGraph(params) {
   } catch (error2) {
     const message = error2 instanceof Error ? error2.message : String(error2);
     info2(
-      `Sift: no declared job graph \u2014 could not read ${path9}@${contentRef.slice(0, 12)} (${message}). The \`needs:\` fold needs \`contents: read\`; without it the diff still runs, aggregator rows just do not fold.`
+      `Sift: no declared job graph \u2014 could not read ${path9}@${contentRef.slice(0, 12)} (${message}). The diff still runs; aggregator rows do not fold.`
     );
     return null;
   }
@@ -66471,31 +66471,26 @@ function cleanBody(report) {
   if (total === 0) {
     return headline;
   }
-  const grouped = groupThousands(total);
   return `${headline}
-Sift weighed ${grouped} surface diffs and dropped all ${grouped} as noise \u2014 counts, ordering, IDs that carry no signal.`;
+Sift weighed ${groupThousands(total)} surface diffs and found no structural change worth a look among them.`;
 }
 function changedRunSucceeded(report) {
   return report.summary.changed_outcome === "SUCCESS";
 }
 function driftBody(report) {
   const significant = report.summary.significant_changes;
-  const suppressed = report.summary.total_changes - significant;
+  const observed = groupThousands(report.summary.total_changes);
   const headline = changedRunSucceeded(report) ? (
     // run verdict SUCCESS — the hero
     `\u{1F50D} Green build, changed behaviour. Your tests passed; the shape of your logs didn't.
-${significant} ${plural(significant, "change", "changes")} worth a look, ${groupThousands(
-      suppressed
-    )} are noise.`
+${significant} ${plural(significant, "change", "changes")} worth a look, out of ${observed} observed.`
   ) : (
     // build unknown / red
     `\u{1F50D} ${significant} structural ${plural(
       significant,
       "change",
       "changes"
-    )} worth a look \u2014 ${groupThousands(suppressed)} of ${groupThousands(
-      report.summary.total_changes
-    )} diffs are noise.`
+    )} worth a look, out of ${observed} observed.`
   );
   return `${headline}
 
