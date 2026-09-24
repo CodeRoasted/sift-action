@@ -127,16 +127,19 @@ grep -q "SIFT_VERSION = \"$ver\"" "$here/dist/index.js" \
 
 # ── 5. Prove every source pin agrees (what INV-8b used to assert) ───────────────────────
 # Re-READ after the write rather than trusting the substitution: a regex that silently
-# matched nothing would otherwise leave a stale pin and report success.
-a="$(grep -oE "SIFT_VERSION\s*=\s*['\"][^'\"]+['\"]" "$ver_ts" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+# matched nothing would otherwise leave a stale pin and report success. Each read ends
+# `| sed -n 1p || true`, as scripts/engine_pin.sh's does: under `set -eo pipefail` a read that
+# matches nothing would otherwise abort HERE at exit 1 with no message, before the `err` line
+# that names the file; and `sed -n 1p` drains, where `head -1` could SIGPIPE its writer.
+a="$(grep -oE "SIFT_VERSION\s*=\s*['\"][^'\"]+['\"]" "$ver_ts" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
 [ "$a" = "$ver" ] || err "src/sift-version.ts reads $a, expected $ver after the rewrite."
 if [ -f "$jenkinsfile" ]; then
-    b="$(grep -oE "SIFT_VERSION\s*=\s*['\"][0-9.]+['\"]" "$jenkinsfile" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    b="$(grep -oE "SIFT_VERSION\s*=\s*['\"][0-9.]+['\"]" "$jenkinsfile" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
     [ "$a" = "$b" ] || err "src/sift-version.ts ($a) and the Jenkins example ($b) disagree after the rewrite."
 fi
-c="$(grep -oE 'SIFT_PINNED_VERSION="[0-9.]+"' "$install_sh" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+c="$(grep -oE 'SIFT_PINNED_VERSION="[0-9.]+"' "$install_sh" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
 [ "$a" = "$c" ] || err "src/sift-version.ts ($a) and install.sh ($c) disagree after the rewrite."
-d="$(grep -oE "\\\$SiftPinnedVersion = '[0-9.]+'" "$install_ps1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+d="$(grep -oE "\\\$SiftPinnedVersion = '[0-9.]+'" "$install_ps1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
 [ "$a" = "$d" ] || err "src/sift-version.ts ($a) and install.ps1 ($d) disagree after the rewrite."
 
 # The installers must never fall back to `latest` again: the default has to be the pin, and

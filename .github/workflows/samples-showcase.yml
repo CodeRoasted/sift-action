@@ -94,7 +94,7 @@ jobs:
             case "$RELEASE_TAG" in
               engine-v*) VER="${RELEASE_TAG#engine-v}" ;;
               *) VER="$(grep -oE "SIFT_VERSION[[:space:]]*=[[:space:]]*['\"][^'\"]+['\"]" src/sift-version.ts \
-                        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" ;;
+                        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)" ;;
             esac
           fi
           # An unparseable pin is a broken instrument, never a reason to install something else:

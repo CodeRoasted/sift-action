@@ -28,7 +28,7 @@ src="$here/src/sift-version.ts"
 # prevent. Swallowing the pipeline status hands the decision to the `-z` test below, which
 # names the file and the symbol. Verified by mangling the declaration and reading stderr.
 ver="$(grep -oE "SIFT_VERSION[[:space:]]*=[[:space:]]*['\"][^'\"]+['\"]" "$src" \
-       | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+       | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
 
 if [ -z "$ver" ]; then
     echo "engine_pin: could not parse SIFT_VERSION from $src" >&2
