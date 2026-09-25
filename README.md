@@ -293,8 +293,9 @@ alternative to `pull_request_target`) — see [`examples/fork-safe/`](examples/f
 > unprivileged `pull_request` job; the privileged job consumes only the rendered artifact.
 
 Fork-comment posting (the `render`/`post` modes + this pattern) is **live** — the parser
-runs fork-controlled input only under the unprivileged job, and its fuzz/ASan gate is part
-of the engine's release train.
+runs fork-controlled input only under the unprivileged job, and a sanitizer replay (every
+seed of the parser's committed corpus, under ASan/UBSan and valgrind) is part of the
+engine's release train.
 
 ## Other CI / Jenkins
 

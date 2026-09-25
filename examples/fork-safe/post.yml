@@ -13,7 +13,7 @@
 #   1-of-2 (read-only token); keep the write here. Never cross the streams.
 #
 # Requires sift-action's `post` mode (arms with fork-comment support, contract §6.1).
-# Keep this workflow DISABLED until the Fuzz/ASan gate is green (the arming flip).
+# Keep this workflow DISABLED until the engine's sanitizer replay gate is green (the arming flip).
 name: Sift (post)
 
 on:
