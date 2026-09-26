@@ -10,7 +10,12 @@ import * as exec from '@actions/exec';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { promises as fs } from 'fs';
 import type { DeclaredJobWire } from './jobgraph.js';
-import { MAX_CHANGED_LOG_BYTES, MAX_ENGINE_LINE_BYTES, type SiftReport } from './types.js';
+import {
+    MAX_CHANGED_LOG_BYTES,
+    MAX_ENGINE_ALIGNMENT_CELLS,
+    MAX_ENGINE_LINE_BYTES,
+    type SiftReport,
+} from './types.js';
 
 export type FailOn = 'none' | 'significant' | 'regression';
 
@@ -97,9 +102,12 @@ export function engineFailureMessage(exitCode: number): string | null {
             return (
                 'Sift refused this run: one of the logs is over the engine ceiling of ' +
                 `${MAX_CHANGED_LOG_BYTES} bytes / 1000000 lines per input, or has a line over ` +
-                `${MAX_ENGINE_LINE_BYTES} bytes per line (engine exit 3). ` +
+                `${MAX_ENGINE_LINE_BYTES} bytes per line, or the two logs need more than ` +
+                `${MAX_ENGINE_ALIGNMENT_CELLS} step-alignment cells (baseline steps x changed ` +
+                'steps, summed over every job they share) (engine exit 3). ' +
                 'Check with `wc -lc` on the log, and find long lines with ' +
-                `\`LC_ALL=C awk 'length($0) > ${MAX_ENGINE_LINE_BYTES}' <log>\`. ` +
+                `\`LC_ALL=C awk 'length($0) > ${MAX_ENGINE_LINE_BYTES}' <log>\`; ` +
+                "the engine's own message in the step log above names the bound it hit. " +
                 'This is a declared limit, not a crash — the ' +
                 'engine will not diff a truncated window, because that answers a different ' +
                 'question without saying so. Narrow what you compare with the SIFT_CAPTURE ' +

@@ -303,6 +303,7 @@ test('engineFailureMessage: exit 3 names the ceiling, the check, and the way out
     assert.match(message, /134217728/, 'must state the byte ceiling');
     assert.match(message, /1000000 lines/, 'must state the line ceiling');
     assert.match(message, /4194304 bytes per line/, 'must state the per-line ceiling');
+    assert.match(message, /536870912 step-alignment cells/, 'must state the alignment bound');
     // The CHECK — how a user decides whether their own log fits, before running anything.
     assert.match(message, /wc -lc/);
     assert.match(message, /LC_ALL=C awk 'length\(\$0\) > 4194304'/, 'must give the long-line check');

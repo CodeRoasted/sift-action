@@ -203,6 +203,9 @@ export const MAX_BASELINE_UNPACKED_BYTES = 256 * 1024 * 1024; // 256 MiB, DECOMP
 export const MAX_CHANGED_LOG_BYTES = 128 * 1024 * 1024; // 128 MiB — mirrors the engine's ceiling
 // Named only so a message can state it; the engine is the one that enforces it.
 export const MAX_ENGINE_LINE_BYTES = 4 * 1024 * 1024; // 4 MiB — mirrors the engine's per-line bound
+// Named only so a message can state it: the engine's cell budget for its step alignment, summed
+// over every job the two logs share (DN-89.D7). Only the engine can count steps, so only it enforces.
+export const MAX_ENGINE_ALIGNMENT_CELLS = 2 ** 29; // 536870912 — mirrors the engine's kMaxAlignmentCells
 
 // Provenance the build job stamps into the artifact meta. `head_sha` is
 // cross-checked against the trusted `workflow_run` event head_sha (defence in
