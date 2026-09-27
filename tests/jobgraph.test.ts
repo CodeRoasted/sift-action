@@ -1,6 +1,7 @@
 // The Action-side producer of the ADR-22.D13 wire (jobgraph.ts). These arms pin the pure halves —
 // the YAML → declared-jobs parse and the declared ⋈ rendered join — against the contract the
-// engine consumes. The acquisition rules mirror the crawler's producer (the same wire, a second
+// engine consumes, and the choice of WHICH workflow file is read (DN-118.D1; the entry-level arms
+// are in entry-jobgraph.test.ts). The acquisition rules mirror the crawler's producer (the same wire, a second
 // transport), so every refusal here is a contract clause, not a style choice: verbatim `name:`,
 // the exactly-one conclusion rule, key-less quoted renderings, the edge gate.
 
@@ -9,10 +10,13 @@ import assert from 'node:assert/strict';
 
 import {
     declaresAnEdge,
+    executedWorkflowCoordinate,
     joinDeclaredJobs,
     parseWorkflowJobs,
-    workflowPathFromRef,
+    resolveChangedJobGraph,
+    type DeclaredJobWire,
     type RenderedJob,
+    type ResolveJobGraphParams,
 } from '../src/jobgraph.js';
 
 // ── parseWorkflowJobs — the workflow file's declarations, verbatim ───────────
@@ -122,17 +126,142 @@ test('declaresAnEdge: the jobs-listing gate — no edge anywhere means the listi
     assert.equal(declaresAnEdge([{ key: 'a', name: '', needs: ['b'] }]), true);
 });
 
-// ── workflowPathFromRef — the one coordinate naming WHICH file this run executed ─
+// ── executedWorkflowCoordinate — the runner names the executed file (DN-118.D1) ──
 
-test('workflowPathFromRef: extracts the in-repo path and refuses shapes it cannot read', () => {
-    assert.equal(
-        workflowPathFromRef('CodeRoasted/sift-action/.github/workflows/ci.yml@refs/heads/main'),
-        '.github/workflows/ci.yml',
+const EXECUTED_SHA = 'e'.repeat(40);
+const BASE_SHA = 'b'.repeat(40);
+const WORKFLOW_REF = 'octo/demo/.github/workflows/ci.yml@refs/pull/7/merge';
+
+test('executedWorkflowCoordinate: the path from GITHUB_WORKFLOW_REF, the commit from GITHUB_WORKFLOW_SHA', () => {
+    assert.deepEqual(
+        executedWorkflowCoordinate({ GITHUB_WORKFLOW_REF: WORKFLOW_REF, GITHUB_WORKFLOW_SHA: EXECUTED_SHA }),
+        { kind: 'executed', path: '.github/workflows/ci.yml', sha: EXECUTED_SHA },
     );
-    assert.equal(
-        workflowPathFromRef('o/r/.github/workflows/x.yml@refs/pull/7/merge'),
-        '.github/workflows/x.yml',
+    assert.deepEqual(
+        executedWorkflowCoordinate({
+            GITHUB_WORKFLOW_REF: 'CodeRoasted/sift-action/.github/workflows/ci.yml@refs/heads/main',
+            GITHUB_WORKFLOW_SHA: 'A'.repeat(64),
+        }),
+        { kind: 'executed', path: '.github/workflows/ci.yml', sha: 'A'.repeat(64) },
+        'a SHA-256 commit id is a commit id too',
     );
-    assert.equal(workflowPathFromRef(undefined), null, 'absent variable ⇒ a source that cannot answer');
-    assert.equal(workflowPathFromRef('not-a-workflow-ref'), null, 'no @refs/ marker ⇒ null, never a guess');
+});
+
+// (A4) Each malformed input is refused with a reason naming the variable at fault — never a guess,
+// never a substitute.
+test('executedWorkflowCoordinate (A4): refuses each malformed input, with a reason naming the variable', () => {
+    const cells: ReadonlyArray<{ what: string; ref?: string; sha?: string; reason: RegExp }> = [
+        { what: 'a ref with no @refs/ marker', ref: 'not-a-workflow-ref', sha: EXECUTED_SHA, reason: /^GITHUB_WORKFLOW_REF "not-a-workflow-ref" names no workflow path$/ },
+        { what: 'a ref naming only owner/repo', ref: 'octo/demo@refs/heads/main', sha: EXECUTED_SHA, reason: /^GITHUB_WORKFLOW_REF "octo\/demo@refs\/heads\/main" names no workflow path$/ },
+        { what: 'an empty SHA', ref: WORKFLOW_REF, sha: '', reason: /^GITHUB_WORKFLOW_SHA is absent or empty$/ },
+        { what: 'an unset SHA', ref: WORKFLOW_REF, reason: /^GITHUB_WORKFLOW_SHA is absent or empty$/ },
+        { what: 'a SHA without a path', sha: EXECUTED_SHA, reason: /^GITHUB_WORKFLOW_REF is absent or empty$/ },
+        { what: 'a branch name in the SHA slot', ref: WORKFLOW_REF, sha: 'main', reason: /^GITHUB_WORKFLOW_SHA "main" is not a commit id$/ },
+        { what: 'a truncated SHA', ref: WORKFLOW_REF, sha: EXECUTED_SHA.slice(0, 12), reason: /is not a commit id$/ },
+        { what: 'neither variable', reason: /^GITHUB_WORKFLOW_REF is absent or empty; GITHUB_WORKFLOW_SHA is absent or empty$/ },
+    ];
+    for (const cell of cells) {
+        const coordinate = executedWorkflowCoordinate({ GITHUB_WORKFLOW_REF: cell.ref, GITHUB_WORKFLOW_SHA: cell.sha });
+        assert.equal(coordinate.kind, 'refused', `${cell.what}: expected a refusal, got ${JSON.stringify(coordinate)}`);
+        if (coordinate.kind === 'refused') {
+            assert.match(coordinate.reason, cell.reason, `${cell.what}: reason was "${coordinate.reason}"`);
+        }
+    }
+});
+
+// ── resolveChangedJobGraph — the read is at the coordinate, and nowhere else ─
+
+// A stand-in for the two REST calls the resolver makes, serving the workflow file PER COMMIT and
+// recording every call, so an arm can say both what was read and what was not.
+const REWIRED_AT: Record<string, string> = {
+    [BASE_SHA]: ['jobs:', '  a: {}', '  b: {}', '  gate:', '    needs: [a]'].join('\n'),
+    [EXECUTED_SHA]: ['jobs:', '  a: {}', '  b: {}', '  gate:', '    needs: [b]'].join('\n'),
+};
+const REWIRED_LISTING = [
+    { name: 'a', conclusion: 'success' },
+    { name: 'b', conclusion: 'failure' },
+    { name: 'gate', conclusion: 'failure' },
+];
+
+function standIn() {
+    const calls: string[] = [];
+    const octokit = {
+        rest: {
+            repos: {
+                getContent: async (request: { path: string; ref: string }) => {
+                    calls.push(`getContent ${request.path} @ ${request.ref}`);
+                    const yaml = REWIRED_AT[request.ref];
+                    if (yaml === undefined) throw new Error(`Not Found (${request.ref})`);
+                    return { data: yaml };
+                },
+            },
+            actions: { listJobsForWorkflowRun: 'listJobsForWorkflowRun' },
+        },
+        paginate: async (route: unknown) => {
+            calls.push(`paginate ${String(route)}`);
+            return REWIRED_LISTING;
+        },
+    };
+    return { octokit: octokit as unknown as ResolveJobGraphParams['octokit'], calls };
+}
+
+async function resolveAt(sha: string | undefined) {
+    const { octokit, calls } = standIn();
+    const lines: string[] = [];
+    const graph = await resolveChangedJobGraph({
+        octokit,
+        owner: 'octo',
+        repo: 'demo',
+        runId: 4242,
+        workflow: executedWorkflowCoordinate({ GITHUB_WORKFLOW_REF: WORKFLOW_REF, GITHUB_WORKFLOW_SHA: sha }),
+        info: (line) => lines.push(line),
+    });
+    return { graph, calls, lines };
+}
+
+// The members of `aggregator` whose own conclusion is a failure — what a fold of its red can name.
+function failedMembers(graph: DeclaredJobWire[], aggregator: string): string[] {
+    const byKey = new Map(graph.filter((job) => job.key !== '').map((job) => [job.key, job]));
+    return (byKey.get(aggregator)?.needs ?? []).filter((key) => byKey.get(key)?.conclusion === 'failure');
+}
+
+test('resolveChangedJobGraph (A1): the only contents read is at the coordinate\'s commit, and the log names it', async () => {
+    const { calls, lines } = await resolveAt(EXECUTED_SHA);
+    assert.deepEqual(
+        calls.filter((call) => call.startsWith('getContent')),
+        [`getContent .github/workflows/ci.yml @ ${EXECUTED_SHA}`],
+        `expected one read at the runner's commit; calls: ${JSON.stringify(calls)}`,
+    );
+    assert.ok(
+        lines.some((line) => line.includes(`.github/workflows/ci.yml at ${EXECUTED_SHA}`)),
+        `a successful read must log its coordinate; log: ${JSON.stringify(lines)}`,
+    );
+});
+
+test('resolveChangedJobGraph (A2): a re-wired `needs:` folds along the executed edge — and the base graph would have folded differently', async () => {
+    const executed = await resolveAt(EXECUTED_SHA);
+    assert.ok(executed.graph, `no graph at the executed commit; log: ${JSON.stringify(executed.lines)}`);
+    const executedGate = executed.graph.find((job) => job.key === 'gate');
+    assert.deepEqual(executedGate?.needs, ['b'], `executed gate: ${JSON.stringify(executedGate)}`);
+    assert.deepEqual(failedMembers(executed.graph, 'gate'), ['b'], 'the executed graph lets gate\'s red fold into b');
+
+    // Anti-vacuity: the SAME stand-in, read at the base commit, answers differently — so the arm
+    // above can only pass by reading the executed commit.
+    const base = await resolveAt(BASE_SHA);
+    assert.ok(base.graph, `no graph at the base commit; log: ${JSON.stringify(base.lines)}`);
+    const baseGate = base.graph.find((job) => job.key === 'gate');
+    assert.deepEqual(baseGate?.needs, ['a'], `base gate: ${JSON.stringify(baseGate)}`);
+    assert.deepEqual(
+        failedMembers(base.graph, 'gate'),
+        [],
+        'on the base graph gate\'s red has no failed member: the fold that the executed graph makes would not fire',
+    );
+});
+
+test('resolveChangedJobGraph (A3): no runner commit ⇒ ABSENT, zero requests, one log line naming GITHUB_WORKFLOW_SHA', async () => {
+    const { graph, calls, lines } = await resolveAt(undefined);
+    assert.equal(graph, null, `expected ABSENT, got ${JSON.stringify(graph)}`);
+    assert.deepEqual(calls, [], `no request may be made without the runner's commit; calls: ${JSON.stringify(calls)}`);
+    assert.equal(lines.length, 1, `expected exactly one log line, got ${JSON.stringify(lines)}`);
+    assert.match(lines[0]!, /^Sift: no declared job graph — GITHUB_WORKFLOW_SHA is absent or empty\./);
 });

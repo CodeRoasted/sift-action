@@ -20,7 +20,7 @@ import {
     type BaselineSpec,
 } from './baseline.js';
 import { acquiredGrainLine, fetchTargetJobLog } from './joblog.js';
-import { resolveChangedJobGraph } from './jobgraph.js';
+import { executedWorkflowCoordinate, resolveChangedJobGraph } from './jobgraph.js';
 import { upsertStickyComment, upsertCommitComment } from './comment.js';
 import { publishBaselineLog, publishReport, writeRenderedComment } from './artifact.js';
 import { renderComment } from './frame.js';
@@ -350,19 +350,16 @@ async function run(): Promise<void> {
         // untouched. The documented workflows grant no read of the workflow file, so under them the
         // fold stays inert and one log line says so.
         //
-        // The workflow YAML is read at the BASE ref on a PR — a TRUST boundary, not only a
-        // correctness one (ADR-22.D13). On a fork PR the head-ref file is CONTRIBUTOR-CONTROLLED
-        // and the run did not use it: a fork could shape the fold — and therefore the report's #1
-        // row — by editing a workflow file that never executed. Base-ref is both the correct
-        // branch and the trusted one, so do not "simplify" this back to the head ref. On a
-        // push/tag run, `github.context.sha` IS the declaration the run executed.
+        // The file is read where the RUNNER says the run loaded it, never at a ref taken from the
+        // event payload: a PR's base is not the executed file on `pull_request` (the merge commit
+        // is), and the executed file is the trusted one on every event. The argument, and the
+        // refusal of any fallback, live at `executedWorkflowCoordinate` (DN-118.D1).
         const changedJobGraph = await resolveChangedJobGraph({
             octokit,
             owner,
             repo,
             runId: github.context.runId,
-            workflowRef: process.env.GITHUB_WORKFLOW_REF,
-            contentRef: pr ? (pr.base.sha as string) : github.context.sha,
+            workflow: executedWorkflowCoordinate(process.env),
             info: core.info,
         });
         const result = await runSift({

@@ -66411,27 +66411,49 @@ function joinDeclaredJobs(declared, rendered) {
   return joined;
 }
 function workflowPathFromRef(workflowRef) {
-  if (!workflowRef) return null;
   const at = workflowRef.lastIndexOf("@refs/");
   if (at < 0) return null;
   const withOwner = workflowRef.slice(0, at);
   const path9 = withOwner.split("/").slice(2).join("/");
   return path9 || null;
 }
+var COMMIT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+function executedWorkflowCoordinate(env) {
+  const refusals = [];
+  const workflowRef = env.GITHUB_WORKFLOW_REF ?? "";
+  const workflowSha = env.GITHUB_WORKFLOW_SHA ?? "";
+  const path9 = workflowRef ? workflowPathFromRef(workflowRef) : null;
+  if (!workflowRef) {
+    refusals.push("GITHUB_WORKFLOW_REF is absent or empty");
+  } else if (!path9) {
+    refusals.push(`GITHUB_WORKFLOW_REF "${workflowRef}" names no workflow path`);
+  }
+  if (!workflowSha) {
+    refusals.push("GITHUB_WORKFLOW_SHA is absent or empty");
+  } else if (!COMMIT_ID.test(workflowSha)) {
+    refusals.push(`GITHUB_WORKFLOW_SHA "${workflowSha}" is not a commit id`);
+  }
+  if (refusals.length > 0 || !path9) {
+    return { kind: "refused", reason: refusals.join("; ") };
+  }
+  return { kind: "executed", path: path9, sha: workflowSha };
+}
 async function resolveChangedJobGraph(params) {
-  const { octokit, owner, repo, runId, workflowRef, contentRef, info: info2 } = params;
-  const path9 = workflowPathFromRef(workflowRef);
-  if (!path9) {
-    info2("Sift: no declared job graph \u2014 GITHUB_WORKFLOW_REF is absent or names no workflow path.");
+  const { octokit, owner, repo, runId, workflow, info: info2 } = params;
+  if (workflow.kind === "refused") {
+    info2(
+      `Sift: no declared job graph \u2014 ${workflow.reason}. The diff still runs; aggregator rows do not fold.`
+    );
     return null;
   }
+  const { path: path9, sha } = workflow;
   let declared;
   try {
     const response = await octokit.rest.repos.getContent({
       owner,
       repo,
       path: path9,
-      ref: contentRef,
+      ref: sha,
       mediaType: { format: "raw" }
     });
     const yaml2 = response.data;
@@ -66442,10 +66464,14 @@ async function resolveChangedJobGraph(params) {
   } catch (error2) {
     const message = error2 instanceof Error ? error2.message : String(error2);
     info2(
-      `Sift: no declared job graph \u2014 could not read ${path9}@${contentRef.slice(0, 12)} (${message}). The diff still runs; aggregator rows do not fold.`
+      `Sift: no declared job graph \u2014 could not read ${path9} at ${sha} (${message}). The diff still runs; aggregator rows do not fold.`
     );
     return null;
   }
+  const edgeCount = declared.reduce((sum, job) => sum + job.needs.length, 0);
+  info2(
+    `Sift: declared job graph read from ${path9} at ${sha} (GITHUB_WORKFLOW_SHA, the commit this run executed): ${declared.length} jobs, ${edgeCount} \`needs:\` edges.`
+  );
   if (!declaresAnEdge(declared)) {
     return joinDeclaredJobs(declared, []);
   }
@@ -102682,8 +102708,7 @@ async function run() {
       owner,
       repo,
       runId: context2.runId,
-      workflowRef: process.env.GITHUB_WORKFLOW_REF,
-      contentRef: pr ? pr.base.sha : context2.sha,
+      workflow: executedWorkflowCoordinate(process.env),
       info
     });
     const result = await runSift({

@@ -16,8 +16,8 @@
 // default schema (no code execution, no !!js types), and the bytes arrive under the contents
 // API's own response cap.
 //
-// FAIL-SOFT BY DESIGN, and absent ≠ empty: every acquisition failure (no workflow ref, an
-// unreadable file, a denied `contents: read`, a failed jobs listing) resolves to ABSENT — no flag,
+// FAIL-SOFT BY DESIGN, and absent ≠ empty: every acquisition failure (no runner coordinate for the
+// executed workflow file, an unreadable file, a denied `contents: read`, a failed jobs listing) resolves to ABSENT — no flag,
 // fold inert, run unaffected — with one log line naming the reason, because a fold that silently
 // stopped firing reads exactly like a clean run. A workflow that genuinely declares zero jobs is
 // DECLARED-EMPTY (`[]`), a different fact the engine acts on.
@@ -169,11 +169,9 @@ export function joinDeclaredJobs(
 }
 
 // `$GITHUB_WORKFLOW_REF` ("owner/repo/.github/workflows/ci.yml@refs/…") → the in-repo workflow
-// file path. The one runner-provided coordinate that names WHICH file this run executed —
-// `github.context.workflow` is the display name, which is not addressable. Null when the variable
-// is absent or not of that shape (a source that cannot answer declares nothing).
-export function workflowPathFromRef(workflowRef: string | undefined): string | null {
-    if (!workflowRef) return null;
+// file path. `github.context.workflow` is the display name, which is not addressable. Null when
+// the value is not of that shape (a source that cannot answer declares nothing).
+function workflowPathFromRef(workflowRef: string): string | null {
     const at = workflowRef.lastIndexOf('@refs/');
     if (at < 0) return null;
     const withOwner = workflowRef.slice(0, at);
@@ -181,18 +179,68 @@ export function workflowPathFromRef(workflowRef: string | undefined): string | n
     return path || null;
 }
 
+// A commit id as git spells it: SHA-1 (40 hex) or SHA-256 (64 hex). A branch or tag name is
+// refused, because the contents API would resolve it to wherever the name points NOW.
+const COMMIT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+
+// The two runner variables that name the workflow file a run executed. Passed as the runner
+// sets them (`process.env`), so no caller can substitute a ref of its own choosing.
+export interface RunnerWorkflowEnv {
+    readonly GITHUB_WORKFLOW_REF?: string | undefined;
+    readonly GITHUB_WORKFLOW_SHA?: string | undefined;
+}
+
+// The file to read and the commit to read it at, or the reason neither can be named.
+export type WorkflowCoordinate =
+    | { readonly kind: 'executed'; readonly path: string; readonly sha: string }
+    | { readonly kind: 'refused'; readonly reason: string };
+
+// WHICH declaration the fold may follow, placed where a test executes it (DN-118.D1). It lived in
+// main.ts until 2026-09-27, read a PR's workflow at `base.sha`, and no test ran it.
+//
+// The runner is the one declarer of the executed file: `GITHUB_WORKFLOW_REF` names its path and
+// `GITHUB_WORKFLOW_SHA` the commit it was loaded from. On `pull_request` that commit is the PR's
+// MERGE commit, which carries every edit the PR makes to the workflow, from a fork too; on
+// `pull_request_target` it is the base. No ref from the event payload is used, on any event:
+// `pull_request.base.sha` names a file that did not run on `pull_request`, `head.sha` is not the
+// merge commit either, and `github.context.sha` is right on `push` and wrong elsewhere. A second
+// declarer that agrees on some events is how the base read shipped.
+//
+// The executed file is also the TRUSTED one, on every event. The threat is a declaration that did
+// not run steering the report's fold. On the file that did run, a contributor controls nothing
+// beyond the run they authored: the jobs, their names, their `needs:` and every log byte Sift reads
+// come from that same file. So there is no second, "safer" ref — reading the base on a PR is the
+// threat itself, not a defence against it.
+//
+// NO FALLBACK: an absent or malformed variable refuses the coordinate, and the graph is ABSENT.
+export function executedWorkflowCoordinate(env: RunnerWorkflowEnv): WorkflowCoordinate {
+    const refusals: string[] = [];
+    const workflowRef = env.GITHUB_WORKFLOW_REF ?? '';
+    const workflowSha = env.GITHUB_WORKFLOW_SHA ?? '';
+    const path = workflowRef ? workflowPathFromRef(workflowRef) : null;
+    if (!workflowRef) {
+        refusals.push('GITHUB_WORKFLOW_REF is absent or empty');
+    } else if (!path) {
+        refusals.push(`GITHUB_WORKFLOW_REF "${workflowRef}" names no workflow path`);
+    }
+    if (!workflowSha) {
+        refusals.push('GITHUB_WORKFLOW_SHA is absent or empty');
+    } else if (!COMMIT_ID.test(workflowSha)) {
+        refusals.push(`GITHUB_WORKFLOW_SHA "${workflowSha}" is not a commit id`);
+    }
+    if (refusals.length > 0 || !path) {
+        return { kind: 'refused', reason: refusals.join('; ') };
+    }
+    return { kind: 'executed', path, sha: workflowSha };
+}
+
 export interface ResolveJobGraphParams {
     octokit: Octokit;
     owner: string;
     repo: string;
     runId: number;
-    /** `process.env.GITHUB_WORKFLOW_REF` — names the workflow file this run executed. */
-    workflowRef: string | undefined;
-    /**
-     * The ref the workflow YAML is read at — the TRUSTED one, chosen by the caller (main.ts
-     * states the ADR-22.D13 trust argument where the choice is made).
-     */
-    contentRef: string;
+    /** The executed workflow file, from `executedWorkflowCoordinate(process.env)`. */
+    workflow: WorkflowCoordinate;
     info: (message: string) => void;
 }
 
@@ -201,13 +249,16 @@ export interface ResolveJobGraphParams {
 export async function resolveChangedJobGraph(
     params: ResolveJobGraphParams,
 ): Promise<DeclaredJobWire[] | null> {
-    const { octokit, owner, repo, runId, workflowRef, contentRef, info } = params;
+    const { octokit, owner, repo, runId, workflow, info } = params;
 
-    const path = workflowPathFromRef(workflowRef);
-    if (!path) {
-        info('Sift: no declared job graph — GITHUB_WORKFLOW_REF is absent or names no workflow path.');
+    if (workflow.kind === 'refused') {
+        info(
+            `Sift: no declared job graph — ${workflow.reason}. The diff still runs; aggregator ` +
+                'rows do not fold.',
+        );
         return null;
     }
+    const { path, sha } = workflow;
 
     let declared: DeclaredJobRecord[];
     try {
@@ -217,7 +268,7 @@ export async function resolveChangedJobGraph(
             owner,
             repo,
             path,
-            ref: contentRef,
+            ref: sha,
             mediaType: { format: 'raw' },
         });
         const yaml = response.data;
@@ -228,11 +279,18 @@ export async function resolveChangedJobGraph(
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         info(
-            `Sift: no declared job graph — could not read ${path}@${contentRef.slice(0, 12)} ` +
+            `Sift: no declared job graph — could not read ${path} at ${sha} ` +
                 `(${message}). The diff still runs; aggregator rows do not fold.`,
         );
         return null;
     }
+    // The coordinate is stated on every successful read, so a run's log says which commit its fold
+    // followed — the one fact a reader needs to check a fold row against the workflow that ran.
+    const edgeCount = declared.reduce((sum, job) => sum + job.needs.length, 0);
+    info(
+        `Sift: declared job graph read from ${path} at ${sha} (GITHUB_WORKFLOW_SHA, the commit ` +
+            `this run executed): ${declared.length} jobs, ${edgeCount} \`needs:\` edges.`,
+    );
 
     // No edge anywhere ⇒ the fold cannot fire whatever the join resolves, so the jobs listing is
     // pure cost. The declarations still travel: they are a true statement about this run, and an
