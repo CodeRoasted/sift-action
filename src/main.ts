@@ -19,8 +19,13 @@ import {
     resolveBaseline,
     type BaselineSpec,
 } from './baseline.js';
-import { acquiredGrainLine, fetchTargetJobLog } from './joblog.js';
-import { executedWorkflowCoordinate, resolveChangedJobGraph } from './jobgraph.js';
+import { acquiredGrainLine, fetchTargetJobLog, type AcquiredGrain } from './joblog.js';
+import {
+    ONE_JOB_GRAIN_NO_GRAPH_LINE,
+    executedWorkflowCoordinate,
+    resolveChangedJobGraph,
+    type DeclaredJobWire,
+} from './jobgraph.js';
 import { upsertStickyComment, upsertCommitComment } from './comment.js';
 import { publishBaselineLog, publishReport, writeRenderedComment } from './artifact.js';
 import { renderComment } from './frame.js';
@@ -211,6 +216,9 @@ async function run(): Promise<void> {
     // The native verdict token this run forwards to the engine ('' = none — the
     // engine's run-outcome ladder (ADR-17.D5) falls to the console tail, then Unknown).
     let changedOutcome = rawChangedOutcome === 'auto' ? '' : rawChangedOutcome;
+    // The grain this step acquired (ADR-14.D8). One value decides both the grain line below and
+    // whether the declared job graph is read (DN-118.D4).
+    let grain: AcquiredGrain;
     if (targetJob) {
         // Zero-plumbing sourcing: pull the finished build job's log off the API
         // (run Sift in a job that `needs:` it), timestamps stripped, capture
@@ -232,9 +240,7 @@ async function run(): Promise<void> {
         core.info(
             `Sift: sourced the log from job "${targetJob}" (capture: ${capture}, changed-outcome: ${changedOutcome || '(none)'}).`,
         );
-        core.info(
-            acquiredGrainLine({ kind: 'job', jobName: jobLog.jobName, runJobCount: jobLog.runJobCount }),
-        );
+        grain = { kind: 'job', jobName: jobLog.jobName, runJobCount: jobLog.runJobCount };
     } else {
         // Bounded off the filesystem, before the copy — the cheapest possible refusal, and the
         // one place where the size is known without reading anything. The engine refuses this
@@ -253,8 +259,9 @@ async function run(): Promise<void> {
             return;
         }
         await fs.copyFile(logInput, changedLog); // the captured current-run log = changed.log
-        core.info(acquiredGrainLine({ kind: 'file', path: logInput }));
+        grain = { kind: 'file', path: logInput };
     }
+    core.info(acquiredGrainLine(grain));
 
     // PR vs push differ ONLY in the comment surface (sticky vs commit), its level, the baseline
     // branch, and the head sha. The diff, the job summary, the outputs, and the gate are shared.
@@ -347,21 +354,29 @@ async function run(): Promise<void> {
         // The CHANGED run's declared `needs:` job graph (jobgraph.ts — the ADR-22.D13 wire), so the
         // engine can fold a required-check aggregator row into the member that actually failed.
         // Fail-soft: acquisition failure ⇒ null ⇒ no flag ⇒ the fold is inert and the run is
-        // untouched. The documented workflows grant no read of the workflow file, so under them the
-        // fold stays inert and one log line says so.
+        // untouched.
+        //
+        // Read only for a `log:` file (DN-118.D4). The fold needs rows from two jobs; a
+        // `target-job` diff holds one, where every fold row the engine can mint names the wrong
+        // job, so that grain spends no contents read, no jobs listing and no permission on it.
         //
         // The file is read where the RUNNER says the run loaded it, never at a ref taken from the
         // event payload: a PR's base is not the executed file on `pull_request` (the merge commit
         // is), and the executed file is the trusted one on every event. The argument, and the
         // refusal of any fallback, live at `executedWorkflowCoordinate` (DN-118.D1).
-        const changedJobGraph = await resolveChangedJobGraph({
-            octokit,
-            owner,
-            repo,
-            runId: github.context.runId,
-            workflow: executedWorkflowCoordinate(process.env),
-            info: core.info,
-        });
+        let changedJobGraph: DeclaredJobWire[] | null = null;
+        if (grain.kind === 'job') {
+            core.info(ONE_JOB_GRAIN_NO_GRAPH_LINE);
+        } else {
+            changedJobGraph = await resolveChangedJobGraph({
+                octokit,
+                owner,
+                repo,
+                runId: github.context.runId,
+                workflow: executedWorkflowCoordinate(process.env),
+                info: core.info,
+            });
+        }
         const result = await runSift({
             siftBin,
             baselineLog: baseline.logPath,

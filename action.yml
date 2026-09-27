@@ -12,7 +12,8 @@ inputs:
       tee/capture shell needed in the build job. Run Sift in a separate job that `needs:` the target
       (the API serves logs for completed jobs only; the target's own conclusion then also gives you
       `changed-outcome` for free). The runner's per-line timestamps are stripped; `capture` selects
-      marked sections. Mutually exclusive with `log` (target-job wins).
+      marked sections. Mutually exclusive with `log` (target-job wins). Passes no `needs:` job graph:
+      the required-check fold needs rows from two jobs, and this source diffs one.
     required: false
     default: ''
   capture:
@@ -24,7 +25,12 @@ inputs:
     required: false
     default: 'auto'
   log:
-    description: 'Path to the current run''s captured log to diff (the build/CI log). Required for mode comment|render unless `target-job` is set; unused for mode post.'
+    description: >-
+      Path to the current run's captured log to diff (the build/CI log). Required for mode
+      comment|render unless `target-job` is set; unused for mode post. With `log`, the Action also
+      passes the workflow's declared `needs:` graph, read at the commit this run executed with the
+      `contents: read` permission, so the engine can fold a red aggregator job into the member that
+      failed. A fold row appears only when the file holds several jobs' logs.
     required: false
     # Override only. By default the Action downloads + sha256-verifies the
     # version-pinned `sift-linux-x64` release asset (resolve-sift.ts). Set this to
@@ -207,10 +213,11 @@ outputs:
 # baseline-log artifact (the runner's runtime token, not `github-token`), in the fork
 # `render` job too.
 #   contents: write     — ONLY if commit-comment is set (push-mode commit comments); else omit
-# Not requested: `contents: read`. The Action diffs one job's log and needs no repository file.
-# Its one optional repository read, the workflow's `needs:` graph, serves only the aggregator
-# fold, which needs findings from two jobs, so the grant buys nothing until the Action diffs the
-# whole run.
+# Not requested by the documented workflows: `contents: read`. With `target-job` the Action reads
+# no repository file. With `log:` it reads one, the workflow's declared `needs:` graph at the commit
+# the run executed, for the aggregator fold; that fold needs rows from two jobs, so it can fire only
+# when the `log:` file holds several jobs' logs. Without the grant the read may be refused: the log
+# says so, and the diff runs unfolded.
 # Fork PRs get a read-only token: the comment/artifact writes degrade with a
 # warning (the advisory gate still applies).
 

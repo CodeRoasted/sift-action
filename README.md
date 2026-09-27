@@ -50,14 +50,26 @@ The first green run on the base branch seeds the baseline; every PR gets a diff
 automatically thereafter (self-bootstrapping). No prior green run ⇒ an honest
 "no baseline yet" comment.
 
-**Sift diffs one job today, not the whole run.** Each Sift step compares the log of
-the one job it is pointed at (`target-job`, or the file you pass as `log:`) with
-that job's log from the baseline run; the logs of the run's other jobs are not
-read. Diffing the whole run is what comes next: every job in one comparison, so a
+**Sift diffs one job today, not the whole run.** With `target-job`, each Sift step
+compares the log of that one job with the same job's log from the baseline run; the
+logs of the run's other jobs are not read. With `log:`, it compares exactly what the
+file holds. Diffing the whole run is what comes next: every job in one comparison, so a
 job added or removed, or a failure that moves from one job to another, reads as
 one structural change.
 Every Sift step's log says which grain it acquired, e.g. `Sift: grain — acquired 1
 job of the 7 this run lists ("build")`.
+
+**The required-check fold needs several jobs' logs.** When an aggregator job (one that
+only `needs:` others, such as a "required checks" gate) goes red, the engine can replace
+its rows with one row naming the member job that actually failed. It needs the
+workflow's declared `needs:` graph and rows from both jobs. The Action passes that graph
+only when it diffs a `log:` file: it reads the workflow file at the commit this run
+executed, with the `contents: read` permission, and a refused read is logged and leaves
+the diff unfolded. With `target-job` it passes none, because that mode diffs one job and
+a fold row there could only name the wrong job; its log says ``Sift: no declared job
+graph — this run diffs one job's log, and the `needs:` fold needs rows from two
+jobs.`` So a fold row appears only when a `log:` file holds several jobs' logs. The
+whole-run mode is planned.
 
 ## Advanced usage
 
@@ -375,7 +387,7 @@ a local shell.
 |---|---|---|---|
 | `target-job` | no | _(none)_ | Zero-plumbing sourcing: diff the log of this finished job (run Sift in a job that `needs:` it). Wins over `log`. See [Capturing the log](#capturing-the-log). |
 | `capture` | no | `auto` | With `target-job`: `auto` (SIFT_CAPTURE sections if any, else whole log) \| `off` \| `<name>` (that section only; absent ⇒ the run fails). |
-| `log` | unless `target-job` | — | Path to the captured current-run log to diff. |
+| `log` | unless `target-job` | — | Path to the captured current-run log to diff. The only source for which the Action passes the workflow's `needs:` graph (see [the required-check fold](#usage)). |
 | `sift-binary` | no | _(auto)_ | Override path to a `sift` binary. Default: download + sha256-verify the version-pinned `sift-linux-x64` release asset. |
 | `fail-on` | no | `none` | `none` \| `significant` \| `regression` — advisory gate (exit code only; the comment never says "blocked"). |
 | `explain` | no | `false` | `true` opts into an AI narrative header: the Action provisions a pinned, checksum-verified **local** model + server (no credential, fork-safe — nothing leaves the runner) and adds a short plain-English story. Advisory + fail-soft — never blocks or changes the gate, and provisioning is bounded at 15 minutes so it cannot stall your run. Adds a ~2.4 GB model download (cache it — see [Explain](#explain-opt-in-ai-narrative)) + a few seconds of CPU. |
@@ -429,6 +441,7 @@ root — never re-authored here.
 - `src/verdict.ts` — the four-state machine (cold-start / clean / drift / regression).
 - `src/baseline.ts` — baseline source selection (auto / branch= / artifact= / path= / none) via the GitHub API.
 - `src/joblog.ts` — `target-job` log sourcing: job lookup, timestamp strip, SIFT_CAPTURE slicing, the native-conclusion token for `changed-outcome: auto`.
+- `src/jobgraph.ts` — the workflow's declared `needs:` graph, read at the commit the runner names as executed (`GITHUB_WORKFLOW_SHA`), for a `log:` file only.
 - `src/sift.ts` — engine invocation (`--format both`, `--fail-on`).
 - `src/comment.ts` — sticky-comment upsert. `src/artifact.ts` — baseline publish, the `sift-report` upload, and the fork render/post transport.
 - `src/main.ts` — orchestration.

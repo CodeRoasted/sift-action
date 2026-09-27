@@ -195,8 +195,9 @@ async function main(): Promise<void> {
     // ── A′) the `--changed-job-graph` coordinate, in its three ship shapes ───────────────────
     // The graph is the wire jobgraph.ts produces (ADR-22.D13), and each shape below is one the
     // Action REALLY emits — not a synthetic corner. The verdict cells above stay graph-FREE
-    // because acquisition-absent is itself a ship shape (a denied `contents: read`, a missing
-    // GITHUB_WORKFLOW_REF or GITHUB_WORKFLOW_SHA), so both halves of the conditional stay driven on the real engine.
+    // because acquisition-absent is itself a ship shape (every `target-job` run, a denied
+    // `contents: read`, a missing GITHUB_WORKFLOW_REF or GITHUB_WORKFLOW_SHA), so both halves of the
+    // conditional stay driven on the real engine.
     const GRAPH_CELLS: ReadonlyArray<{
         name: string;
         jobs: DeclaredJobWire[];

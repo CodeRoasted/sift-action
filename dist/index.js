@@ -66438,6 +66438,7 @@ function executedWorkflowCoordinate(env) {
   }
   return { kind: "executed", path: path9, sha: workflowSha };
 }
+var ONE_JOB_GRAIN_NO_GRAPH_LINE = "Sift: no declared job graph \u2014 this run diffs one job's log, and the `needs:` fold needs rows from two jobs.";
 async function resolveChangedJobGraph(params) {
   const { octokit, owner, repo, runId, workflow, info: info2 } = params;
   if (workflow.kind === "refused") {
@@ -102618,6 +102619,7 @@ async function run() {
   const workDir = await fs13.mkdtemp(path8.join(os8.tmpdir(), "sift-"));
   const changedLog = path8.join(workDir, "changed.log");
   let changedOutcome = rawChangedOutcome === "auto" ? "" : rawChangedOutcome;
+  let grain;
   if (targetJob) {
     const capture = getInput("capture") || "auto";
     const jobLog = await fetchTargetJobLog({
@@ -102635,9 +102637,7 @@ async function run() {
     info(
       `Sift: sourced the log from job "${targetJob}" (capture: ${capture}, changed-outcome: ${changedOutcome || "(none)"}).`
     );
-    info(
-      acquiredGrainLine({ kind: "job", jobName: jobLog.jobName, runJobCount: jobLog.runJobCount })
-    );
+    grain = { kind: "job", jobName: jobLog.jobName, runJobCount: jobLog.runJobCount };
   } else {
     const logStat = await fs13.stat(logInput);
     if (logStat.size > MAX_CHANGED_LOG_BYTES) {
@@ -102647,8 +102647,9 @@ async function run() {
       return;
     }
     await fs13.copyFile(logInput, changedLog);
-    info(acquiredGrainLine({ kind: "file", path: logInput }));
+    grain = { kind: "file", path: logInput };
   }
+  info(acquiredGrainLine(grain));
   const pr = context2.payload.pull_request;
   const isTagRef = context2.ref.startsWith("refs/tags/");
   const defaultBranch = context2.payload.repository?.default_branch ?? "main";
@@ -102703,14 +102704,19 @@ async function run() {
     if (explain) {
       await provisionExplain(siftBin);
     }
-    const changedJobGraph = await resolveChangedJobGraph({
-      octokit,
-      owner,
-      repo,
-      runId: context2.runId,
-      workflow: executedWorkflowCoordinate(process.env),
-      info
-    });
+    let changedJobGraph = null;
+    if (grain.kind === "job") {
+      info(ONE_JOB_GRAIN_NO_GRAPH_LINE);
+    } else {
+      changedJobGraph = await resolveChangedJobGraph({
+        octokit,
+        owner,
+        repo,
+        runId: context2.runId,
+        workflow: executedWorkflowCoordinate(process.env),
+        info
+      });
+    }
     const result = await runSift({
       siftBin,
       baselineLog: baseline.logPath,
