@@ -22,7 +22,7 @@ import {
 import { acquiredGrainLine, fetchTargetJobLog } from './joblog.js';
 import { resolveChangedJobGraph } from './jobgraph.js';
 import { upsertStickyComment, upsertCommitComment } from './comment.js';
-import { publishBaselineLog, writeRenderedComment } from './artifact.js';
+import { publishBaselineLog, publishReport, writeRenderedComment } from './artifact.js';
 import { renderComment } from './frame.js';
 import { runPoster } from './poster.js';
 import { resolveSift } from './resolve-sift.js';
@@ -34,6 +34,8 @@ import {
     MAX_CHANGED_LOG_BYTES,
     MAX_ENGINE_LINE_BYTES,
     SIFT_COMMENT_DIR,
+    reportArtifactName,
+    type ReportArtifact,
     type SiftCommentContext,
     type SiftReport,
 } from './types.js';
@@ -384,7 +386,29 @@ async function run(): Promise<void> {
     } else {
         core.info(`Sift: cold start — no baseline on \`${baseBranch}\` yet.`);
     }
-    const body = renderComment(report, context);
+    // The full report as this run's artifact, on every run that has one, BEFORE the comment is
+    // rendered: the comment names the artifact only once it exists, so a failed upload leaves a
+    // comment without the pointer, never a pointer to nothing. A failure is a warning, never a
+    // failed step — the comment, summary and gate do not depend on it.
+    let reportArtifact: ReportArtifact | undefined;
+    if (report) {
+        const name = reportArtifactName(commentTag);
+        try {
+            await publishReport(reportJsonPath, report.markdown, name);
+            reportArtifact = {
+                name,
+                run_url: `${github.context.serverUrl}/${owner}/${repo}/actions/runs/${github.context.runId}`,
+            };
+            core.info(`Sift: uploaded the full report as the \`${name}\` artifact.`);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            core.warning(
+                `Sift: could not upload the \`${name}\` report artifact (${message}). The comment ` +
+                    'does not point at it; the full report is still this step\'s `report-path` output.',
+            );
+        }
+    }
+    const body = renderComment(report, { ...context, report_artifact: reportArtifact });
     const state = selectState(report);
 
     // ALWAYS retrievable: the job summary + machine-readable outputs are written every run,

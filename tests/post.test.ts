@@ -106,3 +106,42 @@ test('writeRenderedComment stamps should_post so the poster can honour pr-commen
     await writeRenderedComment('body', 'abc1234', dir, true);
     assert.equal((await read()).should_post, true, 'at/above-threshold render must stamp should_post=true');
 });
+
+// ── The `sift-report` artifact (DN-116.D1): the full report the comment projects ──
+
+import { publishReport } from '../src/artifact.js';
+
+test('publishReport uploads report.json byte-identical to the engine output, plus its markdown', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-report-test-'));
+    const reportJsonPath = path.join(dir, 'report.json');
+    // Bytes a re-serialisation would not reproduce: key order, spacing, an escaped slash.
+    const engineBytes = '{"b":1,  "a":"x\\/y","markdown":"# M\\n"}\n';
+    await fs.writeFile(reportJsonPath, engineBytes, 'utf8');
+    const uploads: { name: string; files: Record<string, string>; root: string }[] = [];
+    const client = {
+        uploadArtifact: async (name: string, files: string[], root: string) => {
+            const read: Record<string, string> = {};
+            for (const file of files) read[path.relative(root, file)] = await fs.readFile(file, 'utf8');
+            uploads.push({ name, files: read, root });
+            return { id: 1, size: 0 };
+        },
+    };
+    await publishReport(reportJsonPath, '# M\n', 'sift-report', client);
+    assert.equal(uploads.length, 1, `uploads: ${uploads.length}`);
+    assert.equal(uploads[0]?.name, 'sift-report');
+    assert.deepEqual(uploads[0]?.files, { 'report.json': engineBytes, 'report.md': '# M\n' });
+});
+
+test('publishReport uploads report.json alone when the report carries no markdown', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-report-test-'));
+    const reportJsonPath = path.join(dir, 'report.json');
+    await fs.writeFile(reportJsonPath, '{}', 'utf8');
+    let listed: string[] = [];
+    await publishReport(reportJsonPath, undefined, 'sift-report-vs-prev', {
+        uploadArtifact: async (_name: string, files: string[], root: string) => {
+            listed = files.map((file) => path.relative(root, file));
+            return { id: 1, size: 0 };
+        },
+    });
+    assert.deepEqual(listed, ['report.json']);
+});

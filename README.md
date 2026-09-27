@@ -127,6 +127,12 @@ created: re-running an older run does not make it newer. Every part of that is o
 - **`baseline`** selects the source: `auto` · `branch=<name>` · `artifact=<name>` (a **named
   baseline** — the newest non-expired artifact with that exact name, repo-wide) · `path=<file>`
   (bring your own) · `none` (forced cold start / seed-only).
+  GitHub lists artifacts in no documented order, so `artifact=<name>` reads **every** artifact of
+  that name (100 per request) and picks the newest by creation time, ties to the larger id. It
+  reads **at most 1 000** (10 requests): past that, the run is a cold start whose warning names the
+  count and the remedies (lower the repository's artifact retention, or use `branch=<name>`). If the
+  listing changes while it is being read, the run is a cold start that names both counts, never a
+  guess.
 - **`baseline-name`** names the artifact this run **publishes** its log under (and what
   `auto`/`branch=` look for on the resolved run). Compose per-job / per-PR names with expressions.
 - **`publish-baseline`** controls seeding: `auto` (PRs always; pushes/tags green-gated) ·
@@ -147,6 +153,27 @@ seeds `sift-baseline-main-build`; PRs and tag builds resolve it by name from any
 canonical topology — main/tag runs diff vs the main baseline and re-seed it; PR runs diff vs main
 **and** vs their own previous run — is in
 [`examples/baselines/ci.yml`](examples/baselines/ci.yml).
+
+## The comment and the full report
+
+GitHub refuses a comment over 65,536 characters and posts nothing, and one log line can be far
+longer than that. So the comment is a **bounded projection** of the report, never the report cut
+at the end:
+
+- **Each row's text is shown up to 1,024 bytes**, and its `where` location up to 256 bytes, both
+  counted after escaping. A longer row ends in a marker saying how much was left out and which
+  template it is, e.g. `` … [+68,976 B not shown; template h:7f3a…, full text in the `sift-report` artifact] ``.
+  A row within the cap is shown whole, with no marker.
+- **The full report is embedded in the collapsed block only when the whole comment then fits.**
+  Otherwise the block holds one line giving the report's size and pointing at the artifact. It is
+  never embedded in part.
+- **The full report is uploaded on every run that has one** as the **`sift-report`** workflow
+  artifact (`sift-report-<comment-tag>` with a `comment-tag`): `report.json` exactly as the engine
+  wrote it, and `report.md`, its markdown. The comment footer links to it. It is the content the
+  comment already shows, so the fork `render` job uploads it too. If the upload fails, the step
+  warns and the comment does not point at it; `report-path` still holds the report.
+
+The report itself caps nothing: every row is written whole, in the artifact.
 
 ## Inline annotations
 
@@ -380,7 +407,7 @@ Set on **every** run, whatever the comment config — branch on them in a later 
 | `outcome-regressed` | `true` when the run verdict got strictly worse (`Success < Unstable < Failure`; Aborted/Unknown excluded). |
 | `baseline-age-hours` | Resolved baseline's age in whole hours; empty when unknown (cold start, `path=` baseline, pre-sidecar artifact) — never 0-for-unknown. |
 | `baseline-stale` | `true` when a `baseline-max-age` bound is in force and the resolved baseline exceeds it, else `false`. Advisory — it never fails the step. |
-| `report-path` | Path to this run's `report.json` on a stable, cross-step location (empty on cold start). A later step on the **same runner** can narrate it with `sift explain --report <path>` — same content as the comment; no credential. |
+| `report-path` | Path to this run's `report.json` on a stable, cross-step location (empty on cold start). A later step on the **same runner** can narrate it with `sift explain --report <path>` — same content as the comment; no credential. The same report is the run's `sift-report` artifact ([The comment and the full report](#the-comment-and-the-full-report)). |
 
 ## Architecture
 
@@ -396,13 +423,14 @@ root — never re-authored here.
   every row; a row keeps only what the heading cannot carry — its `regression` / `recovery`
   direction. The **hottest section opens by default** so the incident is readable at the top of
   the comment; every other section, and the full report, starts collapsed. Grouping is framing:
-  no row's text is touched.
+  no row's text is touched. The comment is composed within GitHub's size limit by construction
+  ([The comment and the full report](#the-comment-and-the-full-report)), and every elision is declared.
 - `src/annotations.ts` — the pure check-run annotation builder + the workflow-command encoder (the stdout-surface trust boundary, the `escapeInline` analogue).
 - `src/verdict.ts` — the four-state machine (cold-start / clean / drift / regression).
 - `src/baseline.ts` — baseline source selection (auto / branch= / artifact= / path= / none) via the GitHub API.
 - `src/joblog.ts` — `target-job` log sourcing: job lookup, timestamp strip, SIFT_CAPTURE slicing, the native-conclusion token for `changed-outcome: auto`.
 - `src/sift.ts` — engine invocation (`--format both`, `--fail-on`).
-- `src/comment.ts` — sticky-comment upsert. `src/artifact.ts` — baseline publish.
+- `src/comment.ts` — sticky-comment upsert. `src/artifact.ts` — baseline publish, the `sift-report` upload, and the fork render/post transport.
 - `src/main.ts` — orchestration.
 
 ## Develop

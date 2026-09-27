@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveBaseline, type ResolveParams } from '../src/baseline.js';
+import { MAX_ARTIFACT_PAGES, newestNamedArtifact, resolveBaseline, type ResolveParams } from '../src/baseline.js';
 
 function params(octokit: unknown, over: Partial<ResolveParams> = {}): ResolveParams {
     return {
@@ -166,10 +166,12 @@ test('artifact=<name>: newest live artifact resolves repo-wide; expired + own-ru
                     assert.equal(args.name, 'sift-baseline-main-build');
                     return {
                         data: {
+                            total_count: 3,
                             artifacts: [
-                                // newest first, as the API returns them
-                                { id: 3, expired: false, workflow_run: { id: 1 } }, // THIS run — skip
-                                { id: 2, expired: true, workflow_run: { id: 90 } }, // expired — skip
+                                // The two skipped entries are newer than the live one: a skip that
+                                // did not happen would pick them.
+                                { id: 3, expired: false, created_at: '2026-07-03T00:00:00Z', workflow_run: { id: 1 } }, // THIS run — skip
+                                { id: 2, expired: true, created_at: '2026-07-02T00:00:00Z', workflow_run: { id: 90 } }, // expired — skip
                                 {
                                     id: 1,
                                     expired: false,
@@ -208,6 +210,7 @@ test('the stamped sidecar rides back: outcome token verbatim, log entry selected
                 listWorkflowRunArtifacts: unreached,
                 listArtifactsForRepo: async () => ({
                     data: {
+                        total_count: 1,
                         artifacts: [
                             {
                                 id: 1,
@@ -241,7 +244,7 @@ test('artifact=<name>: no live artifact is a normal cold start (null)', async ()
                 getWorkflowRun: unreached,
                 listWorkflowRuns: unreached,
                 listWorkflowRunArtifacts: unreached,
-                listArtifactsForRepo: async () => ({ data: { artifacts: [] } }),
+                listArtifactsForRepo: async () => ({ data: { total_count: 0, artifacts: [] } }),
                 downloadArtifact: unreached,
             },
         },
@@ -531,4 +534,185 @@ test('a window that omits the run the page already showed is a contradictory API
     ]);
     assert.equal(await resolveBaseline(params(octokit)), null);
     assert.deepEqual(artifactRuns, [], `no run may be read as the baseline, read ${artifactRuns.join(',')}`);
+});
+
+// ── Which named artifact is the baseline (the artifacts endpoint documents NO ordering) ──
+//
+// `listArtifactsForRepo` takes `name`, `per_page` and `page` and nothing else: no sort, no
+// `created` filter, so the green-run window above has no equivalent. The newest live artifact
+// of the name is ESTABLISHED by reading every page (100 a page, at most 10 pages) and sorting
+// locally by `created_at`, then `id`. Past the ceiling, or when `total_count` moves between
+// pages, the resolution refuses to a cold start that names why. The artifact the resolver
+// picked is read back from the download it asked for.
+
+interface StubArtifact {
+    id: number;
+    expired: boolean;
+    created_at: string;
+    workflow_run: { id: number; head_sha: string; head_branch: string };
+}
+
+const named = (id: number, createdAt: string, expired = false): StubArtifact => ({
+    id,
+    expired,
+    created_at: createdAt,
+    workflow_run: { id: id + 10_000, head_sha: `sha${id}`, head_branch: 'main' },
+});
+
+// Serves `pages[page - 1]` for each call's `page` argument (1-based, as the API numbers them),
+// records every call's arguments and every download.
+function artifactsOctokit(pages: { total_count: number; artifacts: StubArtifact[] }[]) {
+    const calls: Record<string, unknown>[] = [];
+    const downloads: number[] = [];
+    const octokit = {
+        rest: {
+            actions: {
+                getWorkflowRun: unreached,
+                listWorkflowRuns: unreached,
+                listWorkflowRunArtifacts: unreached,
+                listArtifactsForRepo: async (args: Record<string, unknown>) => {
+                    calls.push(args);
+                    const page = pages[Number(args.page ?? 1) - 1];
+                    if (!page) throw new Error(`page ${String(args.page)} requested, the stub serves ${pages.length}`);
+                    return { data: page };
+                },
+                downloadArtifact: async (args: { artifact_id: number }) => {
+                    downloads.push(args.artifact_id);
+                    return baselineZip('named baseline\n');
+                },
+            },
+        },
+    };
+    return { octokit: octokit as unknown as ResolveParams['octokit'], calls, downloads };
+}
+
+const namedSpec = { kind: 'artifact', name: 'sift-baseline-main-build' } as const;
+
+test('artifact=<name>: a page served OLDEST first still resolves the newest live artifact', async () => {
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const { octokit, calls, downloads } = artifactsOctokit([
+        {
+            total_count: 3,
+            artifacts: [
+                named(11, '2026-09-20T08:00:00Z'),
+                named(12, '2026-09-23T08:00:00Z'),
+                named(13, '2026-09-26T08:00:00Z'),
+            ],
+        },
+    ]);
+    const resolved = await resolveBaseline(params(octokit, { spec: namedSpec, workDir }));
+    assert.ok(resolved, 'three live artifacts exist — a cold start here is a defect');
+    assert.deepEqual(downloads, [13], `downloaded ${downloads.join(',')}; the newest by created_at is 13 (11 is position 0)`);
+    assert.equal(resolved.meta.created_at, '2026-09-26T08:00:00Z');
+    assert.equal(calls.length, 1, `one page holds every artifact, made ${calls.length} calls`);
+    assert.equal(calls[0]?.per_page, 100, `asked per_page=${String(calls[0]?.per_page)}`);
+    assert.equal(calls[0]?.name, 'sift-baseline-main-build');
+});
+
+test('artifact=<name>: equal created_at stamps break on the larger id', async () => {
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const { octokit, downloads } = artifactsOctokit([
+        { total_count: 2, artifacts: [named(21, '2026-09-26T08:00:00Z'), named(22, '2026-09-26T08:00:00Z')] },
+    ]);
+    assert.ok(await resolveBaseline(params(octokit, { spec: namedSpec, workDir })));
+    assert.deepEqual(downloads, [22], `downloaded ${downloads.join(',')}, expected the larger id 22`);
+});
+
+test('artifact=<name>: 150 artifacts with the newest on page 2 — both pages read, the newest picked', async () => {
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const pageOne = Array.from({ length: 100 }, (_, i) =>
+        named(1_000 + i, `2026-08-${String(1 + (i % 28)).padStart(2, '0')}T08:00:00Z`),
+    );
+    const pageTwo = Array.from({ length: 50 }, (_, i) =>
+        named(2_000 + i, `2026-07-${String(1 + (i % 28)).padStart(2, '0')}T08:00:00Z`),
+    );
+    pageTwo[17] = named(2_017, '2026-09-26T08:00:00Z');
+    pageTwo[18] = named(2_018, '2026-09-27T08:00:00Z', true); // newer, but expired — skipped
+    const { octokit, calls, downloads } = artifactsOctokit([
+        { total_count: 150, artifacts: pageOne },
+        { total_count: 150, artifacts: pageTwo },
+    ]);
+    const resolved = await resolveBaseline(params(octokit, { spec: namedSpec, workDir }));
+    assert.ok(resolved);
+    assert.deepEqual(downloads, [2_017], `downloaded ${downloads.join(',')}, expected 2017 from page 2`);
+    assert.deepEqual(
+        calls.map((call) => call.page),
+        [1, 2],
+        `pages requested: ${calls.map((call) => String(call.page)).join(',')}`,
+    );
+});
+
+test('artifact=<name>: 1 001 artifacts is past the 10-page ceiling — refused, cold start, no download', async () => {
+    const { octokit, calls, downloads } = artifactsOctokit([
+        { total_count: 1_001, artifacts: Array.from({ length: 100 }, (_, i) => named(i + 1, '2026-09-01T08:00:00Z')) },
+    ]);
+    assert.equal(await resolveBaseline(params(octokit, { spec: namedSpec })), null);
+    assert.deepEqual(downloads, [], `no artifact may be read as the baseline, read ${downloads.join(',')}`);
+    assert.equal(calls.length, 1, `the ceiling is known from page 1's total_count; made ${calls.length} calls`);
+    assert.equal(MAX_ARTIFACT_PAGES, 10);
+    const scan = await newestNamedArtifact(artifactsOctokit([{ total_count: 1_001, artifacts: [] }]).octokit, 'o', 'r', 'sift-baseline-main-build', 1);
+    assert.equal(scan.kind, 'refused', `scan was ${scan.kind}`);
+    assert.match(
+        scan.kind === 'refused' ? scan.reason : '',
+        /^1001 artifacts named `sift-baseline-main-build`; the Action reads at most 1000 to establish the newest\. .*`branch=<name>`$/,
+    );
+});
+
+test('artifact=<name>: total_count moving between pages is refused, naming both counts', async () => {
+    const pageOne = Array.from({ length: 100 }, (_, i) => named(i + 1, '2026-09-01T08:00:00Z'));
+    const { octokit, downloads } = artifactsOctokit([
+        { total_count: 150, artifacts: pageOne },
+        { total_count: 151, artifacts: [named(500, '2026-09-26T08:00:00Z')] },
+    ]);
+    assert.equal(await resolveBaseline(params(octokit, { spec: namedSpec })), null);
+    assert.deepEqual(downloads, [], `no artifact may be read as the baseline, read ${downloads.join(',')}`);
+    const again = artifactsOctokit([
+        { total_count: 150, artifacts: pageOne },
+        { total_count: 151, artifacts: [named(500, '2026-09-26T08:00:00Z')] },
+    ]);
+    const scan = await newestNamedArtifact(again.octokit, 'o', 'r', 'n', 1);
+    assert.equal(scan.kind === 'refused' ? scan.reason : scan.kind, 'the artifacts named `n` moved while they were read: page 1 counted 150, page 2 counts 151, so the newest cannot be established');
+});
+
+test('artifact=<name>: a listing that ends before total_count is refused, never read as complete', async () => {
+    const { octokit, downloads } = artifactsOctokit([
+        { total_count: 150, artifacts: Array.from({ length: 100 }, (_, i) => named(i + 1, '2026-09-01T08:00:00Z')) },
+        { total_count: 150, artifacts: [] },
+    ]);
+    assert.equal(await resolveBaseline(params(octokit, { spec: namedSpec })), null);
+    assert.deepEqual(downloads, []);
+    const scan = await newestNamedArtifact(
+        artifactsOctokit([
+            { total_count: 150, artifacts: Array.from({ length: 100 }, (_, i) => named(i + 1, '2026-09-01T08:00:00Z')) },
+            { total_count: 150, artifacts: [] },
+        ]).octokit,
+        'o',
+        'r',
+        'n',
+        1,
+    );
+    assert.equal(scan.kind === 'refused' ? scan.reason : scan.kind, 'the listing of `n` ended after 100 of 150 artifacts (page 2 held 0), so the newest cannot be established');
+});
+
+test('artifact=<name>: an unparseable created_at on a live artifact is refused, never sorted as oldest', async () => {
+    const broken = { ...named(7, 'not-a-date') };
+    const { octokit, downloads } = artifactsOctokit([
+        { total_count: 2, artifacts: [named(6, '2026-09-01T08:00:00Z'), broken] },
+    ]);
+    assert.equal(await resolveBaseline(params(octokit, { spec: namedSpec })), null);
+    assert.deepEqual(downloads, []);
+    const scan = await newestNamedArtifact(octokit, 'o', 'r', 'n', 1);
+    assert.equal(scan.kind === 'refused' ? scan.reason : scan.kind, 'artifact 7 named `n` carries an unparseable created_at "not-a-date", so the newest cannot be established');
+});
+
+test('artifact=<name>: a SHORT page before total_count is reached is refused — the pages no longer tile', async () => {
+    // Page 1 holds 60 of 150: page 2 then starts at entry 101, so entries 61–100 were never read.
+    const { octokit, downloads } = artifactsOctokit([
+        { total_count: 150, artifacts: Array.from({ length: 60 }, (_, i) => named(i + 1, '2026-09-01T08:00:00Z')) },
+        { total_count: 150, artifacts: Array.from({ length: 90 }, (_, i) => named(i + 100, '2026-09-02T08:00:00Z')) },
+    ]);
+    assert.equal(await resolveBaseline(params(octokit, { spec: namedSpec })), null);
+    assert.deepEqual(downloads, []);
+    const scan = await newestNamedArtifact(octokit, 'o', 'r', 'n', 1);
+    assert.equal(scan.kind === 'refused' ? scan.reason : scan.kind, 'the listing of `n` ended after 60 of 150 artifacts (page 1 held 60), so the newest cannot be established');
 });

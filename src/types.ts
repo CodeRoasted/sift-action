@@ -15,7 +15,9 @@
 // Mirrors `dto::RankedChange` (sift/src/report/change_report_serialize.cpp). `severity`
 // is lowercase on the wire ("low"|"medium"|"high"|"critical"); `polarity` is
 // omitted when Neutral (only "regression"|"recovery" appear). Rows are surfaced
-// VERBATIM — the Action never re-authors `summary`/`evidence` (contract § 1).
+// verbatim up to the comment's declared display caps (frame.ts), past which a
+// frame-controlled marker names what was left out; the full row is verbatim in the
+// `sift-report` artifact. The Action never re-authors `summary`/`evidence` (contract § 1).
 export interface RankedChange {
     kind: string;
     severity: string;
@@ -89,6 +91,14 @@ export interface BaselineProvenance {
     label?: string;
 }
 
+// Where this run's full report lives: the `sift-report` workflow artifact the Action uploaded,
+// on the run page at `run_url`. Set only once the upload succeeded, so the comment never points
+// at an artifact that does not exist.
+export interface ReportArtifact {
+    name: string;
+    run_url: string;
+}
+
 // Versioned envelope handed to the frame renderer alongside the report. When
 // `baseline` is absent the run is a cold start (state ①) and no report exists.
 // `baseline_source` is the human label of the CONFIGURED source (cold-start copy);
@@ -109,6 +119,7 @@ export interface SiftCommentContext {
     baseline_age_hours?: number;
     baseline_age_bound?: string;   // the configured `baseline-max-age`, verbatim (e.g. "72h")
     baseline_stale?: boolean;      // age exceeded the bound ⇒ the frame renders the stale banner
+    report_artifact?: ReportArtifact; // absent on cold start, or when the upload failed
 }
 
 // 0.2.0: the render-side `build_status` binary is RETIRED (ADR-17.D5) — the run verdict
@@ -131,6 +142,17 @@ export interface BaselineMeta {
     context_version: string;
     /** The publishing run's native CI verdict token, verbatim (e.g. "success"). */
     outcome_token: string;
+}
+
+// The full report, uploaded on every run that has one (report.json as the engine wrote it, and
+// its markdown as report.md). The comment is a bounded projection of it; this artifact is where
+// a row the comment could not show in full is read whole. A `comment-tag` suffixes the name, so
+// two tagged Sift steps in one job upload two artifacts instead of colliding on one.
+export const SIFT_REPORT_ARTIFACT_NAME = 'sift-report';
+export const SIFT_REPORT_JSON_FILE = 'report.json';
+export const SIFT_REPORT_MARKDOWN_FILE = 'report.md';
+export function reportArtifactName(tag?: string): string {
+    return tag ? `${SIFT_REPORT_ARTIFACT_NAME}-${tag}` : SIFT_REPORT_ARTIFACT_NAME;
 }
 
 // ── Fork-PR render → workflow_run post boundary (contract § 6.1) ─────────────

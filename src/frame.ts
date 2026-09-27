@@ -5,11 +5,22 @@
 // (head_sha, baseline.sha) which IDENTIFY the run, not its content
 // (bibles/sift_action.md § 4). The frame owns the header, the one-line
 // verdict, the state logic, and the footer; the ENGINE owns every row
-// (`summary`) and the full <details> body (`markdown`), surfaced VERBATIM —
-// the Action never re-authors a row (contract § 1; PRD-6 — "rows are the
-// engine's, not ours"). Copy below is governed by PRD-6 § "Surface: Sift PR comment".
+// (`summary`) and the full <details> body (`markdown`), surfaced verbatim up to
+// the comment's byte budget (below) — the Action never re-authors a row
+// (contract § 1; PRD-6 — "rows are the engine's, not ours"). Copy below is
+// governed by PRD-6 § "Surface: Sift PR comment".
+//
+// The comment is a BOUNDED PROJECTION of a report that is never capped
+// (DN-116.D1): GitHub refuses a comment over MAX_RENDERED_BODY_BYTES and posts
+// nothing, so the frame composes within that budget by construction and declares
+// every elision; the full report is the run's `sift-report` artifact.
 
-import type { RankedChange, SiftReport, SiftCommentContext } from './types.js';
+import {
+    MAX_RENDERED_BODY_BYTES,
+    type RankedChange,
+    type SiftReport,
+    type SiftCommentContext,
+} from './types.js';
 import { polarityGlyph, severityGlyph } from './glyph.js';
 import { State, selectState } from './verdict.js';
 
@@ -33,6 +44,26 @@ const SIFT_URL = 'https://coderoast.fr/sift';
 // comment; the full set always lives in the <details> body. Real CI diffs surface
 // a handful (the whole pitch is "3 that matter"), so this rarely engages.
 const MAX_INLINE_ROWS = 20;
+
+// Display caps on an inline row's engine strings, counted on their ESCAPED bytes: the
+// template IS the row's identity and the engine writes it whole (DN-89.D6), so one row can
+// carry megabytes. The two values are display choices (DN-116.D1); moving either means
+// re-running the budget arms in tests/frame.test.ts. The template id named in an elision
+// marker is an engine digest (`h:` + 32 hex = 34 B) and is capped only so the bound below
+// holds whatever the engine sends.
+const MAX_SUMMARY_DISPLAY_BYTES = 1_024;
+const MAX_WHERE_DISPLAY_BYTES = 256;
+const MAX_TEMPLATE_ID_DISPLAY_BYTES = 64;
+
+// invariant: the composed body is at most MAX_RENDERED_BODY_BYTES (65 536) when the details
+// block is the declared line. Per inline row the frame adds at most 4 B of ordinal, 20 B of
+// polarity badge, 9 B of `where` framing and 1 B of newline, and each of the two elision
+// markers is at most 144 B plus the artifact name (7 B lead, 13 B of grouped count, 12 B
+// "B not shown", 11 B "; template ", 67 B of id, 20 + 11 B naming the artifact, 3 B spare):
+// 20 × (1 024 + 256 + 34 + 2 × (144 + 12 + tag)) = 32 520 B + 40 × tag, plus at most 20
+// severity sections of about 90 B each, the headline, stale banner, remainder line, declared
+// details line and footer (under 2 KiB). About 36 KiB for a short `comment-tag`, leaving
+// 29 KiB for the envelope strings (branch, labels, tag), which GitHub bounds far below that.
 
 // Locale-independent thousands grouping (deterministic; no toLocaleString).
 function groupThousands(value: number): string {
@@ -105,6 +136,62 @@ export function escapeInline(text: string): string {
         .replace(/\)/g, '&#41;');
 }
 
+// ── The display cut ─────────────────────────────────────────────────────────
+// A cut keeps the longest SOURCE prefix, ending on a code-point boundary, whose escaped form
+// fits `capBytes`. escapeInline maps each code point on its own (no rule reads a neighbour),
+// so the prefix's escaped size is the sum of its code points' escaped sizes — computed by
+// calling escapeInline itself, never a second copy of its table. The walk stops at the cap,
+// so a megabyte string costs a kilobyte of work plus one byte count.
+interface DisplayCut {
+    shown: string; // escaped, at most capBytes
+    elidedBytes: number; // UTF-8 bytes of the source left out; 0 = shown whole
+}
+
+function cutForDisplay(text: string, capBytes: number): DisplayCut {
+    let used = 0;
+    let prefixEnd = 0;
+    for (const codePoint of text) {
+        const cost = Buffer.byteLength(escapeInline(codePoint), 'utf8');
+        if (used + cost > capBytes) {
+            const prefix = text.slice(0, prefixEnd);
+            return {
+                shown: escapeInline(prefix),
+                elidedBytes: Buffer.byteLength(text, 'utf8') - Buffer.byteLength(prefix, 'utf8'),
+            };
+        }
+        used += cost;
+        prefixEnd += codePoint.length;
+    }
+    return { shown: escapeInline(text), elidedBytes: 0 };
+}
+
+// The marker after a cut: frame-controlled copy naming how much of the source was left out,
+// the row's template (the key a reader looks it up by) and, when this run uploaded it, the
+// artifact holding the full text. Composed OUTSIDE any code span, so its own backticks stay
+// structure.
+function elisionMarker(elidedBytes: number, row: RankedChange, context: SiftCommentContext): string {
+    const parts = [`+${groupThousands(elidedBytes)} B not shown`];
+    if (row.template_id) {
+        const id = cutForDisplay(row.template_id, MAX_TEMPLATE_ID_DISPLAY_BYTES);
+        parts.push(`template ${id.shown}${id.elidedBytes > 0 ? '…' : ''}`);
+    }
+    const artifact = context.report_artifact;
+    const home = artifact ? `, full text in the \`${escapeInline(artifact.name)}\` artifact` : '';
+    return ` … [${parts.join('; ')}${home}]`;
+}
+
+// An engine string as the row shows it: its capped, escaped prefix and the marker ('' when
+// it was shown whole).
+function displayed(
+    text: string,
+    capBytes: number,
+    row: RankedChange,
+    context: SiftCommentContext,
+): { shown: string; marker: string } {
+    const cut = cutForDisplay(text, capBytes);
+    return { shown: cut.shown, marker: cut.elidedBytes > 0 ? elisionMarker(cut.elidedBytes, row, context) : '' };
+}
+
 // ── Rows, grouped into collapsible severity sections ────────────────────────
 // Severity is what an operator triages on, so it is the SECTION axis: one collapsed
 // <details> per severity, hottest first, the heat badge stated ONCE on the heading
@@ -151,15 +238,22 @@ function groupBySeverity(rows: readonly RankedChange[]): SeveritySection[] {
 // What stays is the axis the heading CANNOT carry: polarity (F-1), as the green
 // recovery circle plus the direction word. Neutral rows carry neither — an absent
 // direction renders nothing, no empty badge. `polarity` is an engine ENUM (trusted);
-// the `summary` is engine CONTENT — verbatim, safely embedded (escapeInline).
-function renderRow(index: number, row: RankedChange): string {
+// the `summary` is engine CONTENT — verbatim up to its display cap, safely embedded
+// (escapeInline).
+function renderRow(index: number, row: RankedChange, context: SiftCommentContext): string {
     const glyph = polarityGlyph(row.polarity);
     const badge = row.polarity ? `${glyph ? `${glyph} ` : ''}**[${row.polarity}]** ` : '';
+    const summary = displayed(row.summary, MAX_SUMMARY_DISPLAY_BYTES, row, context);
     // WHERE attribution (LSRC-23 tier 1): the functional location after the summary,
     // as inline code. `where` is engine CONTENT (canon-extracted, fork-attacker-reachable)
-    // → escapeInline; the surrounding backticks are frame-controlled. Absent ⇒ nothing.
-    const where = row.where ? ` · in \`${escapeInline(row.where)}\`` : '';
-    return `${index}. ${badge}${escapeInline(row.summary)}${where}`;
+    // → escapeInline; the surrounding backticks are frame-controlled, and an elision marker
+    // follows the closing one. Absent ⇒ nothing.
+    let where = '';
+    if (row.where) {
+        const location = displayed(row.where, MAX_WHERE_DISPLAY_BYTES, row, context);
+        where = ` · in \`${location.shown}\`${location.marker}`;
+    }
+    return `${index}. ${badge}${summary.shown}${summary.marker}${where}`;
 }
 
 // One severity section. The heading is frame-controlled (a glyph, the severity token,
@@ -176,22 +270,22 @@ function renderRow(index: number, row: RankedChange): string {
 // 1 true incident, and the incident must be READABLE at the top of the comment. The
 // noise the layout was ruled against is the REPEATED per-row chip, not the finding
 // itself. Everything below index 0, and the full report, stays collapsed.
-function renderSection(section: SeveritySection, disclosed: boolean): string {
+function renderSection(section: SeveritySection, disclosed: boolean, context: SiftCommentContext): string {
     const count = section.rows.length;
     const heading =
         `${severityGlyph(section.severity)} <b>${escapeHtml(section.severity.toUpperCase())}</b>` +
         ` — ${count} ${plural(count, 'change', 'changes')}`;
-    const rows = section.rows.map((row, i) => renderRow(i + 1, row)).join('\n');
+    const rows = section.rows.map((row, i) => renderRow(i + 1, row, context)).join('\n');
     return `<details${disclosed ? ' open' : ''}><summary>${heading}</summary>\n\n${rows}\n\n</details>`;
 }
 
-function renderRows(report: SiftReport): string {
+function renderRows(report: SiftReport, context: SiftCommentContext): string {
     const rows = report.ranked_changes;
     const shown = rows.slice(0, MAX_INLINE_ROWS);
     // Index 0 is the hottest section by the ladder — whatever severity that is on this
     // report. Deliberately positional, not a CRITICAL special case: a report whose worst
     // finding is MEDIUM still discloses its worst finding.
-    const blocks = groupBySeverity(shown).map((section, i) => renderSection(section, i === 0));
+    const blocks = groupBySeverity(shown).map((section, i) => renderSection(section, i === 0, context));
     if (rows.length > shown.length) {
         const rest = rows.length - shown.length;
         // Outside every section: the remainder is not a severity, and the cap is
@@ -207,12 +301,37 @@ function renderRows(report: SiftReport): string {
 // engine's headers/bold/bullets survive (escapeInline leaves #,*,-,_ alone).
 // Blank lines around it so GitHub renders the markdown inside the <details>.
 // summaryLine is frame-controlled (counts), so it is composed raw.
-function renderDetails(report: SiftReport): string {
+//
+// ALL OR NOTHING: renderComment embeds the body only when the whole comment then fits
+// the budget; otherwise the block holds one declared line instead. Never a partial
+// markdown — a cut there drops rows without saying which, and can break the block's
+// structure.
+enum DetailsMode {
+    Embed,
+    Declare,
+}
+
+function renderDetails(report: SiftReport, context: SiftCommentContext, mode: DetailsMode): string {
     const { total_changes, significant_changes } = report.summary;
     const summaryLine = `Full report — ${groupThousands(total_changes)} changes, ${groupThousands(
         significant_changes,
     )} significant`;
-    return `<details><summary>${summaryLine}</summary>\n\n${escapeInline(report.markdown ?? '')}\n\n</details>`;
+    const content =
+        mode === DetailsMode.Embed ? escapeInline(report.markdown ?? '') : declaredReportLine(report, context);
+    return `<details><summary>${summaryLine}</summary>\n\n${content}\n\n</details>`;
+}
+
+// The declared line standing in for a markdown too large to embed: its size, the limit, and
+// where it is read whole when this run uploaded it.
+function declaredReportLine(report: SiftReport, context: SiftCommentContext): string {
+    const bytes = Buffer.byteLength(report.markdown ?? '', 'utf8');
+    const line =
+        `The full report is ${groupThousands(bytes)} B of markdown, too large to embed in a comment ` +
+        `under GitHub's ${groupThousands(MAX_RENDERED_BODY_BYTES)}-character limit.`;
+    const artifact = context.report_artifact;
+    return artifact
+        ? `${line} It is this run's [\`${escapeInline(artifact.name)}\` artifact](${artifact.run_url}).`
+        : line;
 }
 
 // ── State bodies (PRD-6 § "The four states") ─────────────────────────────
@@ -258,7 +377,7 @@ function changedRunSucceeded(report: SiftReport): boolean {
 }
 
 // ③ Drift — significant > 0, no regression. The cache-died hero lands here.
-function driftBody(report: SiftReport): string {
+function driftBody(report: SiftReport, context: SiftCommentContext, details: DetailsMode): string {
     const significant = report.summary.significant_changes;
     // The observed total, never the gap: see cleanBody.
     const observed = groupThousands(report.summary.total_changes);
@@ -273,7 +392,7 @@ function driftBody(report: SiftReport): string {
                   'change',
                   'changes',
               )} worth a look, out of ${observed} observed.`;
-    return `${headline}\n\n${renderRows(report)}\n\n${renderDetails(report)}`;
+    return `${headline}\n\n${renderRows(report, context)}\n\n${renderDetails(report, context, details)}`;
 }
 
 // ④ Regression — a row has polarity === regression, or the run verdict got strictly
@@ -281,7 +400,7 @@ function driftBody(report: SiftReport): string {
 // rows already sort first (the engine ranks NewError/Escalated at the top tier).
 // The three headline branches are mutually exclusive by construction: a SUCCESS
 // changed run cannot be an outcome regression (SUCCESS is the axis floor).
-function regressionBody(report: SiftReport): string {
+function regressionBody(report: SiftReport, context: SiftCommentContext, details: DetailsMode): string {
     const { baseline_outcome, changed_outcome, outcome_regressed } = report.summary;
     const headline = changedRunSucceeded(report)
         ? // run verdict SUCCESS — the strongest hero (founder-LOCKED line)
@@ -295,8 +414,8 @@ function regressionBody(report: SiftReport): string {
     // A pure verdict regression can carry zero ranked rows (steady templates, worse
     // verdict) — skip the empty rows block; the <details> body still carries the
     // engine's §6.1 verdict framing.
-    const rows = report.ranked_changes.length > 0 ? `${renderRows(report)}\n\n` : '';
-    return `${headline}\n\n${rows}${renderDetails(report)}`;
+    const rows = report.ranked_changes.length > 0 ? `${renderRows(report, context)}\n\n` : '';
+    return `${headline}\n\n${rows}${renderDetails(report, context, details)}`;
 }
 
 // ── Footer (every state) ────────────────────────────────────────────────────
@@ -317,6 +436,10 @@ function footer(context: SiftCommentContext): string {
         if (context.baseline_age_hours != null) {
             parts.push(`${formatAge(context.baseline_age_hours)} old`);
         }
+    }
+    if (context.report_artifact) {
+        const artifact = context.report_artifact;
+        parts.push(`Full report: [\`${escapeInline(artifact.name)}\` artifact](${artifact.run_url})`);
     }
     parts.push(`as of \`${shortSha(context.head_sha)}\``);
     return `<sub>${parts.join(' · ')}</sub>`;
@@ -340,16 +463,21 @@ function baselineFootnote(baseline: NonNullable<SiftCommentContext['baseline']>)
 
 // ── The renderer ────────────────────────────────────────────────────────────
 
-function body(report: SiftReport | null, context: SiftCommentContext, state: State): string {
+function body(
+    report: SiftReport | null,
+    context: SiftCommentContext,
+    state: State,
+    details: DetailsMode,
+): string {
     switch (state) {
         case State.ColdStart:
             return coldStartBody(context);
         case State.Clean:
             return cleanBody(report as SiftReport);
         case State.Drift:
-            return driftBody(report as SiftReport);
+            return driftBody(report as SiftReport, context, details);
         case State.Regression:
-            return regressionBody(report as SiftReport);
+            return regressionBody(report as SiftReport, context, details);
     }
 }
 
@@ -367,11 +495,22 @@ function staleBanner(context: SiftCommentContext): string {
     );
 }
 
-// The full sticky-comment markdown. `report === null` ⇒ cold start. A
-// comment-tag suffixes the header so two tagged comments are visually distinct.
-export function renderComment(report: SiftReport | null, context: SiftCommentContext): string {
+function compose(report: SiftReport | null, context: SiftCommentContext, details: DetailsMode): string {
     const state = selectState(report);
     const header = context.comment_tag ? `${HEADER} (${context.comment_tag})` : HEADER;
     const stale = context.baseline_stale ? `${staleBanner(context)}\n\n` : '';
-    return `${stickyMarker(context.comment_tag)}\n${header}\n\n${stale}${body(report, context, state)}\n\n${footer(context)}`;
+    return `${stickyMarker(context.comment_tag)}\n${header}\n\n${stale}${body(report, context, state, details)}\n\n${footer(context)}`;
+}
+
+// The full sticky-comment markdown. `report === null` ⇒ cold start. A
+// comment-tag suffixes the header so two tagged comments are visually distinct.
+// The engine's markdown is embedded when the composed comment then fits the budget,
+// measured on the composed bytes; a markdown whose SOURCE already exceeds the budget is
+// never escaped to find out, since escaping never shrinks it.
+export function renderComment(report: SiftReport | null, context: SiftCommentContext): string {
+    if (Buffer.byteLength(report?.markdown ?? '', 'utf8') <= MAX_RENDERED_BODY_BYTES) {
+        const whole = compose(report, context, DetailsMode.Embed);
+        if (Buffer.byteLength(whole, 'utf8') <= MAX_RENDERED_BODY_BYTES) return whole;
+    }
+    return compose(report, context, DetailsMode.Declare);
 }

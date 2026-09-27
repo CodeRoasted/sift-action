@@ -988,3 +988,216 @@ test('evidence reaches the reader: folded member + remainder notice land inside 
         out.slice(detailsAt, detailsAt + 600),
     );
 });
+
+// ── The comment budget: a bounded projection of a report that is never capped ──
+//
+// GitHub refuses an issue comment over 65 536 characters and posts NOTHING. The engine
+// writes a row's template whole (it IS the row's identity), so one long template, or a
+// long enough report, used to push the composed body past the limit and the PR got no
+// comment at all. The frame now composes within the budget by arithmetic: each inline
+// `summary` is cut at 1 024 escaped bytes and each `where` at 256, with a marker naming
+// what was left out, and the full report is embedded only when the whole body fits.
+// These arms hand the renderer inputs far past every cap; each measures the composed
+// body in UTF-8 bytes (bytes are never fewer than GitHub's characters).
+
+const COMMENT_LIMIT_BYTES = 65_536;
+const SUMMARY_CAP_BYTES = 1_024;
+const WHERE_CAP_BYTES = 256;
+
+function bytesOf(text: string): number {
+    return Buffer.byteLength(text, 'utf8');
+}
+
+function rowOf(summary: string, over: Partial<RankedChange> = {}): RankedChange {
+    return {
+        kind: 'new_template',
+        severity: 'high',
+        significance: 0.9,
+        summary,
+        template_id: 'h:7f3a0c1d2e3f405162738495a6b7c8d9',
+        ...over,
+    };
+}
+
+// The numbered row line the frame composed for `index` inside the first section.
+function rowLine(out: string, index: number): string {
+    const line = out.split('\n').find((candidate) => candidate.startsWith(`${index}. `));
+    assert.ok(line !== undefined, `no row ${index} in the comment:\n${out.slice(0, 2_000)}`);
+    return line;
+}
+
+test('budget: one 70 000 B row posts — the comment fits and names what it left out', () => {
+    const base = load('drift.json');
+    // The engine writes the template whole in the row AND in its markdown, so the one
+    // long row reaches the body twice; neither may carry it past the limit.
+    const long = 'E'.repeat(70_000);
+    const report: SiftReport = {
+        ...base,
+        ranked_changes: [rowOf(long)],
+        markdown: `${base.markdown ?? ''}\n1. ${long}\n`,
+    };
+    const out = renderComment(report, ctx());
+    assert.ok(
+        bytesOf(out) <= COMMENT_LIMIT_BYTES,
+        `the composed body is ${bytesOf(out)} B, over GitHub's ${COMMENT_LIMIT_BYTES}; nothing would post`,
+    );
+    const line = rowLine(out, 1);
+    assert.ok(line.includes(`1. ${'E'.repeat(SUMMARY_CAP_BYTES)} … [+68,976 B not shown`), line.slice(0, 200) + ' … ' + line.slice(-200));
+    assert.ok(!line.includes('E'.repeat(SUMMARY_CAP_BYTES + 1)), 'more than the 1 024 B cap of the summary is shown');
+    assert.ok(line.includes('template h:7f3a0c1d2e3f405162738495a6b7c8d9'), line.slice(-200));
+    assert.ok(detailsBody(out).startsWith('The full report is '), detailsBody(out).slice(0, 200));
+});
+
+test('budget: 20 rows of 1 MiB of `|` and a 10 MiB report — bounded, every elision declared', () => {
+    const base = load('drift.json');
+    const mebibyte = 1_048_576;
+    const rows = Array.from({ length: 20 }, (_, i) =>
+        rowOf('|'.repeat(mebibyte), { template_id: `h:${String(i).padStart(32, '0')}` }),
+    );
+    const report: SiftReport = { ...base, ranked_changes: rows, markdown: 'M'.repeat(10 * mebibyte) };
+    const out = renderComment(report, ctx());
+    assert.ok(bytesOf(out) <= COMMENT_LIMIT_BYTES, `the composed body is ${bytesOf(out)} B`);
+    // `|` escapes to `&#124;` (6 B), so 170 source bytes fill 1 020 of the 1 024 escaped
+    // bytes and 1 048 406 source bytes are elided.
+    for (let i = 0; i < 20; i += 1) {
+        const line = rowLine(out, i + 1);
+        assert.ok(line.startsWith(`${i + 1}. ${'&#124;'.repeat(170)} … [+1,048,406 B not shown`), line.slice(0, 1_200));
+        assert.ok(line.includes(`template h:${String(i).padStart(32, '0')}`), line.slice(-200));
+    }
+    const body = detailsBody(out);
+    assert.ok(!body.includes('MMMM'), 'a partial markdown was embedded');
+    assert.match(body, /^The full report is 10,485,760 B of markdown, too large to embed in a comment under GitHub's 65,536-character limit\.$/);
+});
+
+test('budget: `where` is cut at 256 escaped bytes with the same declared marker, after its code span', () => {
+    const base = load('drift.json');
+    const report: SiftReport = { ...base, ranked_changes: [rowOf('short', { where: '/'.repeat(1_000) })] };
+    const line = rowLine(renderComment(report, ctx()), 1);
+    // The marker follows the closing backtick: inside the span its own copy would render as code.
+    assert.ok(line.includes(` · in \`${'/'.repeat(WHERE_CAP_BYTES)}\` … [+744 B not shown`), line);
+    assert.ok(!line.includes('/'.repeat(WHERE_CAP_BYTES + 1)), line);
+});
+
+test('budget: the cut ends on a code-point boundary, never inside a multi-byte character', () => {
+    const base = load('drift.json');
+    // `€` is 3 UTF-8 bytes: 341 of them fill 1 023 of the 1 024 bytes, and the 342nd would
+    // straddle the cap. 2 000 × 3 − 1 023 = 4 977 source bytes are elided.
+    const report: SiftReport = { ...base, ranked_changes: [rowOf('€'.repeat(2_000))] };
+    const line = rowLine(renderComment(report, ctx()), 1);
+    assert.ok(line.startsWith(`1. ${'€'.repeat(341)} … [+4,977 B not shown`), line.slice(0, 1_100));
+    assert.ok(!line.includes('�'), 'a split character rendered as U+FFFD');
+});
+
+test('budget: a row at exactly the cap is shown whole with no marker; one byte more is cut', () => {
+    const base = load('drift.json');
+    const atCap = renderComment({ ...base, ranked_changes: [rowOf('a'.repeat(SUMMARY_CAP_BYTES))] }, ctx());
+    assert.equal(rowLine(atCap, 1), `1. ${'a'.repeat(SUMMARY_CAP_BYTES)}`);
+    const over = renderComment({ ...base, ranked_changes: [rowOf('a'.repeat(SUMMARY_CAP_BYTES + 1))] }, ctx());
+    assert.ok(rowLine(over, 1).startsWith(`1. ${'a'.repeat(SUMMARY_CAP_BYTES)} … [+1 B not shown`), rowLine(over, 1));
+});
+
+test('budget: a row without a template id still declares its elision, and names no template', () => {
+    const base = load('drift.json');
+    const row = rowOf('b'.repeat(2_000));
+    delete row.template_id;
+    const line = rowLine(renderComment({ ...base, ranked_changes: [row] }, ctx()), 1);
+    assert.ok(line.endsWith(`${'b'.repeat(SUMMARY_CAP_BYTES)} … [+976 B not shown]`), line.slice(-120));
+});
+
+test('budget: a report whose escaped markdown alone overflows is replaced whole, never cut', () => {
+    const base = load('drift.json');
+    // 20 000 pipes are 20 000 source bytes but 120 000 escaped bytes: the SOURCE fits the
+    // limit, the embed does not — the decision is taken on the composed body.
+    const report: SiftReport = { ...base, markdown: '|'.repeat(20_000) };
+    const out = renderComment(report, ctx());
+    assert.ok(bytesOf(out) <= COMMENT_LIMIT_BYTES, `${bytesOf(out)} B`);
+    assert.equal(
+        detailsBody(out),
+        "The full report is 20,000 B of markdown, too large to embed in a comment under GitHub's 65,536-character limit.",
+    );
+    // The rows above it are untouched by the details decision.
+    assert.ok(out.includes(`1. ${escapeInline(base.ranked_changes[0]!.summary)}`), out.slice(0, 1_500));
+});
+
+test('budget: a report that fits embeds its markdown whole — the largest body that fits is not refused', () => {
+    const base = load('drift.json');
+    const probe = renderComment({ ...base, markdown: '' }, ctx());
+    const room = COMMENT_LIMIT_BYTES - bytesOf(probe);
+    const exact = renderComment({ ...base, markdown: 'x'.repeat(room) }, ctx());
+    assert.equal(bytesOf(exact), COMMENT_LIMIT_BYTES, 'the probe did not size the embed to the limit exactly');
+    assert.equal(detailsBody(exact), 'x'.repeat(room), 'a body exactly at the limit must embed whole');
+    const oneOver = renderComment({ ...base, markdown: 'x'.repeat(room + 1) }, ctx());
+    assert.ok(detailsBody(oneOver).startsWith('The full report is '), detailsBody(oneOver).slice(0, 200));
+});
+
+const REPORT_ARTIFACT = { name: 'sift-report', run_url: 'https://github.com/o/r/actions/runs/99' };
+
+test('budget: with the report uploaded, the marker, the declared line and the footer all point at it', () => {
+    const base = load('drift.json');
+    const report: SiftReport = {
+        ...base,
+        ranked_changes: [rowOf('E'.repeat(5_000))],
+        markdown: 'M'.repeat(70_000),
+    };
+    const out = renderComment(report, ctx({ report_artifact: REPORT_ARTIFACT }));
+    assert.ok(
+        rowLine(out, 1).endsWith(
+            ' … [+3,976 B not shown; template h:7f3a0c1d2e3f405162738495a6b7c8d9, full text in the `sift-report` artifact]',
+        ),
+        rowLine(out, 1).slice(-200),
+    );
+    assert.equal(
+        detailsBody(out),
+        "The full report is 70,000 B of markdown, too large to embed in a comment under GitHub's 65,536-character limit. " +
+            "It is this run's [`sift-report` artifact](https://github.com/o/r/actions/runs/99).",
+    );
+    assert.match(
+        out,
+        / · Full report: \[`sift-report` artifact\]\(https:\/\/github\.com\/o\/r\/actions\/runs\/99\) · as of `abc1234`<\/sub>$/,
+    );
+});
+
+test('budget: without an uploaded report, nothing claims an artifact exists', () => {
+    const base = load('drift.json');
+    const report: SiftReport = { ...base, ranked_changes: [rowOf('E'.repeat(5_000))], markdown: 'M'.repeat(70_000) };
+    const out = renderComment(report, ctx());
+    assert.ok(!out.includes('artifact'), out.slice(-1_500));
+});
+
+test('budget: the worst case the frame can meet stays under the limit — the invariant, measured', () => {
+    // Every bounded dimension at its maximum at once: 20 rows, each in its own severity
+    // section, each a recovery (the widest badge), each summary and where far past its cap
+    // in the widest escape, a template id past its own display cap, a stale banner, a
+    // comment-tag, the uploaded-report pointers, and a markdown past the limit.
+    const base = load('drift.json');
+    const mebibyte = 1_048_576;
+    const rows = Array.from({ length: 20 }, (_, i) =>
+        rowOf('|'.repeat(mebibyte), {
+            severity: `tier-${String(i).padStart(2, '0')}`,
+            polarity: 'recovery',
+            where: '|'.repeat(mebibyte),
+            template_id: `h:${'f'.repeat(200)}${i}`,
+        }),
+    );
+    const report: SiftReport = {
+        ...withOutcomes(base, { changed_outcome: 'SUCCESS' }),
+        ranked_changes: [...rows, ...rows],
+        markdown: 'M'.repeat(10 * mebibyte),
+    };
+    const out = renderComment(
+        report,
+        ctx({
+            comment_tag: 'vs-previous-run',
+            baseline_stale: true,
+            baseline_age_hours: 10_000,
+            baseline_age_bound: '72h',
+            report_artifact: { name: 'sift-report-vs-previous-run', run_url: 'https://github.com/o/r/actions/runs/99' },
+        }),
+    );
+    const size = bytesOf(out);
+    assert.ok(size <= COMMENT_LIMIT_BYTES, `the worst-case body is ${size} B, over ${COMMENT_LIMIT_BYTES}`);
+    // The invariant beside the constants claims about 36 KiB here; a body far above it means
+    // the arithmetic written there no longer describes the frame.
+    assert.ok(size <= 40_960, `the worst-case body is ${size} B; frame.ts's invariant claims about 36 KiB`);
+    assert.ok(out.includes(`template h:${'f'.repeat(62)}…`), 'the template id is cut at 64 B with an ellipsis');
+});

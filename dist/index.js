@@ -30125,7 +30125,7 @@ var require_async = __commonJS({
           return cb[PROMISE_SYMBOL];
         };
       }
-      function compose(...args) {
+      function compose2(...args) {
         return seq2(...args.reverse());
       }
       function mapLimit(coll, limit, iteratee, callback) {
@@ -30867,7 +30867,7 @@ var require_async = __commonJS({
         autoInject,
         cargo: cargo$1,
         cargoQueue: cargo,
-        compose,
+        compose: compose2,
         concat: concat$1,
         concatLimit: concatLimit$1,
         concatSeries: concatSeries$1,
@@ -30978,7 +30978,7 @@ var require_async = __commonJS({
       exports3.autoInject = autoInject;
       exports3.cargo = cargo$1;
       exports3.cargoQueue = cargo;
-      exports3.compose = compose;
+      exports3.compose = compose2;
       exports3.concat = concat$1;
       exports3.concatLimit = concatLimit$1;
       exports3.concatSeries = concatSeries$1;
@@ -40281,7 +40281,7 @@ var require_compose = __commonJS({
       codes: { ERR_INVALID_ARG_VALUE, ERR_MISSING_ARGS }
     } = require_errors3();
     var eos = require_end_of_stream();
-    module.exports = function compose(...streams) {
+    module.exports = function compose2(...streams) {
       if (streams.length === 0) {
         throw new ERR_MISSING_ARGS("streams");
       }
@@ -40484,7 +40484,7 @@ var require_operators = __commonJS({
     } = require_primordials();
     var kEmpty = Symbol2("kEmpty");
     var kEof = Symbol2("kEof");
-    function compose(stream4, options) {
+    function compose2(stream4, options) {
       if (options != null) {
         validateObject(options, "options");
       }
@@ -40845,7 +40845,7 @@ var require_operators = __commonJS({
       flatMap,
       map: map2,
       take,
-      compose
+      compose: compose2
     };
     module.exports.promiseReturningOperators = {
       every,
@@ -40913,7 +40913,7 @@ var require_stream2 = __commonJS({
     var {
       codes: { ERR_ILLEGAL_CONSTRUCTOR }
     } = require_errors3();
-    var compose = require_compose();
+    var compose2 = require_compose();
     var { setDefaultHighWaterMark, getDefaultHighWaterMark } = require_state3();
     var { pipeline } = require_pipeline();
     var { destroyer } = require_destroy2();
@@ -40984,7 +40984,7 @@ var require_stream2 = __commonJS({
     Stream.addAbortSignal = addAbortSignal;
     Stream.finished = eos;
     Stream.destroy = destroyer;
-    Stream.compose = compose;
+    Stream.compose = compose2;
     Stream.setDefaultHighWaterMark = setDefaultHighWaterMark;
     Stream.getDefaultHighWaterMark = getDefaultHighWaterMark;
     ObjectDefineProperty(Stream, "promises", {
@@ -62873,6 +62873,12 @@ import * as path from "path";
 var CONTEXT_VERSION = "0.2.0";
 var BASELINE_ARTIFACT_NAME = "sift-baseline-log";
 var BASELINE_META_FILE = "sift-baseline-meta.json";
+var SIFT_REPORT_ARTIFACT_NAME = "sift-report";
+var SIFT_REPORT_JSON_FILE = "report.json";
+var SIFT_REPORT_MARKDOWN_FILE = "report.md";
+function reportArtifactName(tag) {
+  return tag ? `${SIFT_REPORT_ARTIFACT_NAME}-${tag}` : SIFT_REPORT_ARTIFACT_NAME;
+}
 var SIFT_COMMENT_ARTIFACT_NAME = "sift-comment";
 var SIFT_COMMENT_DIR = "sift-comment";
 var RENDERED_BODY_FILE = "comment-body.md";
@@ -62953,6 +62959,10 @@ async function resolveBaseline(params) {
   try {
     return await resolveRemoteStrict(params);
   } catch (error2) {
+    if (error2 instanceof BaselineRefusal) {
+      warning(`Sift: ${error2.message} \u2014 proceeding cold start (current log only, no diff).`);
+      return null;
+    }
     const reason = error2 instanceof Error ? error2.message : String(error2);
     warning(
       `Sift: baseline lookup failed (${reason}) \u2014 proceeding cold start (current log only, no diff). On a fork PR this is expected: the read-only token cannot read the repo's run/artifact history.`
@@ -62960,22 +62970,20 @@ async function resolveBaseline(params) {
     return null;
   }
 }
+var BaselineRefusal = class extends Error {
+};
 async function resolveRemoteStrict(params) {
   const { octokit, owner, repo, runId, spec, contextBranch, artifactName, workDir } = params;
   if (spec.kind === "artifact") {
-    const listed = await octokit.rest.actions.listArtifactsForRepo({
-      owner,
-      repo,
-      name: spec.name,
-      per_page: 20
-    });
-    const artifact2 = listed.data.artifacts.find(
-      (candidate) => !candidate.expired && candidate.workflow_run?.id !== runId
-    );
-    if (!artifact2) {
+    const scan = await newestNamedArtifact(octokit, owner, repo, spec.name, runId);
+    if (scan.kind === "refused") {
+      throw new BaselineRefusal(scan.reason);
+    }
+    if (scan.kind === "none") {
       info(`Sift: no live \`${spec.name}\` baseline artifact in the repo yet \u2014 cold start.`);
       return null;
     }
+    const artifact2 = scan.artifact;
     const producerRun = artifact2.workflow_run;
     const meta2 = {
       kind: "artifact",
@@ -63061,16 +63069,68 @@ async function windowFrom(octokit, query, floor) {
   const created = `>=${searchStamp(floor)}`;
   const window2 = (await octokit.rest.actions.listWorkflowRuns({ ...query, created })).data;
   if (window2.workflow_runs.length < window2.total_count) {
-    throw new Error(
+    throw new BaselineRefusal(
       `cannot establish the newest green run: ${window2.total_count} green runs were created at or after ${searchStamp(floor)} and one page holds ${window2.workflow_runs.length}`
     );
   }
   if (!window2.workflow_runs.some((run2) => run2.id === floor.id)) {
-    throw new Error(
+    throw new BaselineRefusal(
       `the runs API contradicts itself: run ${floor.id} (created ${floor.created_at}) is absent from the window created ${created}`
     );
   }
   return window2.workflow_runs;
+}
+var ARTIFACTS_PAGE_SIZE = 100;
+var MAX_ARTIFACT_PAGES = 10;
+async function newestNamedArtifact(octokit, owner, repo, name, runId) {
+  const ceiling = MAX_ARTIFACT_PAGES * ARTIFACTS_PAGE_SIZE;
+  const listed = [];
+  let expected = null;
+  for (let page = 1; expected === null || listed.length < expected; page += 1) {
+    const { data } = await octokit.rest.actions.listArtifactsForRepo({
+      owner,
+      repo,
+      name,
+      per_page: ARTIFACTS_PAGE_SIZE,
+      page
+    });
+    if (expected === null) {
+      expected = data.total_count;
+      if (expected > ceiling) {
+        return {
+          kind: "refused",
+          reason: `${expected} artifacts named \`${name}\`; the Action reads at most ${ceiling} to establish the newest. Lower the repository's artifact retention (Settings \u2192 Actions \u2192 General) so fewer are kept, or select the baseline with \`branch=<name>\``
+        };
+      }
+    } else if (data.total_count !== expected) {
+      return {
+        kind: "refused",
+        reason: `the artifacts named \`${name}\` moved while they were read: page 1 counted ${expected}, page ${page} counts ${data.total_count}, so the newest cannot be established`
+      };
+    }
+    listed.push(...data.artifacts);
+    if (data.artifacts.length < ARTIFACTS_PAGE_SIZE && listed.length < expected) {
+      return {
+        kind: "refused",
+        reason: `the listing of \`${name}\` ended after ${listed.length} of ${expected} artifacts (page ${page} held ${data.artifacts.length}), so the newest cannot be established`
+      };
+    }
+  }
+  let newest = null;
+  for (const artifact of listed) {
+    if (artifact.expired || artifact.workflow_run?.id === runId) continue;
+    const createdMs2 = Date.parse(artifact.created_at ?? "");
+    if (Number.isNaN(createdMs2)) {
+      return {
+        kind: "refused",
+        reason: `artifact ${artifact.id} named \`${name}\` carries an unparseable created_at "${String(artifact.created_at)}", so the newest cannot be established`
+      };
+    }
+    if (newest === null || createdMs2 > newest.createdMs || createdMs2 === newest.createdMs && artifact.id > newest.artifact.id) {
+      newest = { artifact, createdMs: createdMs2 };
+    }
+  }
+  return newest ? { kind: "found", artifact: newest.artifact } : { kind: "none" };
 }
 async function extractBaseline(octokit, owner, repo, artifactId, workDir, artifactSize) {
   if (artifactSize !== void 0 && artifactSize > MAX_BASELINE_ARTIFACT_BYTES) {
@@ -66433,6 +66493,9 @@ function stickyMarker(tag) {
 var HEADER = "### \u{1F52C} Sift \u2014 structural diff of your CI logs";
 var SIFT_URL = "https://coderoast.fr/sift";
 var MAX_INLINE_ROWS = 20;
+var MAX_SUMMARY_DISPLAY_BYTES = 1024;
+var MAX_WHERE_DISPLAY_BYTES = 256;
+var MAX_TEMPLATE_ID_DISPLAY_BYTES = 64;
 function groupThousands(value) {
   return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
@@ -66454,6 +66517,37 @@ function escapeHtml(text) {
 function escapeInline(text) {
   return escapeHtml(text).replace(/`/g, "&#96;").replace(/\|/g, "&#124;").replace(/\[/g, "&#91;").replace(/\]/g, "&#93;").replace(/\(/g, "&#40;").replace(/\)/g, "&#41;");
 }
+function cutForDisplay(text, capBytes) {
+  let used = 0;
+  let prefixEnd = 0;
+  for (const codePoint of text) {
+    const cost = Buffer.byteLength(escapeInline(codePoint), "utf8");
+    if (used + cost > capBytes) {
+      const prefix2 = text.slice(0, prefixEnd);
+      return {
+        shown: escapeInline(prefix2),
+        elidedBytes: Buffer.byteLength(text, "utf8") - Buffer.byteLength(prefix2, "utf8")
+      };
+    }
+    used += cost;
+    prefixEnd += codePoint.length;
+  }
+  return { shown: escapeInline(text), elidedBytes: 0 };
+}
+function elisionMarker(elidedBytes, row, context5) {
+  const parts = [`+${groupThousands(elidedBytes)} B not shown`];
+  if (row.template_id) {
+    const id = cutForDisplay(row.template_id, MAX_TEMPLATE_ID_DISPLAY_BYTES);
+    parts.push(`template ${id.shown}${id.elidedBytes > 0 ? "\u2026" : ""}`);
+  }
+  const artifact = context5.report_artifact;
+  const home = artifact ? `, full text in the \`${escapeInline(artifact.name)}\` artifact` : "";
+  return ` \u2026 [${parts.join("; ")}${home}]`;
+}
+function displayed(text, capBytes, row, context5) {
+  const cut = cutForDisplay(text, capBytes);
+  return { shown: cut.shown, marker: cut.elidedBytes > 0 ? elisionMarker(cut.elidedBytes, row, context5) : "" };
+}
 var SEVERITY_ORDER = ["critical", "high", "medium", "low"];
 function severityRank(severity) {
   const index = SEVERITY_ORDER.indexOf(severity.toLowerCase());
@@ -66472,42 +66566,54 @@ function groupBySeverity(rows) {
   }
   return [...sections.values()].sort((a, b) => severityRank(a.severity) - severityRank(b.severity));
 }
-function renderRow(index, row) {
+function renderRow(index, row, context5) {
   const glyph = polarityGlyph(row.polarity);
   const badge = row.polarity ? `${glyph ? `${glyph} ` : ""}**[${row.polarity}]** ` : "";
-  const where2 = row.where ? ` \xB7 in \`${escapeInline(row.where)}\`` : "";
-  return `${index}. ${badge}${escapeInline(row.summary)}${where2}`;
+  const summary2 = displayed(row.summary, MAX_SUMMARY_DISPLAY_BYTES, row, context5);
+  let where2 = "";
+  if (row.where) {
+    const location = displayed(row.where, MAX_WHERE_DISPLAY_BYTES, row, context5);
+    where2 = ` \xB7 in \`${location.shown}\`${location.marker}`;
+  }
+  return `${index}. ${badge}${summary2.shown}${summary2.marker}${where2}`;
 }
-function renderSection(section, disclosed) {
+function renderSection(section, disclosed, context5) {
   const count = section.rows.length;
   const heading = `${severityGlyph(section.severity)} <b>${escapeHtml(section.severity.toUpperCase())}</b> \u2014 ${count} ${plural(count, "change", "changes")}`;
-  const rows = section.rows.map((row, i) => renderRow(i + 1, row)).join("\n");
+  const rows = section.rows.map((row, i) => renderRow(i + 1, row, context5)).join("\n");
   return `<details${disclosed ? " open" : ""}><summary>${heading}</summary>
 
 ${rows}
 
 </details>`;
 }
-function renderRows(report) {
+function renderRows(report, context5) {
   const rows = report.ranked_changes;
   const shown = rows.slice(0, MAX_INLINE_ROWS);
-  const blocks2 = groupBySeverity(shown).map((section, i) => renderSection(section, i === 0));
+  const blocks2 = groupBySeverity(shown).map((section, i) => renderSection(section, i === 0, context5));
   if (rows.length > shown.length) {
     const rest = rows.length - shown.length;
     blocks2.push(`_\u2026and ${groupThousands(rest)} more \u2014 see the full report below._`);
   }
   return blocks2.join("\n\n");
 }
-function renderDetails(report) {
+function renderDetails(report, context5, mode) {
   const { total_changes, significant_changes } = report.summary;
   const summaryLine = `Full report \u2014 ${groupThousands(total_changes)} changes, ${groupThousands(
     significant_changes
   )} significant`;
+  const content = mode === 0 /* Embed */ ? escapeInline(report.markdown ?? "") : declaredReportLine(report, context5);
   return `<details><summary>${summaryLine}</summary>
 
-${escapeInline(report.markdown ?? "")}
+${content}
 
 </details>`;
+}
+function declaredReportLine(report, context5) {
+  const bytes = Buffer.byteLength(report.markdown ?? "", "utf8");
+  const line = `The full report is ${groupThousands(bytes)} B of markdown, too large to embed in a comment under GitHub's ${groupThousands(MAX_RENDERED_BODY_BYTES)}-character limit.`;
+  const artifact = context5.report_artifact;
+  return artifact ? `${line} It is this run's [\`${escapeInline(artifact.name)}\` artifact](${artifact.run_url}).` : line;
 }
 function coldStartBody(context5) {
   const source = context5.baseline_source ?? `the last green run on \`${context5.base_branch}\``;
@@ -66528,7 +66634,7 @@ Sift weighed ${groupThousands(total)} surface diffs and found no structural chan
 function changedRunSucceeded(report) {
   return report.summary.changed_outcome === "SUCCESS";
 }
-function driftBody(report) {
+function driftBody(report, context5, details) {
   const significant = report.summary.significant_changes;
   const observed = groupThousands(report.summary.total_changes);
   const headline = changedRunSucceeded(report) ? (
@@ -66545,11 +66651,11 @@ ${significant} ${plural(significant, "change", "changes")} worth a look, out of 
   );
   return `${headline}
 
-${renderRows(report)}
+${renderRows(report, context5)}
 
-${renderDetails(report)}`;
+${renderDetails(report, context5, details)}`;
 }
-function regressionBody(report) {
+function regressionBody(report, context5, details) {
   const { baseline_outcome, changed_outcome, outcome_regressed } = report.summary;
   const headline = changedRunSucceeded(report) ? (
     // run verdict SUCCESS — the strongest hero (founder-LOCKED line)
@@ -66562,12 +66668,12 @@ function regressionBody(report) {
     // structural regression on a non-green run
     "\u{1F6A8} Regression flagged. A new error-level pattern that wasn't in the baseline:"
   );
-  const rows = report.ranked_changes.length > 0 ? `${renderRows(report)}
+  const rows = report.ranked_changes.length > 0 ? `${renderRows(report, context5)}
 
 ` : "";
   return `${headline}
 
-${rows}${renderDetails(report)}`;
+${rows}${renderDetails(report, context5, details)}`;
 }
 function footer(context5) {
   const parts = [
@@ -66579,6 +66685,10 @@ function footer(context5) {
     if (context5.baseline_age_hours != null) {
       parts.push(`${formatAge(context5.baseline_age_hours)} old`);
     }
+  }
+  if (context5.report_artifact) {
+    const artifact = context5.report_artifact;
+    parts.push(`Full report: [\`${escapeInline(artifact.name)}\` artifact](${artifact.run_url})`);
   }
   parts.push(`as of \`${shortSha(context5.head_sha)}\``);
   return `<sub>${parts.join(" \xB7 ")}</sub>`;
@@ -66595,23 +66705,23 @@ function baselineFootnote(baseline) {
       return `Baseline: last green run on \`${baseline.branch}\` @ ${linkedSha}`;
   }
 }
-function body(report, context5, state3) {
+function body(report, context5, state3, details) {
   switch (state3) {
     case "cold-start" /* ColdStart */:
       return coldStartBody(context5);
     case "clean" /* Clean */:
       return cleanBody(report);
     case "drift" /* Drift */:
-      return driftBody(report);
+      return driftBody(report, context5, details);
     case "regression" /* Regression */:
-      return regressionBody(report);
+      return regressionBody(report, context5, details);
   }
 }
 function staleBanner(context5) {
   const age = context5.baseline_age_hours != null ? formatAge(context5.baseline_age_hours) : "unknown age";
   return `> \u26A0\uFE0F **Stale baseline \u2014 ${age} old, past the ${context5.baseline_age_bound ?? ""} bound.** No green run has re-seeded it since; this diff compares against that aged snapshot and loses meaning as the streak grows.`;
 }
-function renderComment(report, context5) {
+function compose(report, context5, details) {
   const state3 = selectState(report);
   const header = context5.comment_tag ? `${HEADER} (${context5.comment_tag})` : HEADER;
   const stale = context5.baseline_stale ? `${staleBanner(context5)}
@@ -66620,9 +66730,16 @@ function renderComment(report, context5) {
   return `${stickyMarker(context5.comment_tag)}
 ${header}
 
-${stale}${body(report, context5, state3)}
+${stale}${body(report, context5, state3, details)}
 
 ${footer(context5)}`;
+}
+function renderComment(report, context5) {
+  if (Buffer.byteLength(report?.markdown ?? "", "utf8") <= MAX_RENDERED_BODY_BYTES) {
+    const whole = compose(report, context5, 0 /* Embed */);
+    if (Buffer.byteLength(whole, "utf8") <= MAX_RENDERED_BODY_BYTES) return whole;
+  }
+  return compose(report, context5, 1 /* Declare */);
 }
 
 // src/comment.ts
@@ -101900,6 +102017,18 @@ async function publishBaselineLog(logPath, outcomeToken, name = BASELINE_ARTIFAC
     retentionDays: RETENTION_DAYS
   });
 }
+async function publishReport(reportJsonPath, markdown, name, client2 = new DefaultArtifactClient()) {
+  const dir = await fs9.mkdtemp(path5.join(path5.dirname(reportJsonPath), "sift-report-"));
+  const jsonPath = path5.join(dir, SIFT_REPORT_JSON_FILE);
+  await fs9.copyFile(reportJsonPath, jsonPath);
+  const files = [jsonPath];
+  if (markdown !== void 0) {
+    const markdownPath = path5.join(dir, SIFT_REPORT_MARKDOWN_FILE);
+    await fs9.writeFile(markdownPath, markdown, "utf8");
+    files.push(markdownPath);
+  }
+  await client2.uploadArtifact(name, files, dir);
+}
 async function writeRenderedComment(body3, headSha, dir, shouldPost) {
   await fs9.mkdir(dir, { recursive: true });
   const meta = {
@@ -102576,7 +102705,24 @@ async function run() {
   } else {
     info(`Sift: cold start \u2014 no baseline on \`${baseBranch}\` yet.`);
   }
-  const body3 = renderComment(report, context5);
+  let reportArtifact;
+  if (report) {
+    const name = reportArtifactName(commentTag);
+    try {
+      await publishReport(reportJsonPath, report.markdown, name);
+      reportArtifact = {
+        name,
+        run_url: `${context2.serverUrl}/${owner}/${repo}/actions/runs/${context2.runId}`
+      };
+      info(`Sift: uploaded the full report as the \`${name}\` artifact.`);
+    } catch (error2) {
+      const message = error2 instanceof Error ? error2.message : String(error2);
+      warning(
+        `Sift: could not upload the \`${name}\` report artifact (${message}). The comment does not point at it; the full report is still this step's \`report-path\` output.`
+      );
+    }
+  }
+  const body3 = renderComment(report, { ...context5, report_artifact: reportArtifact });
   const state3 = selectState(report);
   await summary.addRaw(body3).write();
   setSiftOutputs(state3, report);

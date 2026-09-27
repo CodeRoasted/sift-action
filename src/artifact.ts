@@ -1,6 +1,8 @@
 // Artifact transport:
 //   • publishBaselineLog       — self-publishing the baseline (contract § 3, step 6),
 //                                via @actions/artifact's runtime-token path.
+//   • publishReport            — the full report as this run's `sift-report` artifact,
+//                                on every run that has one (DN-116.D1), same path.
 //   • writeRenderedComment     — `render` mode: write the escaped comment body + meta
 //                                into $RUNNER_TEMP/sift-comment/. The CONSUMER's
 //                                workflow uploads that dir (actions/upload-artifact),
@@ -9,7 +11,7 @@
 //                                via `findBy` (cross-run REST), size-bounded.
 
 import * as core from '@actions/core';
-import { DefaultArtifactClient } from '@actions/artifact';
+import { DefaultArtifactClient, type ArtifactClient } from '@actions/artifact';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import {
@@ -21,6 +23,8 @@ import {
     RENDERED_BODY_FILE,
     RENDERED_META_FILE,
     SIFT_COMMENT_ARTIFACT_NAME,
+    SIFT_REPORT_JSON_FILE,
+    SIFT_REPORT_MARKDOWN_FILE,
     type BaselineMeta,
     type RenderedCommentMeta,
 } from './types.js';
@@ -44,6 +48,31 @@ export async function publishBaselineLog(
     await client.uploadArtifact(name, [logPath, metaPath], path.dirname(logPath), {
         retentionDays: RETENTION_DAYS,
     });
+}
+
+// Uploads the full report under `name`: the engine's report.json byte for byte, and its
+// markdown as report.md when the report carries one (a reader opens it without a JSON
+// viewer). It is the content the comment already projects, so it crosses no trust boundary
+// the comment does not — the unprivileged fork `render` job included. The upload rides the
+// same @actions/artifact client as publishBaselineLog (the runner's runtime token, never the
+// `github-token`). Retention is the repository's default. Throws on failure; the caller then
+// leaves the comment without a pointer to it.
+export async function publishReport(
+    reportJsonPath: string,
+    markdown: string | undefined,
+    name: string,
+    client: Pick<ArtifactClient, 'uploadArtifact'> = new DefaultArtifactClient(),
+): Promise<void> {
+    const dir = await fs.mkdtemp(path.join(path.dirname(reportJsonPath), 'sift-report-'));
+    const jsonPath = path.join(dir, SIFT_REPORT_JSON_FILE);
+    await fs.copyFile(reportJsonPath, jsonPath);
+    const files = [jsonPath];
+    if (markdown !== undefined) {
+        const markdownPath = path.join(dir, SIFT_REPORT_MARKDOWN_FILE);
+        await fs.writeFile(markdownPath, markdown, 'utf8');
+        files.push(markdownPath);
+    }
+    await client.uploadArtifact(name, files, dir);
 }
 
 // ── render → post cross-boundary body (contract § 6.1) ───────────────────────

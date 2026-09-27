@@ -9,8 +9,10 @@
 //                         (PR base / pushed branch / default branch for tag refs).
 //   branch=<name>       — same resolver, explicit branch.
 //   artifact=<name>     — newest non-expired artifact with that exact name,
-//                         repo-wide. Decouples the baseline from "this workflow
-//                         ran on that branch": named baselines (a main-seeded
+//                         repo-wide, established by a bounded scan of every
+//                         page (newestNamedArtifact). Decouples the baseline
+//                         from "this workflow ran on that branch": named
+//                         baselines (a main-seeded
 //                         `sift-baseline-main-build`, a per-PR
 //                         `sift-baseline-build-pr-123`) resolve from ANY event —
 //                         tags and PRs included.
@@ -152,6 +154,10 @@ export async function resolveBaseline(params: ResolveParams): Promise<ResolvedBa
     try {
         return await resolveRemoteStrict(params);
     } catch (error) {
+        if (error instanceof BaselineRefusal) {
+            core.warning(`Sift: ${error.message} — proceeding cold start (current log only, no diff).`);
+            return null;
+        }
         const reason = error instanceof Error ? error.message : String(error);
         core.warning(
             `Sift: baseline lookup failed (${reason}) — proceeding cold start (current log only, ` +
@@ -162,6 +168,10 @@ export async function resolveBaseline(params: ResolveParams): Promise<ResolvedBa
     }
 }
 
+// The API answered, and its answer cannot establish a baseline: the resolution refuses rather
+// than guess. Distinct from an API error, whose warning explains a fork's read-only token.
+class BaselineRefusal extends Error {}
+
 // Strict resolution: THROWS on an API/transport error (the caller degrades to cold start).
 // Returns null for the legitimately-empty cases (no green base run, no/expired/empty baseline
 // artifact) — those are normal cold starts, distinct from an error.
@@ -169,21 +179,17 @@ async function resolveRemoteStrict(params: ResolveParams): Promise<ResolvedBasel
     const { octokit, owner, repo, runId, spec, contextBranch, artifactName, workDir } = params;
 
     if (spec.kind === 'artifact') {
-        // Named baseline: newest non-expired artifact with that exact name, repo-wide,
-        // never one this very run published (re-run safety).
-        const listed = await octokit.rest.actions.listArtifactsForRepo({
-            owner,
-            repo,
-            name: spec.name,
-            per_page: 20,
-        });
-        const artifact = listed.data.artifacts.find(
-            (candidate) => !candidate.expired && candidate.workflow_run?.id !== runId,
-        );
-        if (!artifact) {
+        // Named baseline: the newest live artifact with that exact name, repo-wide, never one
+        // this very run published (re-run safety) — established by a bounded scan.
+        const scan = await newestNamedArtifact(octokit, owner, repo, spec.name, runId);
+        if (scan.kind === 'refused') {
+            throw new BaselineRefusal(scan.reason);
+        }
+        if (scan.kind === 'none') {
             core.info(`Sift: no live \`${spec.name}\` baseline artifact in the repo yet — cold start.`);
             return null;
         }
+        const artifact = scan.artifact;
         const producerRun = artifact.workflow_run;
         const meta: BaselineProvenance = {
             kind: 'artifact',
@@ -197,9 +203,9 @@ async function resolveRemoteStrict(params: ResolveParams): Promise<ResolvedBasel
             label: spec.name,
         };
         return {
-        ...(await extractBaseline(octokit, owner, repo, artifact.id, workDir, artifact.size_in_bytes)),
-        meta,
-    };
+            ...(await extractBaseline(octokit, owner, repo, artifact.id, workDir, artifact.size_in_bytes)),
+            meta,
+        };
     }
 
     // Branch-run resolution (auto / branch=<name>): the last green run of THE SAME
@@ -325,18 +331,115 @@ async function windowFrom(
     const created = `>=${searchStamp(floor)}`;
     const window = (await octokit.rest.actions.listWorkflowRuns({ ...query, created })).data;
     if (window.workflow_runs.length < window.total_count) {
-        throw new Error(
+        throw new BaselineRefusal(
             `cannot establish the newest green run: ${window.total_count} green runs were created at or ` +
                 `after ${searchStamp(floor)} and one page holds ${window.workflow_runs.length}`,
         );
     }
     if (!window.workflow_runs.some((run) => run.id === floor.id)) {
-        throw new Error(
+        throw new BaselineRefusal(
             `the runs API contradicts itself: run ${floor.id} (created ${floor.created_at}) is absent from ` +
                 `the window created ${created}`,
         );
     }
     return window.workflow_runs;
+}
+
+type ListArtifactsForRepo = Octokit['rest']['actions']['listArtifactsForRepo'];
+type RepoArtifact = Awaited<ReturnType<ListArtifactsForRepo>>['data']['artifacts'][number];
+
+// The artifacts endpoint's largest page, and the most pages one resolution reads: at most
+// 1 000 artifacts and 10 requests per run, against the token's hourly API budget.
+const ARTIFACTS_PAGE_SIZE = 100;
+export const MAX_ARTIFACT_PAGES = 10;
+
+export type NamedArtifactScan =
+    | { kind: 'found'; artifact: RepoArtifact }
+    | { kind: 'none' }
+    | { kind: 'refused'; reason: string };
+
+// The newest live artifact named `name`, never one produced by run `runId`. The endpoint takes
+// `name`, `per_page` and `page` and nothing else — no sort, no `created` filter — and documents
+// no order, so position 0 proves nothing and the green-run window has no equivalent here. The
+// answer is ESTABLISHED: every page of the name-filtered listing is read at the maximum size and
+// the entries sorted locally. Two answers are refused rather than guessed:
+//   • more artifacts than MAX_ARTIFACT_PAGES pages hold — known from page 1's `total_count`;
+//   • a listing that moves under the scan (`total_count` differs between pages, or a page is
+//     short before it is reached): an artifact created mid-scan shifts entries across pages in an order
+//     nobody documents, so a moved listing cannot prove its newest.
+// `total_count` also counts expired artifacts until GitHub purges them; they are read and
+// skipped like any other entry.
+export async function newestNamedArtifact(
+    octokit: Octokit,
+    owner: string,
+    repo: string,
+    name: string,
+    runId: number,
+): Promise<NamedArtifactScan> {
+    const ceiling = MAX_ARTIFACT_PAGES * ARTIFACTS_PAGE_SIZE;
+    const listed: RepoArtifact[] = [];
+    let expected: number | null = null;
+    for (let page = 1; expected === null || listed.length < expected; page += 1) {
+        const { data } = await octokit.rest.actions.listArtifactsForRepo({
+            owner,
+            repo,
+            name,
+            per_page: ARTIFACTS_PAGE_SIZE,
+            page,
+        });
+        if (expected === null) {
+            expected = data.total_count;
+            if (expected > ceiling) {
+                return {
+                    kind: 'refused',
+                    reason:
+                        `${expected} artifacts named \`${name}\`; the Action reads at most ${ceiling} to ` +
+                        'establish the newest. Lower the repository\'s artifact retention (Settings → ' +
+                        'Actions → General) so fewer are kept, or select the baseline with `branch=<name>`',
+                };
+            }
+        } else if (data.total_count !== expected) {
+            return {
+                kind: 'refused',
+                reason:
+                    `the artifacts named \`${name}\` moved while they were read: page 1 counted ${expected}, ` +
+                    `page ${page} counts ${data.total_count}, so the newest cannot be established`,
+            };
+        }
+        listed.push(...data.artifacts);
+        // Only the last page may be short: a short page before `total_count` is reached means
+        // the pages no longer tile the listing, and entries between them went unread.
+        if (data.artifacts.length < ARTIFACTS_PAGE_SIZE && listed.length < expected) {
+            return {
+                kind: 'refused',
+                reason:
+                    `the listing of \`${name}\` ended after ${listed.length} of ${expected} artifacts ` +
+                    `(page ${page} held ${data.artifacts.length}), so the newest cannot be established`,
+            };
+        }
+    }
+    let newest: { artifact: RepoArtifact; createdMs: number } | null = null;
+    for (const artifact of listed) {
+        if (artifact.expired || artifact.workflow_run?.id === runId) continue;
+        const createdMs = Date.parse(artifact.created_at ?? '');
+        if (Number.isNaN(createdMs)) {
+            return {
+                kind: 'refused',
+                reason:
+                    `artifact ${artifact.id} named \`${name}\` carries an unparseable created_at ` +
+                    `"${String(artifact.created_at)}", so the newest cannot be established`,
+            };
+        }
+        // Newest by `created_at`, ties broken by the larger artifact id.
+        if (
+            newest === null ||
+            createdMs > newest.createdMs ||
+            (createdMs === newest.createdMs && artifact.id > newest.artifact.id)
+        ) {
+            newest = { artifact, createdMs };
+        }
+    }
+    return newest ? { kind: 'found', artifact: newest.artifact } : { kind: 'none' };
 }
 
 // Extracts the baseline LOG plus the stamped provenance sidecar. The log entry is

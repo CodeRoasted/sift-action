@@ -43,7 +43,9 @@ inputs:
       `auto` (default) — the last green run of this workflow on the PR's base branch (push: the pushed
       branch; tag: the repo default branch), pulling its `baseline-name` artifact — the turnkey
       zero-config path. `branch=<name>` — same resolver, explicit branch. `artifact=<name>` — the
-      newest non-expired artifact with that exact name, repo-wide: NAMED baselines (a main-seeded
+      newest non-expired artifact with that exact name, repo-wide, established by reading every
+      artifact of that name (100 per request, at most 1000; past that, or if the listing changes
+      while it is read, a cold start that says why): NAMED baselines (a main-seeded
       `sift-baseline-main-build`, a per-PR `sift-baseline-build-pr-123`) resolve from ANY event — tags
       and PRs included, no need for this workflow to have run on that branch. `path=<file>` — a local
       file (self-hosted / bring-your-own). `none` — forced cold start (seed-only runs). A malformed
@@ -193,12 +195,17 @@ outputs:
       location ($RUNNER_TEMP/sift-report.json). Empty on cold start (no baseline ⇒ no
       report). A later step on the SAME runner can narrate it with
       `sift explain --report <path>` — the same content already in the comment/summary;
-      no credential (contract § 3.6).
+      no credential (contract § 3.6). The same report is also uploaded on every run that has one
+      as the `sift-report` workflow artifact (`sift-report-<comment-tag>` when tagged), which the
+      comment points at wherever it shows a row or the full report cut to GitHub's size limit.
 
 # Permissions the caller workflow must grant (contract § 6):
 #   actions: read       — resolve the base branch's last green run + its artifact
 #   pull-requests: write — post/update the sticky comment (PR runs)
 #   actions: write      — upload this run's baseline-log artifact
+# The `sift-report` artifact is uploaded through the same @actions/artifact client as the
+# baseline-log artifact (the runner's runtime token, not `github-token`), in the fork
+# `render` job too.
 #   contents: write     — ONLY if commit-comment is set (push-mode commit comments); else omit
 # Not requested: `contents: read`. The Action diffs one job's log and needs no repository file.
 # Its one optional repository read, the workflow's `needs:` graph, serves only the aggregator
