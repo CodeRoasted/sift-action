@@ -62994,15 +62994,7 @@ async function resolveRemoteStrict(params) {
   const branch = spec.kind === "branch" ? spec.branch : contextBranch;
   const thisRun = await octokit.rest.actions.getWorkflowRun({ owner, repo, run_id: runId });
   const workflowId = thisRun.data.workflow_id;
-  const runs = await octokit.rest.actions.listWorkflowRuns({
-    owner,
-    repo,
-    workflow_id: workflowId,
-    branch,
-    status: "success",
-    per_page: 1
-  });
-  const baseRun = runs.data.workflow_runs[0];
+  const baseRun = await newestGreenRun(octokit, owner, repo, workflowId, branch, runId);
   if (!baseRun) {
     info(`Sift: no green run of this workflow on \`${branch}\` yet \u2014 cold start.`);
     return null;
@@ -63034,6 +63026,51 @@ async function resolveRemoteStrict(params) {
     ...await extractBaseline(octokit, owner, repo, artifact.id, workDir, artifact.size_in_bytes),
     meta
   };
+}
+var RUNS_PAGE_SIZE = 100;
+function newerFirst(left, right) {
+  const byCreation = createdMs(right) - createdMs(left);
+  return byCreation !== 0 ? byCreation : right.id - left.id;
+}
+function createdMs(run2) {
+  const stamp = Date.parse(run2.created_at);
+  if (Number.isNaN(stamp)) {
+    throw new Error(`run ${run2.id} carries an unparseable created_at "${run2.created_at}"`);
+  }
+  return stamp;
+}
+function searchStamp(run2) {
+  return `${new Date(createdMs(run2)).toISOString().slice(0, 19)}+00:00`;
+}
+async function newestGreenRun(octokit, owner, repo, workflowId, branch, runId) {
+  const query = {
+    owner,
+    repo,
+    workflow_id: workflowId,
+    branch,
+    status: "success",
+    per_page: RUNS_PAGE_SIZE
+  };
+  const page = (await octokit.rest.actions.listWorkflowRuns(query)).data;
+  const pageNewest = [...page.workflow_runs].sort(newerFirst)[0];
+  if (!pageNewest) return null;
+  const candidates = page.workflow_runs.length >= page.total_count ? page.workflow_runs : await windowFrom(octokit, query, pageNewest);
+  return candidates.filter((run2) => run2.id !== runId).sort(newerFirst)[0] ?? null;
+}
+async function windowFrom(octokit, query, floor) {
+  const created = `>=${searchStamp(floor)}`;
+  const window2 = (await octokit.rest.actions.listWorkflowRuns({ ...query, created })).data;
+  if (window2.workflow_runs.length < window2.total_count) {
+    throw new Error(
+      `cannot establish the newest green run: ${window2.total_count} green runs were created at or after ${searchStamp(floor)} and one page holds ${window2.workflow_runs.length}`
+    );
+  }
+  if (!window2.workflow_runs.some((run2) => run2.id === floor.id)) {
+    throw new Error(
+      `the runs API contradicts itself: run ${floor.id} (created ${floor.created_at}) is absent from the window created ${created}`
+    );
+  }
+  return window2.workflow_runs;
 }
 async function extractBaseline(octokit, owner, repo, artifactId, workDir, artifactSize) {
   if (artifactSize !== void 0 && artifactSize > MAX_BASELINE_ARTIFACT_BYTES) {
@@ -63127,6 +63164,14 @@ function sliceJobLog(raw, capture) {
   }
   return named.map((section) => section.lines.join("\n")).join("\n");
 }
+function acquiredGrainLine(grain) {
+  if (grain.kind === "file") {
+    return `Sift: grain \u2014 diffing the \`log:\` file "${grain.path}"; no job log was acquired from this run, so this diff covers exactly what the workflow captured into that file.`;
+  }
+  const others = grain.runJobCount - 1;
+  const unread = others === 1 ? "the log of the other 1 is" : `the logs of the other ${others} are`;
+  return `Sift: grain \u2014 acquired 1 job of the ${grain.runJobCount} this run lists ("${grain.jobName}"); ${unread} not read, so this diff covers that one job, not the whole run.`;
+}
 async function fetchTargetJobLog(params) {
   const { octokit, owner, repo, runId, jobName, capture } = params;
   const jobs = await octokit.paginate(octokit.rest.actions.listJobsForWorkflowRun, {
@@ -63167,7 +63212,12 @@ async function fetchTargetJobLog(params) {
     );
   }
   const raw = typeof download2.data === "string" ? download2.data : Buffer.from(download2.data).toString("utf8");
-  return { text: sliceJobLog(raw, capture), conclusion: job.conclusion ?? null };
+  return {
+    text: sliceJobLog(raw, capture),
+    conclusion: job.conclusion ?? null,
+    jobName: job.name,
+    runJobCount: jobs.length
+  };
 }
 
 // node_modules/js-yaml/dist/js-yaml.mjs
@@ -102430,6 +102480,9 @@ async function run() {
     info(
       `Sift: sourced the log from job "${targetJob}" (capture: ${capture}, changed-outcome: ${changedOutcome || "(none)"}).`
     );
+    info(
+      acquiredGrainLine({ kind: "job", jobName: jobLog.jobName, runJobCount: jobLog.runJobCount })
+    );
   } else {
     const logStat = await fs13.stat(logInput);
     if (logStat.size > MAX_CHANGED_LOG_BYTES) {
@@ -102439,6 +102492,7 @@ async function run() {
       return;
     }
     await fs13.copyFile(logInput, changedLog);
+    info(acquiredGrainLine({ kind: "file", path: logInput }));
   }
   const pr = context2.payload.pull_request;
   const isTagRef = context2.ref.startsWith("refs/tags/");

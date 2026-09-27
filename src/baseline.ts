@@ -209,15 +209,7 @@ async function resolveRemoteStrict(params: ResolveParams): Promise<ResolvedBasel
     const thisRun = await octokit.rest.actions.getWorkflowRun({ owner, repo, run_id: runId });
     const workflowId = thisRun.data.workflow_id;
 
-    const runs = await octokit.rest.actions.listWorkflowRuns({
-        owner,
-        repo,
-        workflow_id: workflowId,
-        branch,
-        status: 'success',
-        per_page: 1,
-    });
-    const baseRun = runs.data.workflow_runs[0];
+    const baseRun = await newestGreenRun(octokit, owner, repo, workflowId, branch, runId);
     if (!baseRun) {
         core.info(`Sift: no green run of this workflow on \`${branch}\` yet — cold start.`);
         return null;
@@ -252,6 +244,99 @@ async function resolveRemoteStrict(params: ResolveParams): Promise<ResolvedBasel
         ...(await extractBaseline(octokit, owner, repo, artifact.id, workDir, artifact.size_in_bytes)),
         meta,
     };
+}
+
+type ListWorkflowRuns = Octokit['rest']['actions']['listWorkflowRuns'];
+type RunsQuery = NonNullable<Parameters<ListWorkflowRuns>[0]>;
+type WorkflowRun = Awaited<ReturnType<ListWorkflowRuns>>['data']['workflow_runs'][number];
+
+// The runs endpoint's largest page; one request can then be re-sorted locally.
+const RUNS_PAGE_SIZE = 100;
+
+// Newest first by `created_at`, ties broken by the higher run id. Creation, not
+// `run_started_at` or `updated_at`: a re-run keeps its run id and `created_at` and moves only
+// the attempt stamps, so re-running an older commit's run never displaces the green run of the
+// newer commit the branch has since moved to. The baseline is the branch's newest green STATE,
+// not its most recently executed attempt.
+function newerFirst(left: WorkflowRun, right: WorkflowRun): number {
+    const byCreation = createdMs(right) - createdMs(left);
+    return byCreation !== 0 ? byCreation : right.id - left.id;
+}
+
+function createdMs(run: WorkflowRun): number {
+    const stamp = Date.parse(run.created_at);
+    if (Number.isNaN(stamp)) {
+        throw new Error(`run ${run.id} carries an unparseable created_at "${run.created_at}"`);
+    }
+    return stamp;
+}
+
+// The `created` filter's documented date-time form (GitHub search syntax): seconds, explicit
+// offset. Truncating a sub-second stamp floors it, which only widens the window.
+function searchStamp(run: WorkflowRun): string {
+    return `${new Date(createdMs(run)).toISOString().slice(0, 19)}+00:00`;
+}
+
+// The newest green run of the workflow on `branch`, or null when there is none. GitHub's
+// runs endpoint takes no sort parameter and documents no ordering, so position 0 of a page
+// proves nothing — the answer is ESTABLISHED here, never read off the response order.
+//   1. One page at the maximum size, sorted locally. When it holds every green run
+//      (`total_count` fits), its newest is the answer: one request, the common case.
+//   2. Otherwise the page's own newest stamp S is a floor: the true newest run was created at
+//      or after S, so the window `created >= S` contains it. One more request fetches that
+//      window, and when IT fits one page its newest is the answer — two requests, exact,
+//      whatever order either page arrives in. A full walk of the branch's green history would
+//      cost one request per hundred runs against the token's API budget; the window does not.
+//   3. A window that does not fit, or that omits the run step 1 already saw, is an answer the
+//      API contradicts or cannot bound: refuse (the caller degrades to a cold start with the
+//      reason), never guess a newest.
+// This run is excluded throughout: a run is never its own baseline.
+async function newestGreenRun(
+    octokit: Octokit,
+    owner: string,
+    repo: string,
+    workflowId: number,
+    branch: string,
+    runId: number,
+): Promise<WorkflowRun | null> {
+    const query: RunsQuery = {
+        owner,
+        repo,
+        workflow_id: workflowId,
+        branch,
+        status: 'success',
+        per_page: RUNS_PAGE_SIZE,
+    };
+    const page = (await octokit.rest.actions.listWorkflowRuns(query)).data;
+    const pageNewest = [...page.workflow_runs].sort(newerFirst)[0];
+    if (!pageNewest) return null;
+    const candidates =
+        page.workflow_runs.length >= page.total_count
+            ? page.workflow_runs
+            : await windowFrom(octokit, query, pageNewest);
+    return candidates.filter((run) => run.id !== runId).sort(newerFirst)[0] ?? null;
+}
+
+async function windowFrom(
+    octokit: Octokit,
+    query: RunsQuery,
+    floor: WorkflowRun,
+): Promise<WorkflowRun[]> {
+    const created = `>=${searchStamp(floor)}`;
+    const window = (await octokit.rest.actions.listWorkflowRuns({ ...query, created })).data;
+    if (window.workflow_runs.length < window.total_count) {
+        throw new Error(
+            `cannot establish the newest green run: ${window.total_count} green runs were created at or ` +
+                `after ${searchStamp(floor)} and one page holds ${window.workflow_runs.length}`,
+        );
+    }
+    if (!window.workflow_runs.some((run) => run.id === floor.id)) {
+        throw new Error(
+            `the runs API contradicts itself: run ${floor.id} (created ${floor.created_at}) is absent from ` +
+                `the window created ${created}`,
+        );
+    }
+    return window.workflow_runs;
 }
 
 // Extracts the baseline LOG plus the stamped provenance sidecar. The log entry is

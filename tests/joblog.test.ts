@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    acquiredGrainLine,
     extractCaptureSections,
     fetchTargetJobLog,
     sliceJobLog,
@@ -296,4 +297,45 @@ test('target-job: exactly AT the ceiling still runs — the boundary is a capaci
     const out = await fetchTargetJobLog(oversizeParams(MAX_CHANGED_LOG_BYTES));
     assert.equal(out.text.length, MAX_CHANGED_LOG_BYTES);
     assert.equal(out.conclusion, 'success');
+});
+
+// ── The acquired grain, stated in every run log (ADR-14.D8) ──────────────────
+//
+// The Action promises the RUN and acquires one JOB. Until run-grain acquisition lands, each
+// run log must SAY which grain it acquired — "1 job of 7" — so an operator sees the boundary
+// instead of inferring it from a cross-job fold that never appears. The denominator is the
+// run's own job listing (every page of it), so the count is read off the platform, never
+// assumed.
+
+test('fetchTargetJobLog: returns the resolved job name and the run\'s full job count', async () => {
+    const jobs = [
+        { id: 1, name: 'lint', status: 'completed', conclusion: 'success' },
+        { id: 2, name: 'ci / build', status: 'completed', conclusion: 'success' },
+        { id: 3, name: 'test', status: 'completed', conclusion: 'failure' },
+        { id: 4, name: 'sift', status: 'in_progress', conclusion: null },
+    ];
+    const out = await fetchTargetJobLog(fetchParams(jobs, `${T}x`));
+    assert.equal(out.jobName, 'ci / build', `resolved "${out.jobName}", expected the rendered row "ci / build"`);
+    assert.equal(out.runJobCount, 4, `counted ${out.runJobCount} jobs, the run lists 4 (Sift's own included)`);
+});
+
+test('acquiredGrainLine: a target job states "1 job of N" and names what was NOT read', () => {
+    assert.equal(
+        acquiredGrainLine({ kind: 'job', jobName: 'build', runJobCount: 7 }),
+        'Sift: grain — acquired 1 job of the 7 this run lists ("build"); the logs of the other 6 are ' +
+            'not read, so this diff covers that one job, not the whole run.',
+    );
+    assert.equal(
+        acquiredGrainLine({ kind: 'job', jobName: 'build', runJobCount: 2 }),
+        'Sift: grain — acquired 1 job of the 2 this run lists ("build"); the log of the other 1 is ' +
+            'not read, so this diff covers that one job, not the whole run.',
+    );
+});
+
+test('acquiredGrainLine: a `log:` file states that no job log was acquired from the run', () => {
+    assert.equal(
+        acquiredGrainLine({ kind: 'file', path: 'build.log' }),
+        'Sift: grain — diffing the `log:` file "build.log"; no job log was acquired from this run, so ' +
+            'this diff covers exactly what the workflow captured into that file.',
+    );
 });

@@ -56,6 +56,8 @@ that job's log from the baseline run; the logs of the run's other jobs are not
 read. Diffing the whole run is what comes next: every job in one comparison, so a
 job added or removed, or a failure that moves from one job to another, reads as
 one structural change.
+Every Sift step's log says which grain it acquired, e.g. `Sift: grain — acquired 1
+job of the 7 this run lists ("build")`.
 
 ## Advanced usage
 
@@ -119,7 +121,8 @@ not the comment. The first run on a fresh branch is a cold start (seed only); ev
 
 By default (`baseline: auto`) Sift diffs against the last green run of **this workflow** on the PR's
 base branch (push: the pushed branch; **tag: the repo's default branch** — so a tag build diffs
-against `main`'s last green out of the box). Every part of that is overridable:
+against `main`'s last green out of the box). *Last* means the newest green run by when it was
+created: re-running an older run does not make it newer. Every part of that is overridable:
 
 - **`baseline`** selects the source: `auto` · `branch=<name>` · `artifact=<name>` (a **named
   baseline** — the newest non-expired artifact with that exact name, repo-wide) · `path=<file>`

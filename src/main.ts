@@ -19,7 +19,7 @@ import {
     resolveBaseline,
     type BaselineSpec,
 } from './baseline.js';
-import { fetchTargetJobLog } from './joblog.js';
+import { acquiredGrainLine, fetchTargetJobLog } from './joblog.js';
 import { resolveChangedJobGraph } from './jobgraph.js';
 import { upsertStickyComment, upsertCommitComment } from './comment.js';
 import { publishBaselineLog, writeRenderedComment } from './artifact.js';
@@ -230,6 +230,9 @@ async function run(): Promise<void> {
         core.info(
             `Sift: sourced the log from job "${targetJob}" (capture: ${capture}, changed-outcome: ${changedOutcome || '(none)'}).`,
         );
+        core.info(
+            acquiredGrainLine({ kind: 'job', jobName: jobLog.jobName, runJobCount: jobLog.runJobCount }),
+        );
     } else {
         // Bounded off the filesystem, before the copy — the cheapest possible refusal, and the
         // one place where the size is known without reading anything. The engine refuses this
@@ -248,6 +251,7 @@ async function run(): Promise<void> {
             return;
         }
         await fs.copyFile(logInput, changedLog); // the captured current-run log = changed.log
+        core.info(acquiredGrainLine({ kind: 'file', path: logInput }));
     }
 
     // PR vs push differ ONLY in the comment surface (sticky vs commit), its level, the baseline

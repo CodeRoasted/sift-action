@@ -65,7 +65,7 @@ test('no green base run is a normal cold start (null), distinct from an error', 
         rest: {
             actions: {
                 getWorkflowRun: async () => ({ data: { workflow_id: 42 } }),
-                listWorkflowRuns: async () => ({ data: { workflow_runs: [] } }),
+                listWorkflowRuns: async () => ({ data: { workflow_runs: [], total_count: 0 } }),
                 listWorkflowRunArtifacts: unreached,
                 downloadArtifact: unreached,
             },
@@ -120,7 +120,7 @@ test('branch=<name>: the run resolver targets the EXPLICIT branch, not the conte
                 getWorkflowRun: async () => ({ data: { workflow_id: 42 } }),
                 listWorkflowRuns: async (args: { branch: string }) => {
                     asked = args.branch;
-                    return { data: { workflow_runs: [] } };
+                    return { data: { workflow_runs: [], total_count: 0 } };
                 },
                 listWorkflowRunArtifacts: unreached,
                 downloadArtifact: unreached,
@@ -323,6 +323,7 @@ const bigRun = {
             getWorkflowRun: async () => ({ data: { workflow_id: 7 } }),
             listWorkflowRuns: async () => ({
                 data: {
+                    total_count: 1,
                     workflow_runs: [
                         { id: 42, head_sha: 'abc', html_url: 'u', created_at: '2026-01-01T00:00:00Z' },
                     ],
@@ -383,4 +384,151 @@ test('BOUND 1/2 admit a normal artifact — the caps do not reject everything (c
     });
     assert.equal(await resolveBaseline(params(octokit)), null);
     assert.ok(parsed, 'a within-bounds artifact must reach the download/parse stage');
+});
+
+// ── Which green run is the baseline (the runs endpoint documents NO ordering) ──
+//
+// `listWorkflowRuns` takes no sort parameter and its documentation promises no order, so
+// "the last green run" is a property the Action must ESTABLISH, never read off position 0.
+// These arms hand the resolver pages in an order GitHub does not use today — the failure
+// is silent when it fires (a confident diff against the wrong run), so only a reordered
+// fixture can see it. The run the resolver picked is read back from `meta.run_id`.
+
+interface StubRun {
+    id: number;
+    created_at: string;
+    head_sha?: string;
+    html_url?: string;
+}
+
+const green = (id: number, createdAt: string): StubRun => ({
+    id,
+    created_at: createdAt,
+    head_sha: `sha${id}`,
+    html_url: `https://github.com/o/r/actions/runs/${id}`,
+});
+
+// Serves `pages` in order, one per `listWorkflowRuns` call, and records every call's
+// arguments; downloads resolve for any run so the picked id is observable end to end.
+function runsOctokit(pages: { workflow_runs: StubRun[]; total_count: number }[]) {
+    const calls: Record<string, unknown>[] = [];
+    const artifactRuns: number[] = [];
+    const octokit = {
+        rest: {
+            actions: {
+                getWorkflowRun: async () => ({ data: { workflow_id: 42 } }),
+                listWorkflowRuns: async (args: Record<string, unknown>) => {
+                    calls.push(args);
+                    const page = pages[calls.length - 1];
+                    if (!page) throw new Error(`listWorkflowRuns called ${calls.length} times, stub serves ${pages.length}`);
+                    return { data: page };
+                },
+                listWorkflowRunArtifacts: async (args: { run_id: number }) => {
+                    artifactRuns.push(args.run_id);
+                    return { data: { artifacts: [liveArtifact()] } };
+                },
+                downloadArtifact: async () => baselineZip('green baseline\n'),
+            },
+        },
+    };
+    return { octokit, calls, artifactRuns };
+}
+
+test('a REORDERED page still resolves the newest green run by creation, not position 0', async () => {
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const { octokit, calls } = runsOctokit([
+        {
+            total_count: 3,
+            workflow_runs: [
+                green(500, '2026-09-20T08:00:00Z'), // oldest, served first
+                green(900, '2026-09-26T08:00:00Z'), // newest, served in the middle
+                green(700, '2026-09-23T08:00:00Z'),
+            ],
+        },
+    ]);
+    const resolved = await resolveBaseline(params(octokit, { workDir }));
+    assert.ok(resolved, 'three green runs exist — a cold start here is a defect');
+    assert.equal(
+        resolved.meta.run_id,
+        '900',
+        `picked run ${resolved.meta.run_id}; the newest green run by created_at is 900 ` +
+            '(a pick of 500 is position 0 of the page — the unordered-endpoint defect)',
+    );
+    assert.equal(resolved.meta.created_at, '2026-09-26T08:00:00Z');
+    assert.equal(calls.length, 1, `a page holding every green run needs no second call, made ${calls.length}`);
+    assert.equal(calls[0]?.status, 'success');
+    assert.equal(calls[0]?.per_page, 100, `asked per_page=${String(calls[0]?.per_page)}; one run cannot be re-sorted`);
+});
+
+test('equal created_at stamps break on the run id, so the pick is deterministic', async () => {
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const { octokit } = runsOctokit([
+        {
+            total_count: 2,
+            workflow_runs: [green(801, '2026-09-26T08:00:00Z'), green(802, '2026-09-26T08:00:00Z')],
+        },
+    ]);
+    const resolved = await resolveBaseline(params(octokit, { workDir }));
+    assert.ok(resolved);
+    assert.equal(resolved.meta.run_id, '802', `picked ${resolved.meta.run_id}, expected the higher id 802`);
+});
+
+test('this very run is never its own baseline, whatever its position and stamp', async () => {
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const { octokit } = runsOctokit([
+        {
+            total_count: 2,
+            workflow_runs: [green(1, '2026-09-27T08:00:00Z'), green(600, '2026-09-25T08:00:00Z')],
+        },
+    ]);
+    const resolved = await resolveBaseline(params(octokit, { workDir, runId: 1 }));
+    assert.ok(resolved);
+    assert.equal(resolved.meta.run_id, '600', `picked ${resolved.meta.run_id}; run 1 is the current run`);
+});
+
+test('more green runs than one page: a created>= window proves the newest, and it is picked', async () => {
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    // Page 1 is a partial view (total_count 250) whose own newest is 2026-09-24T10:00:00Z; the
+    // true newest (run 990) is NOT on it. The window "created >= that stamp" must contain it.
+    const { octokit, calls } = runsOctokit([
+        {
+            total_count: 250,
+            workflow_runs: [green(300, '2026-09-10T10:00:00Z'), green(640, '2026-09-24T10:00:00Z')],
+        },
+        {
+            total_count: 3,
+            workflow_runs: [
+                green(640, '2026-09-24T10:00:00Z'),
+                green(990, '2026-09-26T09:30:00Z'),
+                green(870, '2026-09-25T10:00:00Z'),
+            ],
+        },
+    ]);
+    const resolved = await resolveBaseline(params(octokit, { workDir }));
+    assert.ok(resolved);
+    assert.equal(resolved.meta.run_id, '990', `picked ${resolved.meta.run_id}, expected 990 from the window`);
+    assert.equal(calls.length, 2, `expected page + window (2 calls), made ${calls.length}`);
+    assert.equal(
+        calls[1]?.created,
+        '>=2026-09-24T10:00:00+00:00',
+        `window query was ${String(calls[1]?.created)}`,
+    );
+});
+
+test('a window that is itself incomplete REFUSES (cold start), never guesses a newest', async () => {
+    const { octokit, artifactRuns } = runsOctokit([
+        { total_count: 250, workflow_runs: [green(640, '2026-09-24T10:00:00Z')] },
+        { total_count: 180, workflow_runs: [green(640, '2026-09-24T10:00:00Z'), green(990, '2026-09-26T09:30:00Z')] },
+    ]);
+    assert.equal(await resolveBaseline(params(octokit)), null);
+    assert.deepEqual(artifactRuns, [], `no run may be read as the baseline, read ${artifactRuns.join(',')}`);
+});
+
+test('a window that omits the run the page already showed is a contradictory API answer — refused', async () => {
+    const { octokit, artifactRuns } = runsOctokit([
+        { total_count: 250, workflow_runs: [green(640, '2026-09-24T10:00:00Z')] },
+        { total_count: 0, workflow_runs: [] },
+    ]);
+    assert.equal(await resolveBaseline(params(octokit)), null);
+    assert.deepEqual(artifactRuns, [], `no run may be read as the baseline, read ${artifactRuns.join(',')}`);
 });

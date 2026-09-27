@@ -101,6 +101,34 @@ export interface TargetJobLog {
      * (ADR-17.D5) — the adapter never translates.
      */
     conclusion: string | null;
+    /** The resolved job's name as the run lists it (a reusable-workflow row keeps its caller prefix). */
+    jobName: string;
+    /** Every job this run lists, across all pages — the denominator of the acquired grain. */
+    runJobCount: number;
+}
+
+// What one Sift step acquired, for the grain statement every run log carries (ADR-14.D8).
+export type AcquiredGrain =
+    | { kind: 'job'; jobName: string; runJobCount: number }
+    | { kind: 'file'; path: string };
+
+// The Action's contract is the diff of the RUN; what ships acquires ONE job. The line states
+// the grain actually acquired — "1 job of 7" — on the info channel that already reports a
+// missing permission, so the boundary is read in the log rather than inferred from a cross-job
+// fold that never appears.
+export function acquiredGrainLine(grain: AcquiredGrain): string {
+    if (grain.kind === 'file') {
+        return (
+            `Sift: grain — diffing the \`log:\` file "${grain.path}"; no job log was acquired from ` +
+            'this run, so this diff covers exactly what the workflow captured into that file.'
+        );
+    }
+    const others = grain.runJobCount - 1;
+    const unread = others === 1 ? 'the log of the other 1 is' : `the logs of the other ${others} are`;
+    return (
+        `Sift: grain — acquired 1 job of the ${grain.runJobCount} this run lists ("${grain.jobName}"); ` +
+        `${unread} not read, so this diff covers that one job, not the whole run.`
+    );
 }
 
 // Resolve the job by name within THIS run and download its log. The current log
@@ -166,5 +194,10 @@ export async function fetchTargetJobLog(params: FetchJobLogParams): Promise<Targ
         typeof download.data === 'string'
             ? download.data
             : Buffer.from(download.data as ArrayBuffer).toString('utf8');
-    return { text: sliceJobLog(raw, capture), conclusion: job.conclusion ?? null };
+    return {
+        text: sliceJobLog(raw, capture),
+        conclusion: job.conclusion ?? null,
+        jobName: job.name,
+        runJobCount: jobs.length,
+    };
 }
