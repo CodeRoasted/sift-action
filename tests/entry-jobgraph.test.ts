@@ -260,6 +260,11 @@ test('entry (A2): a PR that re-wires `needs:` hands the engine the EXECUTED edge
 // DN-118.D1 (A3): no runner commit, no graph — and no substitute commit either.
 test('entry (A3): GITHUB_WORKFLOW_SHA unset ⇒ no graph, zero graph requests, one log line naming the variable', async () => {
     const run = await runEntry({ source: 'log', workflowSha: undefined });
+    assert.ok(run.argv, `the entry never reached the engine: the run must still diff${describeRun(run)}`);
+    assert.ok(
+        !run.argv.includes('--changed-job-graph'),
+        `the engine must receive no --changed-job-graph without GITHUB_WORKFLOW_SHA${describeRun(run)}`,
+    );
     assert.equal(run.graph, null, `the engine must receive no graph flag${describeRun(run)}`);
     assert.deepEqual(graphRequests(run), [], `no contents or jobs request may be made${describeRun(run)}`);
     const naming = run.stdout.split('\n').filter((line) => line.includes('GITHUB_WORKFLOW_SHA'));
