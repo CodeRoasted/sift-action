@@ -57,10 +57,10 @@ jobs:
     permissions:
       contents: write        # attach the bundle to the Release (only when a tag is passed)
     steps:
-      - uses: actions/checkout@v5   # sift-action itself — install.sh + scripts/samples_showcase.sh
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 — sift-action itself — install.sh + scripts/samples_showcase.sh
 
       - name: Fetch the PUBLIC samples from coderoast-hub (public, anonymous)
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: CodeRoasted/coderoast-hub
           path: hub
@@ -125,7 +125,7 @@ jobs:
             cat showcase/README.md
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sift-samples-showcase
           path: showcase
