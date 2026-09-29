@@ -201,7 +201,7 @@ export type WorkflowCoordinate =
     | { readonly kind: 'executed'; readonly path: string; readonly sha: string }
     | { readonly kind: 'refused'; readonly reason: string };
 
-// WHICH declaration the fold may follow, placed where a test executes it (DN-118.D1). It lived in
+// WHICH declaration the fold may follow, placed where a test executes it (ADR-22.D17). It lived in
 // main.ts until 2026-09-27, read a PR's workflow at `base.sha`, and no test ran it.
 //
 // The runner is the one declarer of the executed file: `GITHUB_WORKFLOW_REF` names its path and

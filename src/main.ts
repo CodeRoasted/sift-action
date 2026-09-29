@@ -363,7 +363,7 @@ async function run(): Promise<void> {
         // The file is read where the RUNNER says the run loaded it, never at a ref taken from the
         // event payload: a PR's base is not the executed file on `pull_request` (the merge commit
         // is), and the executed file is the trusted one on every event. The argument, and the
-        // refusal of any fallback, live at `executedWorkflowCoordinate` (DN-118.D1).
+        // refusal of any fallback, live at `executedWorkflowCoordinate` (ADR-22.D17).
         let changedJobGraph: DeclaredJobWire[] | null = null;
         if (grain.kind === 'job') {
             core.info(ONE_JOB_GRAIN_NO_GRAPH_LINE);

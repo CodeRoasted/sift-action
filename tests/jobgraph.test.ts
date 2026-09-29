@@ -1,6 +1,6 @@
 // The Action-side producer of the ADR-22.D13 wire (jobgraph.ts). These arms pin the pure halves —
 // the YAML → declared-jobs parse and the declared ⋈ rendered join — against the contract the
-// engine consumes, and the choice of WHICH workflow file is read (DN-118.D1; the entry-level arms
+// engine consumes, and the choice of WHICH workflow file is read (ADR-22.D17; the entry-level arms
 // are in entry-jobgraph.test.ts). The acquisition rules mirror the crawler's producer (the same wire, a second
 // transport), so every refusal here is a contract clause, not a style choice: verbatim `name:`,
 // the exactly-one conclusion rule, key-less quoted renderings, the edge gate.
@@ -126,7 +126,7 @@ test('declaresAnEdge: the jobs-listing gate — no edge anywhere means the listi
     assert.equal(declaresAnEdge([{ key: 'a', name: '', needs: ['b'] }]), true);
 });
 
-// ── executedWorkflowCoordinate — the runner names the executed file (DN-118.D1) ──
+// ── executedWorkflowCoordinate — the runner names the executed file (ADR-22.D17) ──
 
 const EXECUTED_SHA = 'e'.repeat(40);
 const BASE_SHA = 'b'.repeat(40);

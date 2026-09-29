@@ -1,4 +1,4 @@
-// The job-graph read as the SHIPPED ENTRY performs it (DN-118.D1, DN-118.D4). jobgraph.test.ts
+// The job-graph read as the SHIPPED ENTRY performs it (ADR-22.D17, DN-118.D4). jobgraph.test.ts
 // executes the coordinate function and the resolver; these arms execute src/main.ts itself, because
 // both decisions are taken at the call site and are invisible to the resolver's own tests: WHICH
 // commit is read (until 2026-09-27 main.ts took it from the event payload, a PR's `base.sha`, a file
@@ -232,7 +232,7 @@ function describeRun(run: EntryRun): string {
     );
 }
 
-// DN-118.D1 (A1): the runner names the executed file; a payload's `base.sha` never picks the commit.
+// ADR-22.D17 (A1): the runner names the executed file; a payload's `base.sha` never picks the commit.
 test('entry (A1): on a pull_request run the ONLY contents read is at GITHUB_WORKFLOW_SHA, never the payload base.sha', async () => {
     const run = await runEntry({ source: 'log', workflowSha: EXECUTED_SHA });
     assert.deepEqual(
@@ -243,7 +243,7 @@ test('entry (A1): on a pull_request run the ONLY contents read is at GITHUB_WORK
     );
 });
 
-// DN-118.D1 (A2): the fold's edge is the one the run executed. The anti-vacuity half — the same
+// ADR-22.D17 (A2): the fold's edge is the one the run executed. The anti-vacuity half — the same
 // stand-in read at the base commit yields `a` — lives in jobgraph.test.ts, where the resolver can be
 // pointed at either commit directly.
 test('entry (A2): a PR that re-wires `needs:` hands the engine the EXECUTED edge (gate → b), not the base edge (gate → a)', async () => {
@@ -257,7 +257,7 @@ test('entry (A2): a PR that re-wires `needs:` hands the engine the EXECUTED edge
     );
 });
 
-// DN-118.D1 (A3): no runner commit, no graph — and no substitute commit either.
+// ADR-22.D17 (A3): no runner commit, no graph — and no substitute commit either.
 test('entry (A3): GITHUB_WORKFLOW_SHA unset ⇒ no graph, zero graph requests, one log line naming the variable', async () => {
     const run = await runEntry({ source: 'log', workflowSha: undefined });
     assert.ok(run.argv, `the entry never reached the engine: the run must still diff${describeRun(run)}`);
