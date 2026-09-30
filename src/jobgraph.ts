@@ -7,7 +7,8 @@
 // The acquisition mirrors the crawler's (insight-eidos sift/src/crawl/job_graph.cpp) because the
 // two are the SAME producer contract over different transports, and a divergence between them
 // would be a silent fork of one wire. Same rules, stated where they bind below: verbatim `name:`,
-// the exactly-one conclusion refusal, key-less quoted renderings, and the edge gate.
+// the exactly-one conclusion refusal, key-less quoted renderings, and the jobs listing read on
+// every workflow, edge or none.
 //
 // ⚠ WHY js-yaml AND NOT A SUBSET PARSER OF OUR OWN — the choice IS the point. The input is a
 // workflow file a contributor can influence, and a hand-rolled reader would be a second reader of
@@ -125,10 +126,6 @@ export function parseWorkflowJobs(yaml: string): DeclaredJobRecord[] {
         declared.push(job);
     }
     return declared;
-}
-
-export function declaresAnEdge(declared: DeclaredJobRecord[]): boolean {
-    return declared.some((job) => job.needs.length > 0);
 }
 
 // The declared jobs joined with the run's rendered listing — the acquirer resolves the mapping
@@ -304,13 +301,11 @@ export async function resolveChangedJobGraph(
             `this run executed): ${declared.length} jobs, ${edgeCount} \`needs:\` edges.`,
     );
 
-    // No edge anywhere ⇒ the fold cannot fire whatever the join resolves, so the jobs listing is
-    // pure cost. The declarations still travel: they are a true statement about this run, and an
-    // empty-`needs:` graph is exactly the degenerate case the fold is inert on by construction.
-    if (!declaresAnEdge(declared)) {
-        return joinDeclaredJobs(declared, []);
-    }
-
+    // The listing is read whenever the workflow file resolved, `needs:` edge or none: a job's
+    // conclusion is the platform's own declaration, and the report reads it at the job's own grain
+    // (a failing row on a job that concluded `success` states that job's precedence). A graph with
+    // entries and no edge is an ordinary graph; the fold finds no aggregator in it and mints
+    // nothing.
     try {
         const jobs = await octokit.paginate(octokit.rest.actions.listJobsForWorkflowRun, {
             owner,

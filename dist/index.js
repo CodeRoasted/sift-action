@@ -66389,9 +66389,6 @@ function parseWorkflowJobs(yaml2) {
   }
   return declared;
 }
-function declaresAnEdge(declared) {
-  return declared.some((job) => job.needs.length > 0);
-}
 function joinDeclaredJobs(declared, rendered) {
   const joined = [];
   for (const job of declared) {
@@ -66473,9 +66470,6 @@ async function resolveChangedJobGraph(params) {
   info2(
     `Sift: declared job graph read from ${path9} at ${sha} (GITHUB_WORKFLOW_SHA, the commit this run executed): ${declared.length} jobs, ${edgeCount} \`needs:\` edges.`
   );
-  if (!declaresAnEdge(declared)) {
-    return joinDeclaredJobs(declared, []);
-  }
   try {
     const jobs = await octokit.paginate(octokit.rest.actions.listJobsForWorkflowRun, {
       owner,

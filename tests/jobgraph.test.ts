@@ -9,7 +9,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-    declaresAnEdge,
     executedWorkflowCoordinate,
     joinDeclaredJobs,
     parseWorkflowJobs,
@@ -121,11 +120,6 @@ test('joinDeclaredJobs: every rendered row is QUOTED key-less — a rendering is
     );
 });
 
-test('declaresAnEdge: the jobs-listing gate — no edge anywhere means the listing is pure cost', () => {
-    assert.equal(declaresAnEdge([{ key: 'a', name: '', needs: [] }]), false);
-    assert.equal(declaresAnEdge([{ key: 'a', name: '', needs: ['b'] }]), true);
-});
-
 // ── executedWorkflowCoordinate — the runner names the executed file (ADR-22.D17) ──
 
 const EXECUTED_SHA = 'e'.repeat(40);
@@ -183,7 +177,15 @@ const REWIRED_LISTING = [
     { name: 'gate', conclusion: 'failure' },
 ];
 
-function standIn() {
+// A workflow that declares no `needs:` edge, and its run's listing: `m` concluded `success`.
+const EDGE_FREE_SHA = 'f'.repeat(40);
+REWIRED_AT[EDGE_FREE_SHA] = ['jobs:', '  f:', '    name: Build', '  m:', '    name: Merge coverage'].join('\n');
+const EDGE_FREE_LISTING = [
+    { name: 'Build', conclusion: 'failure' },
+    { name: 'Merge coverage', conclusion: 'success' },
+];
+
+function standIn(listing: { name: string; conclusion: string }[] = REWIRED_LISTING) {
     const calls: string[] = [];
     const octokit = {
         rest: {
@@ -199,14 +201,14 @@ function standIn() {
         },
         paginate: async (route: unknown) => {
             calls.push(`paginate ${String(route)}`);
-            return REWIRED_LISTING;
+            return listing;
         },
     };
     return { octokit: octokit as unknown as ResolveJobGraphParams['octokit'], calls };
 }
 
-async function resolveAt(sha: string | undefined) {
-    const { octokit, calls } = standIn();
+async function resolveAt(sha: string | undefined, listing?: { name: string; conclusion: string }[]) {
+    const { octokit, calls } = standIn(listing);
     const lines: string[] = [];
     const graph = await resolveChangedJobGraph({
         octokit,
@@ -255,6 +257,32 @@ test('resolveChangedJobGraph (A2): a re-wired `needs:` folds along the executed 
         failedMembers(base.graph, 'gate'),
         [],
         'on the base graph gate\'s red has no failed member: the fold that the executed graph makes would not fire',
+    );
+});
+
+test('resolveChangedJobGraph (E1): an edge-free workflow\'s jobs carry their declared conclusions — the listing is read', async () => {
+    const { graph, calls, lines } = await resolveAt(EDGE_FREE_SHA, EDGE_FREE_LISTING);
+    assert.ok(graph, `no graph for the edge-free workflow; log: ${JSON.stringify(lines)}`);
+    assert.deepEqual(
+        calls.filter((call) => call.startsWith('paginate')),
+        ['paginate listJobsForWorkflowRun'],
+        `the jobs listing of a workflow with no \`needs:\` edge was not read; calls: ${JSON.stringify(calls)}`,
+    );
+    // The job the platform concluded `success` reaches the engine WITH that conclusion: the report
+    // reads it to state a job's precedence over a failing row. Skipping the listing hands the
+    // engine an empty display and no conclusion, which is what this arm exists to refuse.
+    const merged = graph.find((job) => job.key === 'm');
+    assert.deepEqual(
+        merged,
+        { key: 'm', display: 'Merge coverage', needs: [], conclusion: 'success' },
+        `the succeeded job's entry: ${JSON.stringify(merged)}`,
+    );
+    const built = graph.find((job) => job.key === 'f');
+    assert.equal(built?.conclusion, 'failure', `the failed job's entry: ${JSON.stringify(built)}`);
+    // A graph with entries and no edge is an ordinary graph: nothing in it can fold.
+    assert.ok(
+        graph.every((job) => job.needs.length === 0),
+        `an edge was minted: ${JSON.stringify(graph)}`,
     );
 });
 
