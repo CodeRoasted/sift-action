@@ -46,7 +46,7 @@ const SIFT_URL = 'https://coderoast.fr/sift';
 const MAX_INLINE_ROWS = 20;
 
 // Display caps on an inline row's engine strings, counted on their ESCAPED bytes: the
-// template IS the row's identity and the engine writes it whole (DN-89.D6), so one row can
+// template IS the row's identity and the engine writes it whole (ADR-14.D7), so one row can
 // carry megabytes. The two values are display choices (ADR-14.D12); moving either means
 // re-running the budget arms in tests/frame.test.ts. The template id named in an elision
 // marker is an engine digest (`h:` + 32 hex = 34 B) and is capped only so the bound below
