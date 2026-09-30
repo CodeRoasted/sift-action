@@ -102294,7 +102294,7 @@ function engineFailureMessage(exitCode) {
 var CONTROL_BYTE_CEILING = 32;
 var STRUCTURAL_WHITESPACE_BYTES = [9, 10, 13];
 function measureUnreadableReport(raw) {
-  const buffer2 = Buffer.from(raw, "utf8");
+  const buffer2 = typeof raw === "string" ? Buffer.from(raw, "utf8") : raw;
   let rawControlBytes = 0;
   let firstControlByteOffset = null;
   for (let offset = 0; offset < buffer2.length; offset++) {
@@ -102315,18 +102315,133 @@ function withControlBytesNeutralised(message) {
   }
   return neutralised;
 }
-function unreadableReportMessage(outputPath, exitCode, facts, parserMessage) {
-  const shape = facts.rawControlBytes > 0 ? `${facts.rawControlBytes} raw control byte(s) \u2014 value < 0x20 outside tab/LF/CR, which RFC 8259 \xA77 requires a JSON writer to escape \u2014 first at byte offset ${facts.firstControlByteOffset}` : "no raw control byte, so the malformation is something else";
-  return `The Sift ENGINE wrote an unreadable report. It exited ${exitCode} (a report-bearing code) and the file at ${outputPath} EXISTS, but it is not valid JSON. This is a defect in the engine that produced the artefact \u2014 not a missing report, and not a problem with your log, your workflow inputs, or your permissions. Measured on the artefact: ${facts.reportBytes} bytes, ${shape}. Parser: ${withControlBytesNeutralised(parserMessage)}. The Action FAILS here rather than posting nothing, because a Sift comment that silently does not appear is indistinguishable from "Sift found nothing to report" \u2014 and a false all-clear is the one outcome a precision-first tool cannot ship. Please report it at https://github.com/CodeRoasted/sift-action/issues with this message and the engine version.`;
+var DELETE_BYTE = 127;
+var LINE_FEED_BYTE = 10;
+function firstControlUnit(text, kind) {
+  for (let index = 0; index < text.length; index++) {
+    const codeUnit = text.charCodeAt(index);
+    const breach = kind === "row" ? codeUnit < CONTROL_BYTE_CEILING || codeUnit === DELETE_BYTE : codeUnit < CONTROL_BYTE_CEILING && codeUnit !== LINE_FEED_BYTE;
+    if (breach) {
+      return { codeUnit, index };
+    }
+  }
+  return null;
+}
+function displayViolations(report) {
+  const violations = [];
+  const check = (field, text, kind) => {
+    if (typeof text !== "string") {
+      return;
+    }
+    const found = firstControlUnit(text, kind);
+    if (found !== null) {
+      violations.push({ field, ...found });
+    }
+  };
+  const rows = Array.isArray(report?.ranked_changes) ? report.ranked_changes : [];
+  rows.forEach((row, rowIndex) => {
+    const at = `ranked_changes[${rowIndex}]`;
+    check(`${at}.summary`, row?.summary, "row");
+    check(`${at}.where`, row?.where, "row");
+    if (Array.isArray(row?.evidence)) {
+      row.evidence.forEach((line, lineIndex) => check(`${at}.evidence[${lineIndex}]`, line, "row"));
+    }
+  });
+  check("markdown", report?.markdown, "rendered");
+  return violations;
+}
+function hexByte(value) {
+  return `0x${value.toString(16).padStart(2, "0")}`;
+}
+function unreadableReportMessage(outputPath, exitCode, facts, defect) {
+  let broken;
+  let measured;
+  switch (defect.kind) {
+    case "not-utf8":
+      broken = "it is not well-formed UTF-8, the encoding a JSON document is written in (RFC 8259 \xA78.1)";
+      measured = defect.offset >= facts.reportBytes ? "and it ends inside a UTF-8 sequence" : `and a strict UTF-8 decoder first refuses it at byte offset ${defect.offset}`;
+      break;
+    case "not-json": {
+      const shape = facts.rawControlBytes > 0 ? `${facts.rawControlBytes} raw control byte(s) \u2014 value < 0x20 outside tab/LF/CR, which RFC 8259 \xA77 requires a JSON writer to escape \u2014 first at byte offset ${facts.firstControlByteOffset}` : "no raw control byte, so the malformation is something else";
+      broken = "it is not valid JSON";
+      measured = `${shape}. Parser: ${withControlBytesNeutralised(defect.parserMessage)}`;
+      break;
+    }
+    case "control-in-display": {
+      const first = defect.violations[0];
+      broken = "text in it that this Action displays carries a control byte, which the engine guarantees it has already neutralised";
+      measured = `${defect.violations.length} displayed field(s) holding a control byte (below 0x20 or 0x7f in a row, below 0x20 other than a line feed in the rendered markdown) \u2014 first \`${first.field}\`, value ${hexByte(first.codeUnit)} at character index ${first.index}`;
+      break;
+    }
+  }
+  return `The Sift ENGINE wrote an unreadable report. It exited ${exitCode} (a report-bearing code) and the file at ${outputPath} EXISTS, but ${broken}. This is a defect in the engine that produced the artefact \u2014 not a missing report, and not a problem with your log, your workflow inputs, or your permissions. Measured on the artefact: ${facts.reportBytes} bytes, ${measured}. The Action FAILS here rather than posting nothing, because a Sift comment that silently does not appear is indistinguishable from "Sift found nothing to report" \u2014 and a false all-clear is the one outcome a precision-first tool cannot ship. Please report it at https://github.com/CodeRoasted/sift-action/issues with this message and the engine version.`;
 }
 var SiftReportUnreadableError = class extends Error {
-  constructor(message, exitCode, facts) {
+  constructor(message, exitCode, facts, defect) {
     super(message);
     this.exitCode = exitCode;
     this.facts = facts;
+    this.defect = defect;
     this.name = "SiftReportUnreadableError";
   }
 };
+function firstIllFormedOffset(bytes) {
+  const accepts = (end) => {
+    try {
+      new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes.subarray(0, end), {
+        stream: true
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (accepts(bytes.length)) {
+    return bytes.length;
+  }
+  let accepted = 0;
+  let refused = bytes.length;
+  while (refused - accepted > 1) {
+    const middle = accepted + Math.floor((refused - accepted) / 2);
+    if (accepts(middle)) {
+      accepted = middle;
+    } else {
+      refused = middle;
+    }
+  }
+  return refused - 1;
+}
+function readReport(bytes, outputPath, exitCode) {
+  const refuse = (defect) => {
+    const facts = measureUnreadableReport(bytes);
+    throw new SiftReportUnreadableError(
+      unreadableReportMessage(outputPath, exitCode, facts, defect),
+      exitCode,
+      facts,
+      defect
+    );
+  };
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    return refuse({ kind: "not-utf8", offset: firstIllFormedOffset(bytes) });
+  }
+  let report;
+  try {
+    report = JSON.parse(text);
+  } catch (error2) {
+    return refuse({
+      kind: "not-json",
+      parserMessage: error2 instanceof Error ? error2.message : String(error2)
+    });
+  }
+  const violations = displayViolations(report);
+  if (violations.length > 0) {
+    return refuse({ kind: "control-in-display", violations });
+  }
+  return report;
+}
 var ENGINE_ENV_PASSTHROUGH = ["PATH", "HOME", "TMPDIR"];
 function engineEnv() {
   const env = { LC_ALL: "C", LANG: "C", TZ: "UTC" };
@@ -102423,22 +102538,8 @@ async function runSift(invocation) {
   if (failure !== null) {
     throw new SiftEngineError(failure, exitCode);
   }
-  const raw = await fs12.readFile(invocation.outputPath, "utf8");
-  try {
-    return { report: JSON.parse(raw), exitCode };
-  } catch (error2) {
-    const facts = measureUnreadableReport(raw);
-    throw new SiftReportUnreadableError(
-      unreadableReportMessage(
-        invocation.outputPath,
-        exitCode,
-        facts,
-        error2 instanceof Error ? error2.message : String(error2)
-      ),
-      exitCode,
-      facts
-    );
-  }
+  const bytes = await fs12.readFile(invocation.outputPath);
+  return { report: readReport(bytes, invocation.outputPath, exitCode), exitCode };
 }
 var EXPLAIN_SETUP_TIMEOUT_MS = 15 * 60 * 1e3;
 var EXPLAIN_SETUP_KILL_GRACE_MS = 5e3;

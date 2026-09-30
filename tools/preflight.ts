@@ -43,13 +43,19 @@
 // and free.**
 
 import { execFile } from 'node:child_process';
-import { mkdtemp, writeFile, access } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { DeclaredJobWire } from '../src/jobgraph.js';
-import { engineEnv, siftArgs, type SiftInvocation } from '../src/sift.js';
+import {
+    engineEnv,
+    readReport,
+    siftArgs,
+    SiftReportUnreadableError,
+    type SiftInvocation,
+} from '../src/sift.js';
 import { resolveSift } from '../src/resolve-sift.js';
 import { SIFT_VERSION } from '../src/sift-version.js';
 
@@ -96,6 +102,60 @@ const VERDICT_CELLS: ReadonlyArray<{ name: string; baselineOutcome: string; chan
 // than remember it. Do not "fix" a red here by editing this value alone — read the engine's new
 // behaviour first and confirm it is the one intended.
 const PINNED_ENGINE_HALF_PAIR: 'tolerated' | 'fatal' = 'fatal';
+
+// ── The link between SIFT_VERSION and the OUTPUT CONTRACT the Action checks ──────────────────
+//
+// `readReport` refuses a report that is not well-formed UTF-8, or whose displayed text carries
+// a control byte. Those are guarantees of the ENGINE, so the check is only safe to ship beside
+// a pin that keeps them: against an engine that does not, it fails every user whose log holds
+// such a byte. `tests/sift.test.ts` proves the Action refuses a breach; nothing there can prove
+// the PINNED engine never commits one. These pairs do, on the engine itself.
+//
+// MEASURED with the published binaries (2026-09-30): engine v1.10.4 breaches both — the control
+// pair reaches a row's summary raw, and the ill-formed byte reaches the report file — and engine
+// v1.10.5 honours both. So a pin moved back below 1.10.5 reds here, which is this section's job.
+//
+// The bytes are BUILT, never typed: a literal control byte in a source file is the hazard under
+// test. Each changed log carries a marker the accepted report must show in a displayed field, so
+// a pair the engine stopped ranking cannot pass as a contract it kept.
+const HOSTILE_MARKER = 'FAILED';
+const REPLACEMENT_CHARACTER = String.fromCharCode(0xfffd);
+
+function logOf(rows: ReadonlyArray<Uint8Array>): Buffer {
+    return Buffer.concat(rows.flatMap((row) => [Buffer.from(row), Buffer.from('\n')]));
+}
+
+const utf8 = (text: string): Buffer => Buffer.from(text, 'utf8');
+const bytes = (...values: number[]): Buffer => Buffer.from(values);
+
+const HOSTILE_BASELINE = logOf([utf8('Run make test'), utf8('building target'), utf8('ok: 12 passed'), utf8('done')]);
+const HOSTILE_CELLS: ReadonlyArray<{ name: string; changed: Buffer; shows: string }> = [
+    {
+        // An SGR escape sequence, SOH, TAB and DEL inside the line the diff ranks.
+        name: 'control bytes in a ranked line',
+        changed: logOf([
+            utf8('Run make test'),
+            utf8('building target'),
+            Buffer.concat([
+                utf8('error: '), bytes(0x1b), utf8(`[31m${HOSTILE_MARKER}`), bytes(0x1b), utf8('[0m stage'),
+                bytes(0x01), utf8('one'), bytes(0x09), utf8('of'), bytes(0x7f), utf8(' twelve'),
+            ]),
+            utf8('done'),
+        ]),
+        shows: HOSTILE_MARKER,
+    },
+    {
+        // One byte that is not well-formed UTF-8, which the engine replaces with U+FFFD.
+        name: 'an ill-formed UTF-8 byte in a ranked line',
+        changed: logOf([
+            utf8('Run make test'),
+            utf8('building target'),
+            Buffer.concat([utf8(`error: ${HOSTILE_MARKER} stage `), bytes(0x80), utf8(' of twelve')]),
+            utf8('done'),
+        ]),
+        shows: REPLACEMENT_CHARACTER,
+    },
+];
 
 interface RunResult {
     exitCode: number;
@@ -314,6 +374,62 @@ async function main(): Promise<void> {
         }
     }
 
+    // ── C) the OUTPUT CONTRACT — does the pinned engine keep what `readReport` checks? ───────
+    // The real vector and the real read: `siftArgs` builds the invocation, the pinned engine
+    // writes the report, and `readReport` judges the bytes exactly as `runSift` hands them over.
+    for (const [index, cell] of HOSTILE_CELLS.entries()) {
+        const hostileBaseline = join(work, `hostile-baseline-${index}.log`);
+        const hostileChanged = join(work, `hostile-changed-${index}.log`);
+        const outputPath = join(work, `report-hostile-${index}.json`);
+        await writeFile(hostileBaseline, HOSTILE_BASELINE);
+        await writeFile(hostileChanged, cell.changed);
+        const invocation: SiftInvocation = {
+            siftBin,
+            baselineLog: hostileBaseline,
+            changedLog: hostileChanged,
+            baselineLabel: 'preflight-baseline',
+            changedLabel: 'preflight-changed',
+            baselineOutcome: 'success',
+            changedOutcome: 'failure',
+            failOn: 'none',
+            outputPath,
+        };
+        const r = await runVector(siftBin, siftArgs(invocation), outputPath);
+        let verdict = '';
+        if (r.rejected || !r.ranClean || !r.wroteReport) {
+            verdict = `the engine did not write a report (exit ${r.exitCode})`;
+        } else {
+            try {
+                const report = readReport(await readFile(outputPath), outputPath, r.exitCode);
+                const displayed = [
+                    ...report.ranked_changes.flatMap((row) => [row.summary, row.where ?? '', ...(row.evidence ?? [])]),
+                    report.markdown ?? '',
+                ];
+                if (!displayed.some((text) => text.includes(cell.shows))) {
+                    verdict =
+                        'the report was accepted but shows the hostile line nowhere, so this pair no ' +
+                        'longer exercises the contract — re-derive the pair before trusting the pass';
+                }
+            } catch (error) {
+                if (!(error instanceof SiftReportUnreadableError)) {
+                    throw error;
+                }
+                verdict = `the Action would REFUSE this report (${error.defect.kind})`;
+            }
+        }
+        process.stdout.write(
+            `preflight contract cell ${index + 1}/${HOSTILE_CELLS.length} [${cell.name}]: ` +
+                `${verdict === '' ? 'kept' : 'BROKEN'}\n`,
+        );
+        if (verdict !== '') {
+            failures.push(
+                `  contract cell [${cell.name}]: ${verdict}.\n` +
+                    `      The Action fails every run whose log carries such a byte unless the pinned\n` +
+                    `      engine neutralises it; the check and the pin move together.`,
+            );
+        }
+    }
+
     if (failures.length > 0) {
         process.stderr.write(
             `\nPREFLIGHT FAILED — engine ${siftBin} (SIFT_VERSION ${SIFT_VERSION})\n` +
@@ -328,7 +444,8 @@ async function main(): Promise<void> {
 
     process.stdout.write(
         `preflight OK — the pinned engine accepted all ${VERDICT_CELLS.length} verdict cells and ` +
-            `all ${GRAPH_CELLS.length} graph cells, and its half-pair behaviour is still ` +
+            `all ${GRAPH_CELLS.length} graph cells, kept the output contract on all ` +
+            `${HOSTILE_CELLS.length} hostile pairs, and its half-pair behaviour is still ` +
             `'${PINNED_ENGINE_HALF_PAIR}'.\n`,
     );
 }

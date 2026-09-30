@@ -15,7 +15,9 @@ import {
     engineFailureMessage,
     measureUnreadableReport,
     runExplainSetup,
+    runSift,
     siftArgs,
+    SiftReportUnreadableError,
     unreadableReportMessage,
     type SiftInvocation,
 } from '../src/sift.js';
@@ -368,7 +370,7 @@ test('unreadableReportMessage: blames the ENGINE, and says UNPARSEABLE rather th
         '/tmp/report.json',
         0,
         { reportBytes: 4096, rawControlBytes: 3, firstControlByteOffset: 1234 },
-        'Unexpected token',
+        { kind: 'not-json', parserMessage: 'Unexpected token' },
     );
     assert.match(message, /ENGINE/);
     assert.match(message, /EXISTS/);
@@ -391,7 +393,7 @@ test('unreadableReportMessage: the parser text is NEUTRALISED — no raw control
         '/tmp/report.json',
         2,
         { reportBytes: 10, rawControlBytes: 1, firstControlByteOffset: 5 },
-        `Unexpected token ${SOH} at 5`,
+        { kind: 'not-json', parserMessage: `Unexpected token ${SOH} at 5` },
     );
     for (const character of message) {
         assert.ok(
@@ -409,7 +411,7 @@ test('unreadableReportMessage: zero control bytes does NOT claim a control byte'
         '/tmp/report.json',
         0,
         { reportBytes: 12, rawControlBytes: 0, firstControlByteOffset: null },
-        'Unexpected end of JSON input',
+        { kind: 'not-json', parserMessage: 'Unexpected end of JSON input' },
     );
     assert.match(message, /no raw control byte/);
     assert.doesNotMatch(message, /byte offset null/);
@@ -532,4 +534,127 @@ test('runExplainSetup: the cancellation relay is REMOVED on settle — no listen
     await runExplainSetup(bad, 30_000);
     assert.equal(process.listenerCount('SIGINT'), before.int, 'SIGINT handler leaked after a failure');
     assert.equal(process.listenerCount('SIGTERM'), before.term, 'SIGTERM handler leaked after a failure');
+});
+
+// ── The report is CHECKED as the engine wrote it, never repaired ────────────
+//
+// The engine owns two guarantees about its report: the file is well-formed UTF-8, and the text
+// the Action displays (each row's summary, location and evidence, and the rendered markdown)
+// carries no control byte. The Action verifies both and fails on a breach, because a lenient
+// read would substitute U+FFFD without a signal and a comment built from it would present an
+// engine defect as the user's result. These run the real runSift against a fake engine that
+// leaves a prepared report at the output path, so the read, the decode and the checks are the
+// shipped ones.
+
+const ESC = String.fromCharCode(0x1b);
+const DEL = String.fromCharCode(0x7f);
+const BOM = [0xef, 0xbb, 0xbf];
+
+function conformantReport(): Record<string, unknown> {
+    return {
+        report_version: '1',
+        summary: { total_changes: 3, significant_changes: 1 },
+        ranked_changes: [
+            {
+                rank: 1,
+                kind: 'new_error_pattern',
+                severity: 'high',
+                // Well-formed non-ASCII, and a U+FFFD the ENGINE wrote: both are conformant.
+                summary: 'new error: café ▸ build � failed',
+                where: 'job ▸ step',
+                evidence: ['line one', 'ligne deux é'],
+            },
+        ],
+        inputs: { baseline: { label: 'aaaaaaa' }, changed: { label: 'bbbbbbb' } },
+        markdown: '# Sift\n\n* new error: café\n',
+    };
+}
+
+async function runOn(name: string, reportBytes: Uint8Array): Promise<unknown> {
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'sift-report-'));
+    fakeEngines.push(dir);
+    const prepared = path.join(dir, 'prepared.json');
+    const outputPath = path.join(dir, 'report.json');
+    await fsp.writeFile(prepared, reportBytes);
+    const bin = await fakeEngine(name, `cp '${prepared}' '${outputPath}'`);
+    try {
+        return await runSift({ ...baseInvocation, siftBin: bin, outputPath });
+    } catch (error) {
+        return error;
+    }
+}
+
+function bytesOf(report: unknown): Buffer {
+    return Buffer.from(JSON.stringify(report), 'utf8');
+}
+
+test('runSift: a report holding ONE ill-formed UTF-8 byte is refused, located and never quoted', async () => {
+    const good = bytesOf(conformantReport());
+    const at = good.indexOf(Buffer.from('new error', 'utf8'));
+    const bad = Buffer.concat([good.subarray(0, at), Buffer.from([0x80]), good.subarray(at)]);
+    const outcome = await runOn('illformed', bad);
+    assert.ok(outcome instanceof SiftReportUnreadableError, `expected a refusal, got ${String(outcome)}`);
+    assert.match(outcome.message, /not well-formed UTF-8/);
+    assert.match(outcome.message, new RegExp(`byte offset ${at}\\b`));
+    assert.match(outcome.message, /ENGINE/);
+    assert.doesNotMatch(outcome.message, /caf|new error/);
+});
+
+test('runSift: a report cut in the middle of a UTF-8 sequence is refused as ill-formed', async () => {
+    const good = bytesOf({ ...conformantReport(), markdown: 'café' });
+    const cut = good.subarray(0, good.lastIndexOf(0xa9));
+    const outcome = await runOn('cut', cut);
+    assert.ok(outcome instanceof SiftReportUnreadableError, `expected a refusal, got ${String(outcome)}`);
+    assert.match(outcome.message, /not well-formed UTF-8/);
+    assert.match(outcome.message, /ends inside a UTF-8 sequence/);
+});
+
+for (const [field, plant] of [
+    ['ranked_changes[0].summary', (r: any) => { r.ranked_changes[0].summary = `red ${ESC}[31m text`; }],
+    ['ranked_changes[0].where', (r: any) => { r.ranked_changes[0].where = `job${String.fromCharCode(0x09)}step`; }],
+    ['ranked_changes[0].evidence[1]', (r: any) => { r.ranked_changes[0].evidence[1] = `gone${DEL}`; }],
+    ['markdown', (r: any) => { r.markdown = `# Sift\n\n* a${String.fromCharCode(0x0d)}\n`; }],
+] as const) {
+    test(`runSift: a control byte in ${field}, text the Action displays, is refused and the field is named`, async () => {
+        const report = conformantReport();
+        plant(report);
+        const outcome = await runOn('control', bytesOf(report));
+        assert.ok(outcome instanceof SiftReportUnreadableError, `expected a refusal, got ${String(outcome)}`);
+        assert.ok(outcome.message.includes(field), outcome.message);
+        assert.match(outcome.message, /control byte/);
+        assert.match(outcome.message, /ENGINE/);
+        for (const character of outcome.message) {
+            const code = character.codePointAt(0) ?? 0;
+            assert.ok(code >= 0x20 && code !== 0x7f, 'a control byte leaked into the message');
+        }
+    });
+}
+
+test('runSift: a control byte in a field the Action does NOT display is not its to refuse', async () => {
+    // `phase` and the input labels are identity on the wire: the engine keeps them faithful and
+    // escaped, and the Action never embeds them, so they are outside this check.
+    const report = conformantReport() as any;
+    report.ranked_changes[0].phase = `unit${ESC}[0m`;
+    report.ranked_changes[0].template_id = `id${String.fromCharCode(0x01)}`;
+    const outcome = await runOn('identity', bytesOf(report));
+    assert.ok(!(outcome instanceof Error), String(outcome));
+});
+
+test('runSift: a line feed in markdown is the one control byte the rendered body may carry', async () => {
+    const outcome = await runOn('markdown-lf', bytesOf(conformantReport()));
+    assert.ok(!(outcome instanceof Error), String(outcome));
+});
+
+test('runSift: a report that starts with a byte-order mark is refused, never silently stripped', async () => {
+    const outcome = await runOn('bom', Buffer.concat([Buffer.from(BOM), bytesOf(conformantReport())]));
+    assert.ok(outcome instanceof SiftReportUnreadableError, `expected a refusal, got ${String(outcome)}`);
+    assert.match(outcome.message, /not valid JSON/);
+});
+
+test('runSift: a conformant report is returned exactly as a lenient read parses it', async () => {
+    const bytes = bytesOf(conformantReport());
+    const outcome = (await runOn('conformant', bytes)) as { report: unknown; exitCode: number };
+    assert.ok(!(outcome instanceof Error), String(outcome));
+    assert.deepEqual(outcome.report, JSON.parse(bytes.toString('utf8')));
+    assert.equal(outcome.exitCode, 0);
 });

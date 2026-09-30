@@ -14,6 +14,7 @@ import {
     MAX_CHANGED_LOG_BYTES,
     MAX_ENGINE_ALIGNMENT_CELLS,
     MAX_ENGINE_LINE_BYTES,
+    type RankedChange,
     type SiftReport,
 } from './types.js';
 
@@ -153,8 +154,8 @@ export interface UnreadableReportFacts {
 // `dd`/`wc -c` is one unit, and mixing a character index with a byte length would be two.
 // Control bytes are single-byte in UTF-8 and never appear as continuation bytes (>= 0x80),
 // so scanning the buffer is exact rather than approximate.
-export function measureUnreadableReport(raw: string): UnreadableReportFacts {
-    const buffer = Buffer.from(raw, 'utf8');
+export function measureUnreadableReport(raw: string | Uint8Array): UnreadableReportFacts {
+    const buffer = typeof raw === 'string' ? Buffer.from(raw, 'utf8') : raw;
     let rawControlBytes = 0;
     let firstControlByteOffset: number | null = null;
     for (let offset = 0; offset < buffer.length; offset++) {
@@ -184,27 +185,133 @@ function withControlBytesNeutralised(message: string): string {
     return neutralised;
 }
 
+// The three ways a report can break the engine's output contract, each carrying what was
+// MEASURED about it and never a byte of its content.
+//   not-utf8           the file is not well-formed UTF-8, the encoding JSON declares
+//                      (RFC 8259 §8.1); `offset` is where a strict decoder first refuses it,
+//                      and equals the file's length when it ends inside a sequence.
+//   not-json           the bytes decode, and the text is not JSON.
+//   control-in-display the JSON parses, and text the Action displays carries a control byte.
+export type ReportDefect =
+    | { kind: 'not-utf8'; offset: number }
+    | { kind: 'not-json'; parserMessage: string }
+    | { kind: 'control-in-display'; violations: DisplayViolation[] };
+
+// One displayed field holding a control byte: its path in the report, the first offending code
+// unit and that unit's index in the field's string.
+export interface DisplayViolation {
+    field: string;
+    codeUnit: number;
+    index: number;
+}
+
+const DELETE_BYTE = 0x7f;
+const LINE_FEED_BYTE = 0x0a;
+
+// A row's text is one line: every byte below 0x20, and DEL, is a breach. The rendered markdown
+// is many lines: its breach is a byte below 0x20 other than the line feed.
+type DisplayText = 'row' | 'rendered';
+
+function firstControlUnit(text: string, kind: DisplayText): { codeUnit: number; index: number } | null {
+    for (let index = 0; index < text.length; index++) {
+        const codeUnit = text.charCodeAt(index);
+        const breach =
+            kind === 'row'
+                ? codeUnit < CONTROL_BYTE_CEILING || codeUnit === DELETE_BYTE
+                : codeUnit < CONTROL_BYTE_CEILING && codeUnit !== LINE_FEED_BYTE;
+        if (breach) {
+            return { codeUnit, index };
+        }
+    }
+    return null;
+}
+
+// The engine neutralises its display text ONCE, by the terminal's rule, so a row reads the same
+// in a terminal and in the comment. The Action therefore CHECKS and never repairs: a second
+// neutraliser here would be a second copy of that rule, and it would re-author rows the comment
+// promises to show verbatim. The fields are exactly the ones the Action embeds — a row's
+// `summary`, `where` and `evidence`, where any byte below 0x20 or DEL is a breach, and the
+// rendered `markdown`, whose only control byte is the line feed the renderer writes itself.
+// Identity fields (`phase`, `template_id`, the input labels) are not display text: the engine
+// keeps them faithful, and the Action does not embed them.
+export function displayViolations(report: SiftReport): DisplayViolation[] {
+    const violations: DisplayViolation[] = [];
+    const check = (field: string, text: unknown, kind: DisplayText): void => {
+        if (typeof text !== 'string') {
+            return;
+        }
+        const found = firstControlUnit(text, kind);
+        if (found !== null) {
+            violations.push({ field, ...found });
+        }
+    };
+    const rows: RankedChange[] = Array.isArray(report?.ranked_changes) ? report.ranked_changes : [];
+    rows.forEach((row, rowIndex) => {
+        const at = `ranked_changes[${rowIndex}]`;
+        check(`${at}.summary`, row?.summary, 'row');
+        check(`${at}.where`, row?.where, 'row');
+        if (Array.isArray(row?.evidence)) {
+            row.evidence.forEach((line, lineIndex) => check(`${at}.evidence[${lineIndex}]`, line, 'row'));
+        }
+    });
+    check('markdown', report?.markdown, 'rendered');
+    return violations;
+}
+
+function hexByte(value: number): string {
+    return `0x${value.toString(16).padStart(2, '0')}`;
+}
+
 // Pure, and exported for tests for the same reason engineFailureMessage is: this diagnosis
 // IS the contract, and it should be provable without spawning an engine or writing a file.
 export function unreadableReportMessage(
     outputPath: string,
     exitCode: number,
     facts: UnreadableReportFacts,
-    parserMessage: string,
+    defect: ReportDefect,
 ): string {
-    const shape =
-        facts.rawControlBytes > 0
-            ? `${facts.rawControlBytes} raw control byte(s) — value < 0x20 outside tab/LF/CR, ` +
-              'which RFC 8259 §7 requires a JSON writer to escape — first at byte offset ' +
-              `${facts.firstControlByteOffset}`
-            : 'no raw control byte, so the malformation is something else';
+    let broken: string;
+    let measured: string;
+    switch (defect.kind) {
+        case 'not-utf8':
+            broken =
+                'it is not well-formed UTF-8, the encoding a JSON document is written in ' +
+                '(RFC 8259 §8.1)';
+            measured =
+                defect.offset >= facts.reportBytes
+                    ? 'and it ends inside a UTF-8 sequence'
+                    : `and a strict UTF-8 decoder first refuses it at byte offset ${defect.offset}`;
+            break;
+        case 'not-json': {
+            const shape =
+                facts.rawControlBytes > 0
+                    ? `${facts.rawControlBytes} raw control byte(s) — value < 0x20 outside tab/LF/CR, ` +
+                      'which RFC 8259 §7 requires a JSON writer to escape — first at byte offset ' +
+                      `${facts.firstControlByteOffset}`
+                    : 'no raw control byte, so the malformation is something else';
+            broken = 'it is not valid JSON';
+            measured = `${shape}. Parser: ${withControlBytesNeutralised(defect.parserMessage)}`;
+            break;
+        }
+        case 'control-in-display': {
+            const first = defect.violations[0]!;
+            broken =
+                'text in it that this Action displays carries a control byte, which the engine ' +
+                'guarantees it has already neutralised';
+            measured =
+                `${defect.violations.length} displayed field(s) holding a control byte ` +
+                '(below 0x20 or 0x7f in a row, below 0x20 other than a line feed in the rendered ' +
+                `markdown) — first \`${first.field}\`, value ${hexByte(first.codeUnit)} at ` +
+                `character index ${first.index}`;
+            break;
+        }
+    }
     return (
         `The Sift ENGINE wrote an unreadable report. It exited ${exitCode} (a report-bearing ` +
-        `code) and the file at ${outputPath} EXISTS, but it is not valid JSON. This is a defect ` +
+        `code) and the file at ${outputPath} EXISTS, but ${broken}. This is a defect ` +
         'in the engine that produced the artefact — not a missing report, and not a problem ' +
         'with your log, your workflow inputs, or your permissions. ' +
-        `Measured on the artefact: ${facts.reportBytes} bytes, ${shape}. ` +
-        `Parser: ${withControlBytesNeutralised(parserMessage)}. ` +
+        `Measured on the artefact: ${facts.reportBytes} bytes, ${measured}. ` +
         'The Action FAILS here rather than posting nothing, because a Sift comment that ' +
         'silently does not appear is indistinguishable from "Sift found nothing to report" — ' +
         'and a false all-clear is the one outcome a precision-first tool cannot ship. ' +
@@ -223,10 +330,94 @@ export class SiftReportUnreadableError extends Error {
         message: string,
         readonly exitCode: number,
         readonly facts: UnreadableReportFacts,
+        readonly defect: ReportDefect,
     ) {
         super(message);
         this.name = 'SiftReportUnreadableError';
     }
+}
+
+// Where a strict decoder first refuses `bytes`: the length of the shortest prefix it rejects,
+// less one. Found by bisection over the platform's own decoder in streaming mode, which accepts
+// a prefix that merely ends inside a sequence, so the answer comes from the decoder that made
+// the refusal and no second UTF-8 state machine lives here. Equals `bytes.length` when every
+// prefix is accepted, which is a file that ends inside a sequence.
+function firstIllFormedOffset(bytes: Uint8Array): number {
+    const accepts = (end: number): boolean => {
+        try {
+            new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes.subarray(0, end), {
+                stream: true,
+            });
+            return true;
+        } catch {
+            return false;
+        }
+    };
+    if (accepts(bytes.length)) {
+        return bytes.length;
+    }
+    let accepted = 0;
+    let refused = bytes.length;
+    while (refused - accepted > 1) {
+        const middle = accepted + Math.floor((refused - accepted) / 2);
+        if (accepts(middle)) {
+            accepted = middle;
+        } else {
+            refused = middle;
+        }
+    }
+    return refused - 1;
+}
+
+// The report, read as the BYTES the engine wrote and checked against the engine's own output
+// contract; pure, so every refusal is provable without spawning an engine.
+//
+// The decoder is FATAL: a lenient one substitutes U+FFFD for an ill-formed sequence and says
+// nothing, so a byte the engine should have replaced itself would reach the comment as if the
+// engine had. `ignoreBOM: true` keeps a leading byte-order mark IN the text, where JSON.parse
+// refuses it, instead of stripping it silently.
+//
+// This is a DIAGNOSTIC, not a gate: it does not repair the artefact and must not read as if it
+// had. It names the engine as the source and says unparseable, never absent.
+//
+// FAIL rather than degrade, and the argument is the exit code's provenance. Degrading would
+// mean trusting exit 0 as "nothing significant changed" — but that code comes from the very
+// component that has just demonstrated it does not validate its own output. "The engine did
+// not error out" and "your logs are clean" are not the same claim, and nothing here can tell
+// them apart. Posting nothing would render our bug as the user's all-clear. `fail-on` does not
+// soften this: it governs verdicts about the user's code, and exits 1/3/4 already fail
+// irrespective of it — an unreadable report belongs in that set, and only reached this line
+// because the exit code lied.
+export function readReport(bytes: Uint8Array, outputPath: string, exitCode: number): SiftReport {
+    const refuse = (defect: ReportDefect): never => {
+        const facts = measureUnreadableReport(bytes);
+        throw new SiftReportUnreadableError(
+            unreadableReportMessage(outputPath, exitCode, facts, defect),
+            exitCode,
+            facts,
+            defect,
+        );
+    };
+    let text: string;
+    try {
+        text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    } catch {
+        return refuse({ kind: 'not-utf8', offset: firstIllFormedOffset(bytes) });
+    }
+    let report: SiftReport;
+    try {
+        report = JSON.parse(text) as SiftReport;
+    } catch (error) {
+        return refuse({
+            kind: 'not-json',
+            parserMessage: error instanceof Error ? error.message : String(error),
+        });
+    }
+    const violations = displayViolations(report);
+    if (violations.length > 0) {
+        return refuse({ kind: 'control-in-display', violations });
+    }
+    return report;
 }
 
 // Operational, non-secret env the engine may legitimately need from the runner.
@@ -383,39 +574,14 @@ export async function runSift(invocation: SiftInvocation): Promise<SiftResult> {
     if (failure !== null) {
         throw new SiftEngineError(failure, exitCode);
     }
-    const raw = await fs.readFile(invocation.outputPath, 'utf8');
     // The exit-code check above was built for "engine failed, no file". It is DEFEATED by
     // "engine succeeded, bad file": engineFailureMessage() returns null on 0 and 2, so a
-    // report-bearing code with a malformed artefact walks straight into JSON.parse and the
-    // user gets a bare SyntaxError attributed to sift-action — the same wrong-subject
-    // failure the SIFT_EXIT block above exists to prevent, entered through the other door.
-    //
-    // This is a DIAGNOSTIC, not a gate: it does not repair the artefact and must not read
-    // as if it had. It names the engine as the source and says unparseable, never absent.
-    //
-    // FAIL rather than degrade, and the argument is the exit code's provenance. Degrading
-    // would mean trusting exit 0 as "nothing significant changed" — but that code comes
-    // from the very component that has just demonstrated it does not validate its own
-    // output. "The engine did not error out" and "your logs are clean" are not the same
-    // claim, and nothing here can tell them apart. Posting nothing would render our bug as
-    // the user's all-clear. `fail-on` does not soften this: it governs verdicts about the
-    // user's code, and exits 1/3/4 already fail irrespective of it — an unreadable report
-    // belongs in that set, and only reached this line because the exit code lied.
-    try {
-        return { report: JSON.parse(raw) as SiftReport, exitCode };
-    } catch (error) {
-        const facts = measureUnreadableReport(raw);
-        throw new SiftReportUnreadableError(
-            unreadableReportMessage(
-                invocation.outputPath,
-                exitCode,
-                facts,
-                error instanceof Error ? error.message : String(error),
-            ),
-            exitCode,
-            facts,
-        );
-    }
+    // report-bearing code with a broken artefact would walk straight into the comment, or
+    // surface as a bare SyntaxError attributed to sift-action. readReport is that second door's
+    // guard: it reads the bytes as written and refuses a report that breaks the engine's
+    // contract.
+    const bytes = await fs.readFile(invocation.outputPath);
+    return { report: readReport(bytes, invocation.outputPath, exitCode), exitCode };
 }
 
 // The Action-level wall-clock bound on `sift explain-setup` (the Founder, 2026-09-03).
