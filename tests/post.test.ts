@@ -107,7 +107,7 @@ test('writeRenderedComment stamps should_post so the poster can honour pr-commen
     assert.equal((await read()).should_post, true, 'at/above-threshold render must stamp should_post=true');
 });
 
-// ── The `sift-report` artifact (DN-116.D1): the full report the comment projects ──
+// ── The `sift-report` artifact (ADR-14.D12): the full report the comment projects ──
 
 import { publishReport } from '../src/artifact.js';
 

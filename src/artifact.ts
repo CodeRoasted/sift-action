@@ -2,7 +2,7 @@
 //   • publishBaselineLog       — self-publishing the baseline (contract § 3, step 6),
 //                                via @actions/artifact's runtime-token path.
 //   • publishReport            — the full report as this run's `sift-report` artifact,
-//                                on every run that has one (DN-116.D1), same path.
+//                                on every run that has one (ADR-14.D12), same path.
 //   • writeRenderedComment     — `render` mode: write the escaped comment body + meta
 //                                into $RUNNER_TEMP/sift-comment/. The CONSUMER's
 //                                workflow uploads that dir (actions/upload-artifact),

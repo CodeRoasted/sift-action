@@ -11,7 +11,7 @@
 // governed by PRD-6 § "Surface: Sift PR comment".
 //
 // The comment is a BOUNDED PROJECTION of a report that is never capped
-// (DN-116.D1): GitHub refuses a comment over MAX_RENDERED_BODY_BYTES and posts
+// (ADR-14.D12): GitHub refuses a comment over MAX_RENDERED_BODY_BYTES and posts
 // nothing, so the frame composes within that budget by construction and declares
 // every elision; the full report is the run's `sift-report` artifact.
 
@@ -47,7 +47,7 @@ const MAX_INLINE_ROWS = 20;
 
 // Display caps on an inline row's engine strings, counted on their ESCAPED bytes: the
 // template IS the row's identity and the engine writes it whole (DN-89.D6), so one row can
-// carry megabytes. The two values are display choices (DN-116.D1); moving either means
+// carry megabytes. The two values are display choices (ADR-14.D12); moving either means
 // re-running the budget arms in tests/frame.test.ts. The template id named in an elision
 // marker is an engine digest (`h:` + 32 hex = 34 B) and is capped only so the bound below
 // holds whatever the engine sends.
