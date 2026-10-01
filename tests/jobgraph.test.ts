@@ -34,9 +34,13 @@ test('parseWorkflowJobs: keys, verbatim names, and both `needs:` shapes — scal
         ].join('\n'),
     );
     assert.equal(jobs.length, 3, `expected 3 declared jobs, got ${jobs.length}: ${JSON.stringify(jobs)}`);
-    assert.deepEqual(jobs[0], { key: 'build', name: 'Build', needs: [] });
-    assert.deepEqual(jobs[1], { key: 'gate', name: '', needs: ['build'] }, 'a bare scalar `needs:` is one edge');
-    assert.deepEqual(jobs[2], { key: 'release', name: '', needs: ['build', 'gate'] });
+    assert.deepEqual(jobs[0], { key: 'build', name: 'Build', needs: [], callsWorkflow: false });
+    assert.deepEqual(
+        jobs[1],
+        { key: 'gate', name: '', needs: ['build'], callsWorkflow: false },
+        'a bare scalar `needs:` is one edge',
+    );
+    assert.deepEqual(jobs[2], { key: 'release', name: '', needs: ['build', 'gate'], callsWorkflow: false });
 });
 
 test('parseWorkflowJobs: a `${{ }}` name is kept AS WRITTEN — the producer renders no expression', () => {
@@ -50,7 +54,7 @@ test('parseWorkflowJobs: a `${{ }}` name is kept AS WRITTEN — the producer ren
 
 test('parseWorkflowJobs: a null-body job is KEPT — its key is a legitimate `needs:` target', () => {
     const jobs = parseWorkflowJobs(['jobs:', '  stub:', '  gate:', '    needs: stub'].join('\n'));
-    assert.deepEqual(jobs[0], { key: 'stub', name: '', needs: [] });
+    assert.deepEqual(jobs[0], { key: 'stub', name: '', needs: [], callsWorkflow: false });
 });
 
 test('parseWorkflowJobs: unreadable YAML and a jobs-less file THROW the reason — the caller logs it as ABSENT', () => {
@@ -70,8 +74,8 @@ const RENDERED_FANOUT: RenderedJob[] = [
 test('joinDeclaredJobs: the anchor is the `name:` when present, else the key — GitHub\'s own rendering rule', () => {
     const joined = joinDeclaredJobs(
         [
-            { key: 'build', name: 'Build', needs: [] },
-            { key: 'bazel', name: 'Bazel', needs: ['build'] },
+            { key: 'build', name: 'Build', needs: [], callsWorkflow: false },
+            { key: 'bazel', name: 'Bazel', needs: ['build'], callsWorkflow: true },
         ],
         RENDERED_FANOUT,
     );
@@ -84,8 +88,8 @@ test('joinDeclaredJobs: a conclusion is declared for EXACTLY ONE rendered job, o
     // the platform never stated. Empty = NOT DECLARED — a third state, not success.
     const joined = joinDeclaredJobs(
         [
-            { key: 'build', name: 'Build', needs: [] },
-            { key: 'bazel', name: 'Bazel', needs: ['build'] },
+            { key: 'build', name: 'Build', needs: [], callsWorkflow: false },
+            { key: 'bazel', name: 'Bazel', needs: ['build'], callsWorkflow: true },
         ],
         RENDERED_FANOUT,
     );
@@ -98,7 +102,10 @@ test('joinDeclaredJobs: a conclusion is declared for EXACTLY ONE rendered job, o
 });
 
 test('joinDeclaredJobs: rendered NOWHERE ⇒ display stays EMPTY — the coverage coordinate, never filled speculatively', () => {
-    const joined = joinDeclaredJobs([{ key: 'ghost', name: 'Ghost', needs: [] }], RENDERED_FANOUT);
+    const joined = joinDeclaredJobs(
+        [{ key: 'ghost', name: 'Ghost', needs: [], callsWorkflow: false }],
+        RENDERED_FANOUT,
+    );
     assert.equal(joined[0]!.display, '', 'an unresolved key is a first-class statement the engine counts');
     assert.equal(joined[0]!.conclusion, '', 'no rendering ⇒ no conclusion to read');
 });
@@ -106,7 +113,10 @@ test('joinDeclaredJobs: rendered NOWHERE ⇒ display stays EMPTY — the coverag
 test('joinDeclaredJobs: every rendered row is QUOTED key-less — a rendering is not referenceable', () => {
     // `key` is what `needs:` references; nothing may declare an edge to a rendering. The quoted
     // rows carry the platform's verdicts at the platform's own grain.
-    const joined = joinDeclaredJobs([{ key: 'bazel', name: 'Bazel', needs: [] }], RENDERED_FANOUT);
+    const joined = joinDeclaredJobs(
+        [{ key: 'bazel', name: 'Bazel', needs: [], callsWorkflow: true }],
+        RENDERED_FANOUT,
+    );
     const quoted = joined.filter((job) => job.key === '');
     assert.equal(quoted.length, RENDERED_FANOUT.length, 'every rendered row travels in its own right');
     assert.deepEqual(
@@ -274,7 +284,7 @@ test('resolveChangedJobGraph (E1): an edge-free workflow\'s jobs carry their dec
     const merged = graph.find((job) => job.key === 'm');
     assert.deepEqual(
         merged,
-        { key: 'm', display: 'Merge coverage', needs: [], conclusion: 'success' },
+        { key: 'm', display: 'Merge coverage', needs: [], conclusion: 'success', calls_workflow: false },
         `the succeeded job's entry: ${JSON.stringify(merged)}`,
     );
     const built = graph.find((job) => job.key === 'f');
@@ -292,4 +302,84 @@ test('resolveChangedJobGraph (A3): no runner commit ⇒ ABSENT, zero requests, o
     assert.deepEqual(calls, [], `no request may be made without the runner's commit; calls: ${JSON.stringify(calls)}`);
     assert.equal(lines.length, 1, `expected exactly one log line, got ${JSON.stringify(lines)}`);
     assert.match(lines[0]!, /^Sift: no declared job graph — GITHUB_WORKFLOW_SHA is absent or empty\./);
+});
+
+// ── The species travels, and the `<A> / X` containment is the caller's (DN-118.O3) ──
+
+// appwrite/appwrite run 28568090223's shape, constructed: the plain job `checks` stands beside three
+// jobs whose own `name:` begins with `Checks / `. `security` and `locale` are plain jobs whose STEPS
+// use actions, which makes no job a caller; `dependencies` calls a reusable workflow at JOB level.
+// The four rendered names are the committed graph's own (coderoast-corpora `f0d9938`).
+const CHECKS_FAMILY_SHA = 'a'.repeat(40);
+REWIRED_AT[CHECKS_FAMILY_SHA] = [
+    'jobs:',
+    '  dependencies:',
+    '    name: Checks / Dependencies',
+    '    uses: ./.github/workflows/osv-scan.yml',
+    '  security:',
+    '    name: Checks / Image',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+    '      - run: ./scan_image.sh',
+    '  checks:',
+    '    name: Checks',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+    '      - run: ./check.sh',
+    '  locale:',
+    '    name: Checks / Locale',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+    '      - run: ./check_locale.sh',
+].join('\n');
+const CHECKS_FAMILY_LISTING = [
+    { name: 'Checks', conclusion: 'success' },
+    { name: 'Checks / Image', conclusion: 'success' },
+    { name: 'Checks / Locale', conclusion: 'success' },
+    { name: 'Checks / Dependencies / osv-scan', conclusion: 'success' },
+];
+
+// (R2) A plain job named `Checks / X` is not a rendering of the plain job `Checks`, so `checks`
+// carries the one conclusion the platform declared for it. Anti-vacuity, asserted first: the caller
+// `dependencies` still reaches `Checks / Dependencies / osv-scan`, the row its called workflow
+// renders. Then the wire: `calls_workflow` on every keyed entry, true exactly for the job-level
+// `uses:`, and on no keyless entry — the engine refuses either omission or excess (R4).
+test('resolveChangedJobGraph (R2): a plain job named `Checks / X` is not a rendering of `Checks`, and only a job-level `uses:` makes a caller', async () => {
+    const { graph, lines } = await resolveAt(CHECKS_FAMILY_SHA, CHECKS_FAMILY_LISTING);
+    assert.ok(graph, `no graph for the Checks family; log: ${JSON.stringify(lines)}`);
+    const keyed = graph.filter((job) => job.key !== '');
+    const byKey = new Map(keyed.map((job) => [job.key, job]));
+
+    const dependencies = byKey.get('dependencies');
+    assert.equal(
+        dependencies?.display,
+        'Checks / Dependencies',
+        'CONTROL: the caller no longer reaches the row its called workflow renders, so the arm below ' +
+            `could pass on a join that matches nothing by prefix: ${JSON.stringify(graph)}`,
+    );
+    assert.equal(
+        byKey.get('checks')?.conclusion,
+        'success',
+        'the plain job `checks` rendered exactly once, as `Checks`; reading the plain jobs named ' +
+            '`Checks / ...` as its renderings withholds the conclusion the platform declared for it: ' +
+            JSON.stringify(graph),
+    );
+    assert.deepEqual(
+        keyed,
+        [
+            { key: 'dependencies', display: 'Checks / Dependencies', needs: [], conclusion: 'success', calls_workflow: true },
+            { key: 'security', display: 'Checks / Image', needs: [], conclusion: 'success', calls_workflow: false },
+            { key: 'checks', display: 'Checks', needs: [], conclusion: 'success', calls_workflow: false },
+            { key: 'locale', display: 'Checks / Locale', needs: [], conclusion: 'success', calls_workflow: false },
+        ],
+        `every keyed entry carries its species, true exactly for a job-level \`uses:\`: ${JSON.stringify(keyed)}`,
+    );
+    assert.deepEqual(
+        graph.filter((job) => job.key === ''),
+        CHECKS_FAMILY_LISTING.map((row) => ({ key: '', display: row.name, needs: [], conclusion: row.conclusion })),
+        `a quoted rendering carries no species — it is not a declaration: ${JSON.stringify(graph)}`,
+    );
 });

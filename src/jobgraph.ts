@@ -35,11 +35,13 @@ import { load, YAMLException } from 'js-yaml';
 type Octokit = ReturnType<typeof getOctokit>;
 
 // One job as the workflow file declares it (pre-join): the mapping key, the verbatim `name:`,
-// and the `needs:` edges by key.
+// the `needs:` edges by key, and its species — true exactly when the body declares a job-level
+// `uses:` (DN-118.O3).
 export interface DeclaredJobRecord {
     key: string;
     name: string;
     needs: string[];
+    callsWorkflow: boolean;
 }
 
 // One job as the run's listing renders it: the platform's own name and NATIVE conclusion.
@@ -48,20 +50,40 @@ export interface RenderedJob {
     conclusion: string;
 }
 
-// The ADR-22.D13 wire entry. ALL FOUR FIELDS ALWAYS TRAVEL — `key` and `display` are required by
-// the engine and never defaulted from each other (a graph keyed on the wrong coordinate folds
-// nothing and reads exactly like a clean run); empty strings are first-class statements, not
-// omissions.
-export interface DeclaredJobWire {
+// The ADR-22.D13 wire entry for a DECLARATION. ALL FIVE FIELDS ALWAYS TRAVEL — `key` and `display`
+// are required by the engine and never defaulted from each other (a graph keyed on the wrong
+// coordinate folds nothing and reads exactly like a clean run); empty strings are first-class
+// statements, not omissions. `calls_workflow` is required here and refused on a rendering, each
+// violation an engine wiring error (DN-118.O3).
+export interface DeclaredJobEntry {
     key: string;
+    display: string;
+    needs: string[];
+    conclusion: string;
+    calls_workflow: boolean;
+}
+
+// The wire entry for a RENDERING the listing quoted: an empty `key`, and no species, because a
+// rendering is not a declaration.
+export interface RenderedJobEntry {
+    key: '';
     display: string;
     needs: string[];
     conclusion: string;
 }
 
+export type DeclaredJobWire = DeclaredJobEntry | RenderedJobEntry;
+
 // The reusable-workflow rendering separator (ADR-22.D13 — cited, never restated; the grammar's
 // mirror witness lives in tests/joblog.test.ts).
 const REUSABLE_SEPARATOR = ' / ';
+
+// Whether the rendered name `rendered` belongs to the declaration anchored at `display` whose
+// species is `callsWorkflow` (DN-118.O3).
+function renderingBelongsTo(rendered: string, display: string, callsWorkflow: boolean): boolean {
+    if (rendered === display) return true;
+    return callsWorkflow && rendered.startsWith(display + REUSABLE_SEPARATOR);
+}
 
 // A YAML scalar's text, or '' for anything that is not a scalar — a workflow file is free to
 // contain shapes we must not throw on. Verbatim for strings: a `name:` carrying a `${{ }}`
@@ -116,10 +138,11 @@ export function parseWorkflowJobs(yaml: string): DeclaredJobRecord[] {
     const declared: DeclaredJobRecord[] = [];
     for (const [key, body] of Object.entries(jobs)) {
         if (!key) continue; // an empty key names nothing `needs:` could reference
-        const job: DeclaredJobRecord = { key, name: '', needs: [] };
+        const job: DeclaredJobRecord = { key, name: '', needs: [], callsWorkflow: false };
         if (isPlainMap(body)) {
             job.name = scalarText(body['name']);
             job.needs = declaredNeeds(body);
+            job.callsWorkflow = Object.prototype.hasOwnProperty.call(body, 'uses'); // DN-118.O3
         }
         // A job whose body is null or a scalar declares no name and no edges, and it is still
         // KEPT: its key is a legitimate target of another job's `needs:`.
@@ -138,12 +161,13 @@ export function joinDeclaredJobs(
     const joined: DeclaredJobWire[] = [];
     for (const job of declared) {
         // What the log renders this job under, per GitHub's own rule: the declared `name:`, else
-        // the key. An ANCHOR, not a single row's name — the engine expands it over the
-        // reusable-workflow fan-out at match time; the set is never stored (it would snapshot a
-        // rendering only the platform authors, and the staleness would be silent).
+        // the key. On a caller it is an ANCHOR, not a single row's name — the engine expands it
+        // over the reusable-workflow fan-out at match time; the set is never stored (it would
+        // snapshot a rendering only the platform authors, and the staleness would be silent).
         const anchor = job.name || job.key;
-        const prefix = anchor + REUSABLE_SEPARATOR;
-        const members = rendered.filter((row) => row.name === anchor || row.name.startsWith(prefix));
+        const members = rendered.filter((row) =>
+            renderingBelongsTo(row.name, anchor, job.callsWorkflow),
+        );
         // Rendered NOWHERE ⇒ `display` stays EMPTY — the acquirer's only honest statement about
         // this key, and the coordinate the engine counts for its coverage clause. Never filled
         // speculatively.
@@ -158,6 +182,7 @@ export function joinDeclaredJobs(
             display: members.length > 0 ? anchor : '',
             needs: job.needs,
             conclusion: members.length === 1 ? members[0]!.conclusion : '',
+            calls_workflow: job.callsWorkflow,
         });
     }
     // The rendered rows, QUOTED — the platform's own verdicts at the platform's own grain. NO

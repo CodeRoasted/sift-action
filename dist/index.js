@@ -66340,6 +66340,10 @@ var {
 
 // src/jobgraph.ts
 var REUSABLE_SEPARATOR = " / ";
+function renderingBelongsTo(rendered, display, callsWorkflow) {
+  if (rendered === display) return true;
+  return callsWorkflow && rendered.startsWith(display + REUSABLE_SEPARATOR);
+}
 function scalarText(value) {
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
@@ -66380,10 +66384,11 @@ function parseWorkflowJobs(yaml2) {
   const declared = [];
   for (const [key, body3] of Object.entries(jobs)) {
     if (!key) continue;
-    const job = { key, name: "", needs: [] };
+    const job = { key, name: "", needs: [], callsWorkflow: false };
     if (isPlainMap(body3)) {
       job.name = scalarText(body3["name"]);
       job.needs = declaredNeeds(body3);
+      job.callsWorkflow = Object.prototype.hasOwnProperty.call(body3, "uses");
     }
     declared.push(job);
   }
@@ -66393,13 +66398,15 @@ function joinDeclaredJobs(declared, rendered) {
   const joined = [];
   for (const job of declared) {
     const anchor = job.name || job.key;
-    const prefix2 = anchor + REUSABLE_SEPARATOR;
-    const members = rendered.filter((row) => row.name === anchor || row.name.startsWith(prefix2));
+    const members = rendered.filter(
+      (row) => renderingBelongsTo(row.name, anchor, job.callsWorkflow)
+    );
     joined.push({
       key: job.key,
       display: members.length > 0 ? anchor : "",
       needs: job.needs,
-      conclusion: members.length === 1 ? members[0].conclusion : ""
+      conclusion: members.length === 1 ? members[0].conclusion : "",
+      calls_workflow: job.callsWorkflow
     });
   }
   for (const row of rendered) {
