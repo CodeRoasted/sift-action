@@ -55,16 +55,12 @@
     "baseline": {
       "label": "baseline.log",
       "lines_observed": 9412,
-      "unique_templates": 214,
-      "window_start_iso": "2026-08-24T06:03:11Z",
-      "window_end_iso": "2026-08-24T06:21:48Z"
+      "unique_templates": 214
     },
     "changed": {
       "label": "changed.log",
       "lines_observed": 9587,
-      "unique_templates": 219,
-      "window_start_iso": "2026-08-25T07:41:02Z",
-      "window_end_iso": "2026-08-25T08:02:19Z"
+      "unique_templates": 219
     }
   },
   "markdown": "# Sift — baseline → changed\n\n**618 changes, 5 structurally significant.**\n\n## Significant changes\n\n1. **[CRITICAL · regression]** New error: \"ERROR gateway: upstream payments timed out after <*>ms\" — 0 → 214 occurrences\n2. **[MEDIUM]** Disappeared: \"INFO cache restored from key <*>\" — was 2.1% of baseline\n3. **[HIGH · recovery]** Resolved error: \"ERROR sqlalchemy.exc.OperationalError: connection refused\" — 188 → 0\n4. **[LOW]** Frequency shift: \"INFO downloading <*> (<*> MB)\" 4.0% → 6.1%\n5. **[MEDIUM]** Frequency shift: \"INFO restore dependencies completed in <*>s\" — 6.2× slower\n"

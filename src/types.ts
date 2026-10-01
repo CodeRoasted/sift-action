@@ -62,8 +62,6 @@ export interface InputProvenance {
     // one the Action's `sift a.log b.log` invocation takes, never counts whole-log templates.
     // Optional here also keeps an older engine's always-present key readable.
     unique_templates?: number;
-    window_start_iso?: string;
-    window_end_iso?: string;
 }
 
 // The engine's `--format both` output: the structured report plus the
