@@ -66427,6 +66427,22 @@ function declaredNeeds(body3) {
   }
   return needs;
 }
+function declaredSteps(body3) {
+  const declared = body3["steps"];
+  if (!Array.isArray(declared)) return [];
+  const steps = [];
+  for (const step of declared) {
+    if (!isPlainMap(step)) continue;
+    const run2 = step["run"];
+    const uses = step["uses"];
+    if (run2 !== void 0 && run2 !== null && !isPlainMap(run2) && !Array.isArray(run2)) {
+      steps.push({ run: scalarText(run2) });
+    } else if (uses !== void 0 && uses !== null && !isPlainMap(uses) && !Array.isArray(uses)) {
+      steps.push({ uses: scalarText(uses) });
+    }
+  }
+  return steps;
+}
 function parseWorkflowJobs(yaml2) {
   let root;
   try {
@@ -66445,13 +66461,21 @@ function parseWorkflowJobs(yaml2) {
   const declared = [];
   for (const [key, body3] of Object.entries(jobs)) {
     if (!key) continue;
-    const job = { key, name: "", needs: [], callsWorkflow: false, declaresMatrix: false };
+    const job = {
+      key,
+      name: "",
+      needs: [],
+      callsWorkflow: false,
+      declaresMatrix: false,
+      steps: []
+    };
     if (isPlainMap(body3)) {
       job.name = scalarText(body3["name"]);
       job.needs = declaredNeeds(body3);
       job.callsWorkflow = Object.prototype.hasOwnProperty.call(body3, "uses");
       const strategy = body3["strategy"];
       job.declaresMatrix = isPlainMap(strategy) && Object.prototype.hasOwnProperty.call(strategy, "matrix");
+      job.steps = declaredSteps(body3);
     }
     declared.push(job);
   }
@@ -66477,7 +66501,8 @@ function joinDeclaredJobs(declared, rendered) {
       needs: job.needs,
       conclusion: reaching.length === 1 ? reaching[0].conclusion : "",
       calls_workflow: job.callsWorkflow,
-      declares_matrix: job.declaresMatrix
+      declares_matrix: job.declaresMatrix,
+      steps: job.steps
     });
   });
   for (const row of rendered) {

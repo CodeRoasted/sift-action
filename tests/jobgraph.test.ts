@@ -34,13 +34,13 @@ test('parseWorkflowJobs: keys, verbatim names, and both `needs:` shapes — scal
         ].join('\n'),
     );
     assert.equal(jobs.length, 3, `expected 3 declared jobs, got ${jobs.length}: ${JSON.stringify(jobs)}`);
-    assert.deepEqual(jobs[0], { key: 'build', name: 'Build', needs: [], callsWorkflow: false, declaresMatrix: false });
+    assert.deepEqual(jobs[0], { key: 'build', name: 'Build', needs: [], callsWorkflow: false, declaresMatrix: false, steps: [] });
     assert.deepEqual(
         jobs[1],
-        { key: 'gate', name: '', needs: ['build'], callsWorkflow: false, declaresMatrix: false },
+        { key: 'gate', name: '', needs: ['build'], callsWorkflow: false, declaresMatrix: false, steps: [] },
         'a bare scalar `needs:` is one edge',
     );
-    assert.deepEqual(jobs[2], { key: 'release', name: '', needs: ['build', 'gate'], callsWorkflow: false, declaresMatrix: false });
+    assert.deepEqual(jobs[2], { key: 'release', name: '', needs: ['build', 'gate'], callsWorkflow: false, declaresMatrix: false, steps: [] });
 });
 
 test('parseWorkflowJobs: a `${{ }}` name is kept AS WRITTEN — the producer renders no expression', () => {
@@ -54,7 +54,7 @@ test('parseWorkflowJobs: a `${{ }}` name is kept AS WRITTEN — the producer ren
 
 test('parseWorkflowJobs: a null-body job is KEPT — its key is a legitimate `needs:` target', () => {
     const jobs = parseWorkflowJobs(['jobs:', '  stub:', '  gate:', '    needs: stub'].join('\n'));
-    assert.deepEqual(jobs[0], { key: 'stub', name: '', needs: [], callsWorkflow: false, declaresMatrix: false });
+    assert.deepEqual(jobs[0], { key: 'stub', name: '', needs: [], callsWorkflow: false, declaresMatrix: false, steps: [] });
 });
 
 test('parseWorkflowJobs: unreadable YAML and a jobs-less file THROW the reason — the caller logs it as ABSENT', () => {
@@ -74,8 +74,8 @@ const RENDERED_FANOUT: RenderedJob[] = [
 test('joinDeclaredJobs: the anchor is the `name:` when present, else the key — GitHub\'s own rendering rule', () => {
     const joined = joinDeclaredJobs(
         [
-            { key: 'build', name: 'Build', needs: [], callsWorkflow: false, declaresMatrix: false },
-            { key: 'bazel', name: 'Bazel', needs: ['build'], callsWorkflow: true, declaresMatrix: false },
+            { key: 'build', name: 'Build', needs: [], callsWorkflow: false, declaresMatrix: false, steps: [] },
+            { key: 'bazel', name: 'Bazel', needs: ['build'], callsWorkflow: true, declaresMatrix: false, steps: [] },
         ],
         RENDERED_FANOUT,
     );
@@ -88,8 +88,8 @@ test('joinDeclaredJobs: a conclusion is declared for EXACTLY ONE rendered job, o
     // the platform never stated. Empty = NOT DECLARED — a third state, not success.
     const joined = joinDeclaredJobs(
         [
-            { key: 'build', name: 'Build', needs: [], callsWorkflow: false, declaresMatrix: false },
-            { key: 'bazel', name: 'Bazel', needs: ['build'], callsWorkflow: true, declaresMatrix: false },
+            { key: 'build', name: 'Build', needs: [], callsWorkflow: false, declaresMatrix: false, steps: [] },
+            { key: 'bazel', name: 'Bazel', needs: ['build'], callsWorkflow: true, declaresMatrix: false, steps: [] },
         ],
         RENDERED_FANOUT,
     );
@@ -103,7 +103,7 @@ test('joinDeclaredJobs: a conclusion is declared for EXACTLY ONE rendered job, o
 
 test('joinDeclaredJobs: rendered NOWHERE ⇒ display stays EMPTY — the coverage coordinate, never filled speculatively', () => {
     const joined = joinDeclaredJobs(
-        [{ key: 'ghost', name: 'Ghost', needs: [], callsWorkflow: false, declaresMatrix: false }],
+        [{ key: 'ghost', name: 'Ghost', needs: [], callsWorkflow: false, declaresMatrix: false, steps: [] }],
         RENDERED_FANOUT,
     );
     assert.equal(joined[0]!.display, '', 'an unresolved key is a first-class statement the engine counts');
@@ -114,7 +114,7 @@ test('joinDeclaredJobs: every rendered row is QUOTED key-less — a rendering is
     // `key` is what `needs:` references; nothing may declare an edge to a rendering. The quoted
     // rows carry the platform's verdicts at the platform's own grain.
     const joined = joinDeclaredJobs(
-        [{ key: 'bazel', name: 'Bazel', needs: [], callsWorkflow: true, declaresMatrix: false }],
+        [{ key: 'bazel', name: 'Bazel', needs: [], callsWorkflow: true, declaresMatrix: false, steps: [] }],
         RENDERED_FANOUT,
     );
     const quoted = joined.filter((job) => job.key === '');
@@ -284,7 +284,7 @@ test('resolveChangedJobGraph (E1): an edge-free workflow\'s jobs carry their dec
     const merged = graph.find((job) => job.key === 'm');
     assert.deepEqual(
         merged,
-        { key: 'm', display: 'Merge coverage', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false },
+        { key: 'm', display: 'Merge coverage', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false, steps: [] },
         `the succeeded job's entry: ${JSON.stringify(merged)}`,
     );
     const built = graph.find((job) => job.key === 'f');
@@ -370,10 +370,10 @@ test('resolveChangedJobGraph (R2): a plain job named `Checks / X` is not a rende
     assert.deepEqual(
         keyed,
         [
-            { key: 'dependencies', display: 'Checks / Dependencies', needs: [], conclusion: 'success', calls_workflow: true, declares_matrix: false },
-            { key: 'security', display: 'Checks / Image', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false },
-            { key: 'checks', display: 'Checks', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false },
-            { key: 'locale', display: 'Checks / Locale', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false },
+            { key: 'dependencies', display: 'Checks / Dependencies', needs: [], conclusion: 'success', calls_workflow: true, declares_matrix: false, steps: [] },
+            { key: 'security', display: 'Checks / Image', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false, steps: [{ uses: 'actions/checkout@v4' }, { run: './scan_image.sh' }] },
+            { key: 'checks', display: 'Checks', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false, steps: [{ uses: 'actions/checkout@v4' }, { run: './check.sh' }] },
+            { key: 'locale', display: 'Checks / Locale', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false, steps: [{ uses: 'actions/checkout@v4' }, { run: './check_locale.sh' }] },
         ],
         `every keyed entry carries its species, true exactly for a job-level \`uses:\`: ${JSON.stringify(keyed)}`,
     );
@@ -382,4 +382,30 @@ test('resolveChangedJobGraph (R2): a plain job named `Checks / X` is not a rende
         CHECKS_FAMILY_LISTING.map((row) => ({ key: '', display: row.name, needs: [], conclusion: row.conclusion })),
         `a quoted rendering carries no species — it is not a declaration: ${JSON.stringify(graph)}`,
     );
+});
+// on the keyed entry only. The engine cuts a `run:` text's first line; a cut here would be a third
+// spelling of the expression delimiters, and this arm reds on one.
+test('parseWorkflowJobs / joinDeclaredJobs (DN-89.D34): declared step texts travel verbatim on the keyed entry', () => {
+    const yaml = [
+        'jobs:',
+        '  build:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - name: only a name',
+        '      - run: |',
+        '          BASE_SHA="${{ github.sha }}"',
+        '          git diff "$BASE_SHA"',
+        '      - run: make test',
+    ].join('\n');
+    const expected = [
+        { uses: 'actions/checkout@v4' },
+        { run: 'BASE_SHA="${{ github.sha }}"\ngit diff "$BASE_SHA"\n' },
+        { run: 'make test' },
+    ];
+    const declared = parseWorkflowJobs(yaml);
+    assert.deepEqual(declared[0]?.steps, expected);
+    const joined = joinDeclaredJobs(declared, [{ name: 'build', conclusion: 'success' }]);
+    assert.deepEqual((joined[0] as { steps?: unknown }).steps, expected, JSON.stringify(joined));
+    assert.ok(!Object.prototype.hasOwnProperty.call(joined[1], 'steps'), 'a rendering declares no step');
 });

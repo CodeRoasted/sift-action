@@ -40,16 +40,22 @@ import { load, YAMLException } from 'js-yaml';
 
 type Octokit = ReturnType<typeof getOctokit>;
 
+// One declared step's text on the wire: its `run:` text WHOLE and verbatim, or its `uses:`
+// reference (DN-89.D34). The engine cuts a `run:` text's first line itself, so this producer holds
+// no spelling of the expression delimiters for it.
+export type DeclaredStep = { run: string } | { uses: string };
+
 // One job as the workflow file declares it (pre-join): the mapping key, the verbatim `name:`,
-// the `needs:` edges by key, and its two species — `callsWorkflow` true exactly when the body
+// the `needs:` edges by key, its two species — `callsWorkflow` true exactly when the body
 // declares a job-level `uses:` (DN-118.O3), `declaresMatrix` true exactly when it declares
-// `strategy.matrix`, whatever its value (DN-127.D1).
+// `strategy.matrix`, whatever its value (DN-127.D1) — and its declared steps in document order.
 export interface DeclaredJobRecord {
     key: string;
     name: string;
     needs: string[];
     callsWorkflow: boolean;
     declaresMatrix: boolean;
+    steps: DeclaredStep[];
 }
 
 // One job as the run's listing renders it: the platform's own name and NATIVE conclusion.
@@ -58,11 +64,11 @@ export interface RenderedJob {
     conclusion: string;
 }
 
-// The ADR-22.D13 wire entry for a DECLARATION. ALL SIX FIELDS ALWAYS TRAVEL — `key` and `display`
+// The ADR-22.D13 wire entry for a DECLARATION. ALL SEVEN FIELDS ALWAYS TRAVEL — `key` and `display`
 // are required by the engine and never defaulted from each other (a graph keyed on the wrong
 // coordinate folds nothing and reads exactly like a clean run); empty strings are first-class
-// statements, not omissions. `calls_workflow` and `declares_matrix` are required here and refused
-// on a rendering, each violation an engine wiring error (DN-118.O3, DN-127.D1).
+// statements, not omissions. `calls_workflow`, `declares_matrix` and `steps` are required here and
+// refused on a rendering, each violation an engine wiring error (DN-118.O3, DN-127.D1, DN-89.D34).
 export interface DeclaredJobEntry {
     key: string;
     display: string;
@@ -70,6 +76,7 @@ export interface DeclaredJobEntry {
     conclusion: string;
     calls_workflow: boolean;
     declares_matrix: boolean;
+    steps: DeclaredStep[];
 }
 
 // The wire entry for a RENDERING the listing quoted: an empty `key`, and no species, because a
@@ -221,6 +228,25 @@ function declaredNeeds(body: Record<string, unknown>): string[] {
     return needs;
 }
 
+// The steps a job body declares, each `run:` text or `uses:` reference verbatim, read for its
+// `run:` first; a step declaring neither declares no text (DN-89.D34).
+function declaredSteps(body: Record<string, unknown>): DeclaredStep[] {
+    const declared = body['steps'];
+    if (!Array.isArray(declared)) return [];
+    const steps: DeclaredStep[] = [];
+    for (const step of declared) {
+        if (!isPlainMap(step)) continue;
+        const run = step['run'];
+        const uses = step['uses'];
+        if (run !== undefined && run !== null && !isPlainMap(run) && !Array.isArray(run)) {
+            steps.push({ run: scalarText(run) });
+        } else if (uses !== undefined && uses !== null && !isPlainMap(uses) && !Array.isArray(uses)) {
+            steps.push({ uses: scalarText(uses) });
+        }
+    }
+    return steps;
+}
+
 // Workflow YAML → the declared jobs, in document order (deterministic for a given file). Throws
 // with the reason on an unreadable or jobs-less file — the caller turns that into ABSENT with the
 // reason logged, never into a failed run.
@@ -243,7 +269,14 @@ export function parseWorkflowJobs(yaml: string): DeclaredJobRecord[] {
     const declared: DeclaredJobRecord[] = [];
     for (const [key, body] of Object.entries(jobs)) {
         if (!key) continue; // an empty key names nothing `needs:` could reference
-        const job: DeclaredJobRecord = { key, name: '', needs: [], callsWorkflow: false, declaresMatrix: false };
+        const job: DeclaredJobRecord = {
+            key,
+            name: '',
+            needs: [],
+            callsWorkflow: false,
+            declaresMatrix: false,
+            steps: [],
+        };
         if (isPlainMap(body)) {
             job.name = scalarText(body['name']);
             job.needs = declaredNeeds(body);
@@ -252,6 +285,7 @@ export function parseWorkflowJobs(yaml: string): DeclaredJobRecord[] {
             // declare a matrix, and a `strategy:` without it declares none (DN-127.D1).
             const strategy = body['strategy'];
             job.declaresMatrix = isPlainMap(strategy) && Object.prototype.hasOwnProperty.call(strategy, 'matrix');
+            job.steps = declaredSteps(body);
         }
         // A job whose body is null or a scalar declares no name and no edges, and it is still
         // KEPT: its key is a legitimate target of another job's `needs:`.
@@ -300,6 +334,7 @@ export function joinDeclaredJobs(
             conclusion: reaching.length === 1 ? reaching[0]!.conclusion : '',
             calls_workflow: job.callsWorkflow,
             declares_matrix: job.declaresMatrix,
+            steps: job.steps,
         });
     });
     // The rendered rows, QUOTED — the platform's own verdicts at the platform's own grain. NO
