@@ -66,8 +66,8 @@ export interface RenderedJob {
 
 // The ADR-22.D13 wire entry for a DECLARATION. ALL SEVEN FIELDS ALWAYS TRAVEL — `key` and `display`
 // are required by the engine and never defaulted from each other (a graph keyed on the wrong
-// coordinate folds nothing and reads exactly like a clean run); empty strings are first-class
-// statements, not omissions. `calls_workflow`, `declares_matrix` and `steps` are required here and
+// coordinate folds nothing and reads exactly like a clean run). `display` is the declaration's
+// anchor, resolved or not, and the engine refuses an empty one (DN-127.D7). `calls_workflow`, `declares_matrix` and `steps` are required here and
 // refused on a rendering, each violation an engine wiring error (DN-118.O3, DN-127.D1, DN-89.D34).
 export interface DeclaredJobEntry {
     key: string;
@@ -318,9 +318,10 @@ export function joinDeclaredJobs(
     declared.forEach((job, index) => {
         const anchor = declarations[index]!.anchor;
         const reaching = members[index]!;
-        // Rendered NOWHERE ⇒ `display` stays EMPTY — the acquirer's only honest statement about
-        // this key, and the coordinate the engine counts for its coverage clause. Never filled
-        // speculatively.
+        // `display` is the ANCHOR, ALWAYS — resolved or not (DN-127.D7). The engine re-derives
+        // resolution from its own reach over every keyed entry, so a declaration that reached
+        // nothing must still travel with what it claims: hiding it would hand a rendering it
+        // contests to its rival. Whether it reached anything is the conclusion's statement.
         //
         // ⚠ A CONCLUSION IS DECLARED FOR EXACTLY ONE RENDERED JOB, OR NOT AT ALL. When a declared
         // job fans out, GitHub emits N conclusions and NO row for the caller; rolling those N into
@@ -329,7 +330,7 @@ export function joinDeclaredJobs(
         // them). Empty is NOT DECLARED (ADR-22.D10) — a third state, and the honest one.
         joined.push({
             key: job.key,
-            display: reaching.length > 0 ? anchor : '',
+            display: anchor,
             needs: job.needs,
             conclusion: reaching.length === 1 ? reaching[0]!.conclusion : '',
             calls_workflow: job.callsWorkflow,

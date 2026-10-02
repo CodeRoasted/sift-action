@@ -20,7 +20,7 @@ import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { joinDeclaredJobs, parseWorkflowJobs, reach } from '../src/jobgraph.js';
+import { joinDeclaredJobs, parseWorkflowJobs, reach, type DeclaredJobWire } from '../src/jobgraph.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TABLE = path.join(__dirname, '..', '..', 'tests', 'fixtures', 'job_rendering_cases.json');
@@ -79,7 +79,9 @@ for (const entry of CASES) {
         const failures: string[] = [];
         for (const rendering of entry.renderings) {
             const joined = joinDeclaredJobs(declared, [{ name: rendering.name, conclusion: 'success' }]);
-            const reached = joined.slice(0, declared.length).filter((job) => job.display !== '').map((job) => job.key);
+            // A keyed entry reaching the one listed rendering copies its conclusion; one reaching
+            // nothing states none. Its display is its anchor either way (DN-127.D7).
+            const reached = joined.slice(0, declared.length).filter((job) => job.conclusion !== '').map((job) => job.key);
             if (JSON.stringify(reached) !== JSON.stringify(rendering.reached_by)) {
                 failures.push(
                     `\`${rendering.name}\`: reached by ${JSON.stringify(reached)}, the table states ` +
@@ -87,6 +89,61 @@ for (const entry of CASES) {
                 );
             }
         }
+        assert.deepEqual(failures, [], `${entry.source}\n${workflowOf(entry)}`);
+    });
+}
+
+// L14 (d), DN-127.D7: the round trip. Per case, this producer joins the WHOLE listing, and its wire,
+// read as the engine reads it — each keyed entry a declaration anchored at its display, every
+// keyless entry reached through `reach` — reaches what the table states. Every keyed entry carries
+// its anchor, resolved or not, and its conclusion agrees with what it places: a copied token for
+// exactly one, the empty statement for none or for two or more. Unlike the arms above the listing is
+// whole, since a declaration reaching nothing is one whose every claim another contests.
+for (const entry of CASES) {
+    test(`case table (DN-127.D7), the producer's wire read by the engine: ${entry.name}`, () => {
+        const declared = parseWorkflowJobs(workflowOf(entry));
+        const wire = joinDeclaredJobs(
+            declared,
+            entry.renderings.map((rendering) => ({ name: rendering.name, conclusion: 'success' })),
+        );
+        const keyed = wire.slice(0, declared.length);
+        const failures: string[] = [];
+        entry.declarations.forEach((job, index) => {
+            const anchor = job.name || job.key;
+            if (keyed[index]?.key !== job.key || keyed[index]?.display !== anchor) {
+                failures.push(
+                    `keyed \`${keyed[index]?.key}\` travels display ${JSON.stringify(keyed[index]?.display)}; ` +
+                        `its anchor is ${JSON.stringify(anchor)}`,
+                );
+            }
+        });
+        const declarations = keyed.map((job) => {
+            const entryOf = job as Extract<DeclaredJobWire, { calls_workflow: boolean }>;
+            return { anchor: job.display, callsWorkflow: entryOf.calls_workflow, declaresMatrix: entryOf.declares_matrix };
+        });
+        const placed = keyed.map(() => 0);
+        for (const rendering of entry.renderings) {
+            const reached = reach(rendering.name, declarations).map((each) => {
+                placed[each.declaration]! += 1;
+                return keyed[each.declaration]!.key;
+            });
+            if (JSON.stringify(reached) !== JSON.stringify(rendering.reached_by)) {
+                failures.push(
+                    `\`${rendering.name}\`: the engine's reading reaches ${JSON.stringify(reached)}, the table ` +
+                        `states ${JSON.stringify(rendering.reached_by)}`,
+                );
+            }
+        }
+        keyed.forEach((job, index) => {
+            const count = placed[index]!;
+            const agrees = job.conclusion !== '' ? count === 1 : count !== 1;
+            if (!agrees) {
+                failures.push(
+                    `keyed \`${job.key}\`: its conclusion ${JSON.stringify(job.conclusion)} disagrees with the ` +
+                        `${count} it places under the engine's reading`,
+                );
+            }
+        });
         assert.deepEqual(failures, [], `${entry.source}\n${workflowOf(entry)}`);
     });
 }

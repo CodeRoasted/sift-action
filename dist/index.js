@@ -66497,7 +66497,7 @@ function joinDeclaredJobs(declared, rendered) {
     const reaching = members[index];
     joined.push({
       key: job.key,
-      display: reaching.length > 0 ? anchor : "",
+      display: anchor,
       needs: job.needs,
       conclusion: reaching.length === 1 ? reaching[0].conclusion : "",
       calls_workflow: job.callsWorkflow,

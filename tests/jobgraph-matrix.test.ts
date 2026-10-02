@@ -22,7 +22,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { joinDeclaredJobs, parseWorkflowJobs, type DeclaredJobWire, type RenderedJob } from '../src/jobgraph.js';
+import { joinDeclaredJobs, parseWorkflowJobs, reach, type DeclaredJobWire, type RenderedJob } from '../src/jobgraph.js';
 
 const MATRIX_WORKFLOW = [
     'name: ci',
@@ -132,6 +132,24 @@ function displays(graph: DeclaredJobWire[], keys: string[]): Record<string, stri
     return Object.fromEntries(keys.map((key) => [key, keyedEntry(graph, key).display]));
 }
 
+// How many quoted renderings each keyed entry PLACES, read as the engine reads the wire (DN-127.D7):
+// every keyed entry a declaration anchored at its display, each keyless entry reached through the
+// grammar's `reach`, arm E included. A declaration placing none is unresolved, whatever its display.
+function placed(graph: DeclaredJobWire[], keys: string[]): Record<string, number> {
+    const keyed = graph.filter((job): job is Extract<DeclaredJobWire, { calls_workflow: boolean }> => job.key !== '');
+    const declarations = keyed.map((job) => ({
+        anchor: job.display,
+        callsWorkflow: job.calls_workflow,
+        declaresMatrix: job.declares_matrix,
+    }));
+    const counts = keyed.map(() => 0);
+    for (const job of graph) {
+        if (job.key !== '') continue;
+        for (const each of reach(job.display, declarations)) counts[each.declaration]! += 1;
+    }
+    return Object.fromEntries(keys.map((key) => [key, counts[keyed.findIndex((job) => job.key === key)]!]));
+}
+
 test('L10 (DN-127 S1): every keyed entry carries `declares_matrix` — `strategy.matrix` present, whatever its value — RED at 29de46a', () => {
     const graph = joinedMatrixGraph();
     const species = Object.fromEntries(
@@ -170,14 +188,21 @@ test('L10 (DN-127 S1): no keyless rendering carries `declares_matrix` — a rend
 test('L2 (DN-127 S1): arm M reads the legs `<anchor> (` of a declared matrix and never parses the rest — RED at 29de46a', () => {
     // `build`'s first leg is cut before its closing parenthesis, as the listing cuts a name at 100
     // characters, and it still belongs.
-    assert.equal(keyedEntry(joinedMatrixGraph(), 'build').display, 'build');
+    const graph = joinedMatrixGraph();
+    assert.equal(keyedEntry(graph, 'build').display, 'build');
+    assert.deepEqual(placed(graph, ['build']), { build: 2 });
 });
 
 test('L2 (DN-127 S1): arm M needs the species and the separator — GREEN at 29de46a', () => {
     const graph = joinedMatrixGraph();
     assert.deepEqual(
         displays(graph, ['plain', 'nomatrix', 'lint']),
-        { plain: 'plain', nomatrix: '', lint: '' },
+        { plain: 'plain', nomatrix: 'nomatrix', lint: 'lint' },
+        'every keyed entry carries its anchor, resolved or not (DN-127.D7)',
+    );
+    assert.deepEqual(
+        placed(graph, ['plain', 'nomatrix', 'lint']),
+        { plain: 1, nomatrix: 0, lint: 0 },
         '`plain (x)` is no leg of the plain job `plain`; `nomatrix (y)` is no leg of a `strategy:` without ' +
             '`matrix:`; `lint(ruff)` and `linter (ruff)` do not begin with `lint (`',
     );
@@ -185,19 +210,23 @@ test('L2 (DN-127 S1): arm M needs the species and the separator — GREEN at 29d
 });
 
 test('L2 (DN-127 S1): arm T reads the declared `name:` as a glob template, a span matching any bytes, the empty one included — RED at 29de46a', () => {
-    assert.deepEqual(displays(joinedMatrixGraph(), ['unit', 'literal', 'empty']), {
+    const graph = joinedMatrixGraph();
+    assert.deepEqual(displays(graph, ['unit', 'literal', 'empty']), {
         unit: 'unit (${{ matrix.os }})',
         literal: 'Test [${{ matrix.n }}] .*',
         empty: 'probe (${{ matrix.tag }})',
     });
+    assert.deepEqual(placed(graph, ['unit', 'literal', 'empty']), { unit: 2, literal: 2, empty: 1 });
 });
 
 test('L2 (DN-127 S1): arm T claims nothing without a literal byte, and `.*` is two literal bytes, never a pattern — GREEN at 29de46a', () => {
-    assert.deepEqual(displays(joinedMatrixGraph(), ['pure', 'spaced', 'regexish']), {
-        pure: '',
-        spaced: '',
-        regexish: '',
+    const graph = joinedMatrixGraph();
+    assert.deepEqual(displays(graph, ['pure', 'spaced', 'regexish']), {
+        pure: '${{ matrix.name }}',
+        spaced: '${{ matrix.a }} ${{ matrix.b }}',
+        regexish: 'Run (${{ matrix.n }}).*',
     });
+    assert.deepEqual(placed(graph, ['pure', 'spaced', 'regexish']), { pure: 0, spaced: 0, regexish: 0 });
 });
 
 test('L2 (DN-127 S1): a rendering byte-equal to a template anchor joins its declaration by arm E — GREEN at 29de46a', () => {

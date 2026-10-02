@@ -101,12 +101,16 @@ test('joinDeclaredJobs: a conclusion is declared for EXACTLY ONE rendered job, o
     );
 });
 
-test('joinDeclaredJobs: rendered NOWHERE ⇒ display stays EMPTY — the coverage coordinate, never filled speculatively', () => {
+test('joinDeclaredJobs: rendered NOWHERE ⇒ the anchor still travels, and no conclusion is read (DN-127.D7)', () => {
     const joined = joinDeclaredJobs(
         [{ key: 'ghost', name: 'Ghost', needs: [], callsWorkflow: false, declaresMatrix: false, steps: [] }],
         RENDERED_FANOUT,
     );
-    assert.equal(joined[0]!.display, '', 'an unresolved key is a first-class statement the engine counts');
+    assert.equal(
+        joined[0]!.display,
+        'Ghost',
+        'the engine reaches over every declaration, so an unresolved one still says what it claims',
+    );
     assert.equal(joined[0]!.conclusion, '', 'no rendering ⇒ no conclusion to read');
 });
 

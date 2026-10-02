@@ -190,6 +190,19 @@
         {"name": "lint (ruff)", "reached_by": [], "arm": null},
         {"name": "lint", "reached_by": ["lint"], "arm": "E"}
       ]
+    },
+    {
+      "name": "collision: a declaration whose every claim another contests reaches nothing, and the rendering both templates claim belongs to neither",
+      "source": "DN-127.D7 (the unseen collision: the engine must reach over every keyed entry, resolved or not)",
+      "declarations": [
+        {"key": "d1", "name": "build ${{ matrix.os }}", "calls_workflow": false, "declares_matrix": true},
+        {"key": "d2", "name": "build ${{ matrix.target }}-arm", "calls_workflow": false, "declares_matrix": true}
+      ],
+      "renderings": [
+        {"name": "build linux", "reached_by": ["d1"], "arm": "T"},
+        {"name": "build macos", "reached_by": ["d1"], "arm": "T"},
+        {"name": "build windows-arm", "reached_by": [], "arm": null}
+      ]
     }
   ]
 }
