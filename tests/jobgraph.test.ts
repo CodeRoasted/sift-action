@@ -34,13 +34,13 @@ test('parseWorkflowJobs: keys, verbatim names, and both `needs:` shapes — scal
         ].join('\n'),
     );
     assert.equal(jobs.length, 3, `expected 3 declared jobs, got ${jobs.length}: ${JSON.stringify(jobs)}`);
-    assert.deepEqual(jobs[0], { key: 'build', name: 'Build', needs: [], callsWorkflow: false });
+    assert.deepEqual(jobs[0], { key: 'build', name: 'Build', needs: [], callsWorkflow: false, declaresMatrix: false });
     assert.deepEqual(
         jobs[1],
-        { key: 'gate', name: '', needs: ['build'], callsWorkflow: false },
+        { key: 'gate', name: '', needs: ['build'], callsWorkflow: false, declaresMatrix: false },
         'a bare scalar `needs:` is one edge',
     );
-    assert.deepEqual(jobs[2], { key: 'release', name: '', needs: ['build', 'gate'], callsWorkflow: false });
+    assert.deepEqual(jobs[2], { key: 'release', name: '', needs: ['build', 'gate'], callsWorkflow: false, declaresMatrix: false });
 });
 
 test('parseWorkflowJobs: a `${{ }}` name is kept AS WRITTEN — the producer renders no expression', () => {
@@ -54,7 +54,7 @@ test('parseWorkflowJobs: a `${{ }}` name is kept AS WRITTEN — the producer ren
 
 test('parseWorkflowJobs: a null-body job is KEPT — its key is a legitimate `needs:` target', () => {
     const jobs = parseWorkflowJobs(['jobs:', '  stub:', '  gate:', '    needs: stub'].join('\n'));
-    assert.deepEqual(jobs[0], { key: 'stub', name: '', needs: [], callsWorkflow: false });
+    assert.deepEqual(jobs[0], { key: 'stub', name: '', needs: [], callsWorkflow: false, declaresMatrix: false });
 });
 
 test('parseWorkflowJobs: unreadable YAML and a jobs-less file THROW the reason — the caller logs it as ABSENT', () => {
@@ -74,8 +74,8 @@ const RENDERED_FANOUT: RenderedJob[] = [
 test('joinDeclaredJobs: the anchor is the `name:` when present, else the key — GitHub\'s own rendering rule', () => {
     const joined = joinDeclaredJobs(
         [
-            { key: 'build', name: 'Build', needs: [], callsWorkflow: false },
-            { key: 'bazel', name: 'Bazel', needs: ['build'], callsWorkflow: true },
+            { key: 'build', name: 'Build', needs: [], callsWorkflow: false, declaresMatrix: false },
+            { key: 'bazel', name: 'Bazel', needs: ['build'], callsWorkflow: true, declaresMatrix: false },
         ],
         RENDERED_FANOUT,
     );
@@ -88,8 +88,8 @@ test('joinDeclaredJobs: a conclusion is declared for EXACTLY ONE rendered job, o
     // the platform never stated. Empty = NOT DECLARED — a third state, not success.
     const joined = joinDeclaredJobs(
         [
-            { key: 'build', name: 'Build', needs: [], callsWorkflow: false },
-            { key: 'bazel', name: 'Bazel', needs: ['build'], callsWorkflow: true },
+            { key: 'build', name: 'Build', needs: [], callsWorkflow: false, declaresMatrix: false },
+            { key: 'bazel', name: 'Bazel', needs: ['build'], callsWorkflow: true, declaresMatrix: false },
         ],
         RENDERED_FANOUT,
     );
@@ -103,7 +103,7 @@ test('joinDeclaredJobs: a conclusion is declared for EXACTLY ONE rendered job, o
 
 test('joinDeclaredJobs: rendered NOWHERE ⇒ display stays EMPTY — the coverage coordinate, never filled speculatively', () => {
     const joined = joinDeclaredJobs(
-        [{ key: 'ghost', name: 'Ghost', needs: [], callsWorkflow: false }],
+        [{ key: 'ghost', name: 'Ghost', needs: [], callsWorkflow: false, declaresMatrix: false }],
         RENDERED_FANOUT,
     );
     assert.equal(joined[0]!.display, '', 'an unresolved key is a first-class statement the engine counts');
@@ -114,7 +114,7 @@ test('joinDeclaredJobs: every rendered row is QUOTED key-less — a rendering is
     // `key` is what `needs:` references; nothing may declare an edge to a rendering. The quoted
     // rows carry the platform's verdicts at the platform's own grain.
     const joined = joinDeclaredJobs(
-        [{ key: 'bazel', name: 'Bazel', needs: [], callsWorkflow: true }],
+        [{ key: 'bazel', name: 'Bazel', needs: [], callsWorkflow: true, declaresMatrix: false }],
         RENDERED_FANOUT,
     );
     const quoted = joined.filter((job) => job.key === '');
@@ -284,7 +284,7 @@ test('resolveChangedJobGraph (E1): an edge-free workflow\'s jobs carry their dec
     const merged = graph.find((job) => job.key === 'm');
     assert.deepEqual(
         merged,
-        { key: 'm', display: 'Merge coverage', needs: [], conclusion: 'success', calls_workflow: false },
+        { key: 'm', display: 'Merge coverage', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false },
         `the succeeded job's entry: ${JSON.stringify(merged)}`,
     );
     const built = graph.find((job) => job.key === 'f');
@@ -370,10 +370,10 @@ test('resolveChangedJobGraph (R2): a plain job named `Checks / X` is not a rende
     assert.deepEqual(
         keyed,
         [
-            { key: 'dependencies', display: 'Checks / Dependencies', needs: [], conclusion: 'success', calls_workflow: true },
-            { key: 'security', display: 'Checks / Image', needs: [], conclusion: 'success', calls_workflow: false },
-            { key: 'checks', display: 'Checks', needs: [], conclusion: 'success', calls_workflow: false },
-            { key: 'locale', display: 'Checks / Locale', needs: [], conclusion: 'success', calls_workflow: false },
+            { key: 'dependencies', display: 'Checks / Dependencies', needs: [], conclusion: 'success', calls_workflow: true, declares_matrix: false },
+            { key: 'security', display: 'Checks / Image', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false },
+            { key: 'checks', display: 'Checks', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false },
+            { key: 'locale', display: 'Checks / Locale', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false },
         ],
         `every keyed entry carries its species, true exactly for a job-level \`uses:\`: ${JSON.stringify(keyed)}`,
     );

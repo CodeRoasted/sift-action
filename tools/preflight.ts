@@ -269,8 +269,8 @@ async function main(): Promise<void> {
             // fan-out anchor, and a key-less quoted rendering — every wire feature at once.
             name: 'graph + both verdicts',
             jobs: [
-                { key: 'build', display: 'build', needs: [], conclusion: 'success', calls_workflow: false },
-                { key: 'gate', display: 'gate', needs: ['build'], conclusion: 'failure', calls_workflow: false },
+                { key: 'build', display: 'build', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false },
+                { key: 'gate', display: 'gate', needs: ['build'], conclusion: 'failure', calls_workflow: false, declares_matrix: false },
                 { key: '', display: 'Bazel / test windows', needs: [], conclusion: 'failure' },
             ],
             baselineOutcome: 'success',
@@ -281,8 +281,8 @@ async function main(): Promise<void> {
             // declared verdicts, so the vocabulary rides on them alone — the exact pairing branch
             // ADR-22.D13 added, driven with no run token to mask it.
             name: 'graph conclusions only, no run tokens',
-            jobs: [{ key: 'build', display: 'build', needs: ['deps'], conclusion: 'failure', calls_workflow: false },
-                   { key: 'deps', display: 'deps', needs: [], conclusion: '', calls_workflow: false }],
+            jobs: [{ key: 'build', display: 'build', needs: ['deps'], conclusion: 'failure', calls_workflow: false, declares_matrix: false },
+                   { key: 'deps', display: 'deps', needs: [], conclusion: '', calls_workflow: false, declares_matrix: false }],
             baselineOutcome: '',
             changedOutcome: '',
         },
@@ -293,8 +293,8 @@ async function main(): Promise<void> {
             // bare (all-empty is fine — the refusal trigger is incomplete ∧ unresolved).
             name: 'inert graph, no verdicts, no vocabulary',
             jobs: [
-                { key: 'build', display: '', needs: [], conclusion: '', calls_workflow: false },
-                { key: 'actionlint', display: '', needs: [], conclusion: '', calls_workflow: false },
+                { key: 'build', display: '', needs: [], conclusion: '', calls_workflow: false, declares_matrix: false },
+                { key: 'actionlint', display: '', needs: [], conclusion: '', calls_workflow: false, declares_matrix: false },
             ],
             baselineOutcome: '',
             changedOutcome: '',

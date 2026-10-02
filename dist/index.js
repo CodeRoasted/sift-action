@@ -27004,7 +27004,7 @@ var require_common = __commonJS({
           }
         }
       }
-      function matchesTemplate(search, template) {
+      function matchesTemplate2(search, template) {
         let searchIndex = 0;
         let templateIndex = 0;
         let starIndex = -1;
@@ -27042,12 +27042,12 @@ var require_common = __commonJS({
       }
       function enabled2(name) {
         for (const skip of createDebug.skips) {
-          if (matchesTemplate(name, skip)) {
+          if (matchesTemplate2(name, skip)) {
             return false;
           }
         }
         for (const ns of createDebug.names) {
-          if (matchesTemplate(name, ns)) {
+          if (matchesTemplate2(name, ns)) {
             return true;
           }
         }
@@ -66340,9 +66340,70 @@ var {
 
 // src/jobgraph.ts
 var REUSABLE_SEPARATOR = " / ";
-function renderingBelongsTo(rendered, display, callsWorkflow) {
-  if (rendered === display) return true;
-  return callsWorkflow && rendered.startsWith(display + REUSABLE_SEPARATOR);
+var MATRIX_LEG_OPENER = " (";
+var EXPRESSION_OPEN = "${{";
+var EXPRESSION_CLOSE = "}}";
+function expressionSpans(text) {
+  const spans = [];
+  let at = 0;
+  for (; ; ) {
+    const open2 = text.indexOf(EXPRESSION_OPEN, at);
+    if (open2 < 0) return spans;
+    const close = text.indexOf(EXPRESSION_CLOSE, open2 + EXPRESSION_OPEN.length);
+    if (close < 0) return spans;
+    spans.push([open2, close + EXPRESSION_CLOSE.length]);
+    at = close + EXPRESSION_CLOSE.length;
+  }
+}
+function literalPieces(text) {
+  const pieces = [];
+  let at = 0;
+  for (const [open2, end] of expressionSpans(text)) {
+    pieces.push(text.slice(at, open2));
+    at = end;
+  }
+  pieces.push(text.slice(at));
+  return pieces;
+}
+function declaresAByte(text) {
+  return literalPieces(text).some((piece) => /[^ \t]/.test(piece));
+}
+function matchesTemplate(text, rendered) {
+  if (!declaresAByte(text)) return false;
+  const pieces = literalPieces(text);
+  if (pieces.length === 1) return rendered === pieces[0];
+  const head = pieces[0];
+  const tail = pieces[pieces.length - 1];
+  if (rendered.length < head.length + tail.length || !rendered.startsWith(head) || !rendered.endsWith(tail)) {
+    return false;
+  }
+  let middle = rendered.slice(head.length, rendered.length - tail.length);
+  for (const piece of pieces.slice(1, -1)) {
+    const found = middle.indexOf(piece);
+    if (found < 0) return false;
+    middle = middle.slice(found + piece.length);
+  }
+  return true;
+}
+function claim(rendered, declaration) {
+  const anchor = declaration.anchor;
+  if (!anchor) return null;
+  if (rendered === anchor) return "E";
+  if (declaration.callsWorkflow && rendered.startsWith(anchor + REUSABLE_SEPARATOR)) return "R";
+  if (declaration.declaresMatrix && !anchor.includes(EXPRESSION_OPEN) && rendered.startsWith(anchor + MATRIX_LEG_OPENER)) {
+    return "M";
+  }
+  if (expressionSpans(anchor).length > 0 && matchesTemplate(anchor, rendered)) return "T";
+  return null;
+}
+function reach(rendered, declarations) {
+  const claims = [];
+  declarations.forEach((declaration, index) => {
+    const arm = claim(rendered, declaration);
+    if (arm !== null) claims.push({ declaration: index, arm });
+  });
+  if (claims.length <= 1) return claims;
+  return claims.filter((each) => each.arm === "E" || each.arm === "R");
 }
 function scalarText(value) {
   if (typeof value === "string") return value;
@@ -66384,31 +66445,41 @@ function parseWorkflowJobs(yaml2) {
   const declared = [];
   for (const [key, body3] of Object.entries(jobs)) {
     if (!key) continue;
-    const job = { key, name: "", needs: [], callsWorkflow: false };
+    const job = { key, name: "", needs: [], callsWorkflow: false, declaresMatrix: false };
     if (isPlainMap(body3)) {
       job.name = scalarText(body3["name"]);
       job.needs = declaredNeeds(body3);
       job.callsWorkflow = Object.prototype.hasOwnProperty.call(body3, "uses");
+      const strategy = body3["strategy"];
+      job.declaresMatrix = isPlainMap(strategy) && Object.prototype.hasOwnProperty.call(strategy, "matrix");
     }
     declared.push(job);
   }
   return declared;
 }
 function joinDeclaredJobs(declared, rendered) {
+  const declarations = declared.map((job) => ({
+    anchor: job.name || job.key,
+    callsWorkflow: job.callsWorkflow,
+    declaresMatrix: job.declaresMatrix
+  }));
+  const members = declared.map(() => []);
+  for (const row of rendered) {
+    for (const reached of reach(row.name, declarations)) members[reached.declaration].push(row);
+  }
   const joined = [];
-  for (const job of declared) {
-    const anchor = job.name || job.key;
-    const members = rendered.filter(
-      (row) => renderingBelongsTo(row.name, anchor, job.callsWorkflow)
-    );
+  declared.forEach((job, index) => {
+    const anchor = declarations[index].anchor;
+    const reaching = members[index];
     joined.push({
       key: job.key,
-      display: members.length > 0 ? anchor : "",
+      display: reaching.length > 0 ? anchor : "",
       needs: job.needs,
-      conclusion: members.length === 1 ? members[0].conclusion : "",
-      calls_workflow: job.callsWorkflow
+      conclusion: reaching.length === 1 ? reaching[0].conclusion : "",
+      calls_workflow: job.callsWorkflow,
+      declares_matrix: job.declaresMatrix
     });
-  }
+  });
   for (const row of rendered) {
     joined.push({ key: "", display: row.name, needs: [], conclusion: row.conclusion });
   }

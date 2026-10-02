@@ -1,0 +1,195 @@
+{
+  "about": "DN-127.D1's rendering grammar as one case table. A byte-identical copy lives at insight-eidos sift/tests/crawl/fixtures/job_rendering_cases.json and at sift-action tests/fixtures/job_rendering_cases.json; a superproject pharos check reds on any byte between them. Each case is a graph's declarations and the renderings the listing quotes. For each rendering, reached_by lists every declaration that REACHES it under the predicate with its collision refusal (empty: none), and arm names the arm (E, R, M or T; null when none reaches it). A declaration's anchor is its name, else its key.",
+  "cases": [
+    {
+      "name": "arm E: a plain job reaches its own rendering and nothing beside it",
+      "source": "DN-127.D1 arm E; DN-118.O3",
+      "declarations": [
+        {"key": "lint", "name": "Lint", "calls_workflow": false, "declares_matrix": false}
+      ],
+      "renderings": [
+        {"name": "Lint", "reached_by": ["lint"], "arm": "E"},
+        {"name": "Lint (ruff)", "reached_by": [], "arm": null},
+        {"name": "Lint / ruff", "reached_by": [], "arm": null}
+      ]
+    },
+    {
+      "name": "arm E: a job with no name renders its key",
+      "source": "DN-127.D1 arm E",
+      "declarations": [
+        {"key": "unit", "name": "", "calls_workflow": false, "declares_matrix": false}
+      ],
+      "renderings": [
+        {"name": "unit", "reached_by": ["unit"], "arm": "E"}
+      ]
+    },
+    {
+      "name": "arm R: a caller reaches its inner jobs under the separator",
+      "source": "DN-127.D1 arm R; ADR-22.D13",
+      "declarations": [
+        {"key": "rust-ci", "name": "rust-ci", "calls_workflow": true, "declares_matrix": false}
+      ],
+      "renderings": [
+        {"name": "rust-ci / Format", "reached_by": ["rust-ci"], "arm": "R"},
+        {"name": "rust-ci / cargo shear", "reached_by": ["rust-ci"], "arm": "R"},
+        {"name": "rust-ci-extra / Format", "reached_by": [], "arm": null},
+        {"name": "rust-ci/Format", "reached_by": [], "arm": null}
+      ]
+    },
+    {
+      "name": "arm R needs the caller species: a plain job named under another is its own",
+      "source": "DN-118.O3 (R2)",
+      "declarations": [
+        {"key": "checks", "name": "Checks", "calls_workflow": false, "declares_matrix": false},
+        {"key": "security", "name": "Checks / Image", "calls_workflow": false, "declares_matrix": false}
+      ],
+      "renderings": [
+        {"name": "Checks", "reached_by": ["checks"], "arm": "E"},
+        {"name": "Checks / Image", "reached_by": ["security"], "arm": "E"},
+        {"name": "Checks / Locale", "reached_by": [], "arm": null}
+      ]
+    },
+    {
+      "name": "arm M: the legs of a literally named matrix, the rest of the name never parsed",
+      "source": "DN-127.D1 arm M; DN-127.D5 L2",
+      "declarations": [
+        {"key": "build", "name": "", "calls_workflow": false, "declares_matrix": true}
+      ],
+      "renderings": [
+        {"name": "build (ubuntu-latest)", "reached_by": ["build"], "arm": "M"},
+        {"name": "build (macos-latest, 3.12, a-matrix-value-the-platform-cut-at-100-...", "reached_by": ["build"], "arm": "M"},
+        {"name": "build", "reached_by": ["build"], "arm": "E"},
+        {"name": "build(ubuntu-latest)", "reached_by": [], "arm": null},
+        {"name": "builder (ubuntu-latest)", "reached_by": [], "arm": null}
+      ]
+    },
+    {
+      "name": "arm M needs the matrix species",
+      "source": "DN-127.D1 arm M",
+      "declarations": [
+        {"key": "plain", "name": "plain", "calls_workflow": false, "declares_matrix": false}
+      ],
+      "renderings": [
+        {"name": "plain", "reached_by": ["plain"], "arm": "E"},
+        {"name": "plain (x)", "reached_by": [], "arm": null}
+      ]
+    },
+    {
+      "name": "arm T: a template matrix name, each span a wildcard over any bytes, the empty one included",
+      "source": "DN-127.D1 arm T; DN-127.D5 L2",
+      "declarations": [
+        {"key": "unit", "name": "unit (${{ matrix.os }})", "calls_workflow": false, "declares_matrix": true}
+      ],
+      "renderings": [
+        {"name": "unit (linux)", "reached_by": ["unit"], "arm": "T"},
+        {"name": "unit (windows)", "reached_by": ["unit"], "arm": "T"},
+        {"name": "unit ()", "reached_by": ["unit"], "arm": "T"},
+        {"name": "unit [linux]", "reached_by": [], "arm": null}
+      ]
+    },
+    {
+      "name": "arm T: literal bytes match only themselves, never a pattern",
+      "source": "DN-127.D1 arm T",
+      "declarations": [
+        {"key": "literal", "name": "Test [${{ matrix.n }}] .*", "calls_workflow": false, "declares_matrix": true},
+        {"key": "regexish", "name": "Run (${{ matrix.n }}).*", "calls_workflow": false, "declares_matrix": true}
+      ],
+      "renderings": [
+        {"name": "Test [1] .*", "reached_by": ["literal"], "arm": "T"},
+        {"name": "Test [2] .*", "reached_by": ["literal"], "arm": "T"},
+        {"name": "Run (5)xyz", "reached_by": [], "arm": null}
+      ]
+    },
+    {
+      "name": "arm T claims nothing for a name with no byte outside its spans but spaces and tabs",
+      "source": "DN-127.D1 arm T; DN-127.D5 L2",
+      "declarations": [
+        {"key": "pure", "name": "${{ matrix.name }}", "calls_workflow": false, "declares_matrix": true},
+        {"key": "spaced", "name": "${{ matrix.a }} ${{ matrix.b }}", "calls_workflow": false, "declares_matrix": true}
+      ],
+      "renderings": [
+        {"name": "alpha", "reached_by": [], "arm": null},
+        {"name": "x y", "reached_by": [], "arm": null}
+      ]
+    },
+    {
+      "name": "arm E, never T: a rendering byte-equal to a template anchor is the job itself",
+      "source": "DN-127.D1 (amended 2026-10-01, on G1)",
+      "declarations": [
+        {"key": "shard", "name": "Shard ${{ matrix.k }}", "calls_workflow": false, "declares_matrix": true}
+      ],
+      "renderings": [
+        {"name": "Shard ${{ matrix.k }}", "reached_by": ["shard"], "arm": "E"}
+      ]
+    },
+    {
+      "name": "arm T reads a declaration without a matrix",
+      "source": "DN-127.D1 (amended 2026-10-02); DN-127.D5 L2",
+      "declarations": [
+        {"key": "deploy", "name": "Deploy ${{ inputs.env }}", "calls_workflow": false, "declares_matrix": false}
+      ],
+      "renderings": [
+        {"name": "Deploy prod", "reached_by": ["deploy"], "arm": "T"}
+      ]
+    },
+    {
+      "name": "arm T on a caller without a matrix: the trailing span absorbs the separator and the inner job",
+      "source": "DN-127.D1 (amended 2026-10-02): pytorch/pytorch lint.yml's lintrunner jobs",
+      "declarations": [
+        {"key": "lintrunner-clang", "name": "lintrunner-clang-${{ inputs.mode }}", "calls_workflow": true, "declares_matrix": false}
+      ],
+      "renderings": [
+        {"name": "lintrunner-clang-partial / lint", "reached_by": ["lintrunner-clang"], "arm": "T"},
+        {"name": "lintrunner-clang-all / lint", "reached_by": ["lintrunner-clang"], "arm": "T"}
+      ]
+    },
+    {
+      "name": "a matrix caller: its renderings belong by arm M, the inner job by arm R",
+      "source": "DN-127.D1 (a matrix caller's renderings are members, never legs)",
+      "declarations": [
+        {"key": "deploy", "name": "deploy", "calls_workflow": true, "declares_matrix": true}
+      ],
+      "renderings": [
+        {"name": "deploy (prod) / ship", "reached_by": ["deploy"], "arm": "M"},
+        {"name": "deploy / ship", "reached_by": ["deploy"], "arm": "R"}
+      ]
+    },
+    {
+      "name": "collision: a literal job keeps its own name, and a template matching it reaches none of it",
+      "source": "DN-127.D1 collision refusal; DN-127.D5 L2 and L3: ghostty-org/ghostty",
+      "declarations": [
+        {"key": "zig-vt", "name": "Example zig-vt (macOS, no SDK)", "calls_workflow": false, "declares_matrix": false},
+        {"key": "examples", "name": "Example ${{ matrix.dir }}", "calls_workflow": false, "declares_matrix": true}
+      ],
+      "renderings": [
+        {"name": "Example zig-vt (macOS, no SDK)", "reached_by": ["zig-vt"], "arm": "E"},
+        {"name": "Example lib-a", "reached_by": ["examples"], "arm": "T"}
+      ]
+    },
+    {
+      "name": "collision: three jobs sharing one template reach none of its renderings, and each keeps the unexpanded one",
+      "source": "DN-127.D1 collision refusal; DN-127.D5 L3: ghostty-org/ghostty",
+      "declarations": [
+        {"key": "examples-zig", "name": "Example ${{ matrix.dir }}", "calls_workflow": false, "declares_matrix": true},
+        {"key": "examples-c", "name": "Example ${{ matrix.dir }}", "calls_workflow": false, "declares_matrix": true},
+        {"key": "examples-swift", "name": "Example ${{ matrix.dir }}", "calls_workflow": false, "declares_matrix": true}
+      ],
+      "renderings": [
+        {"name": "Example c-vt", "reached_by": [], "arm": null},
+        {"name": "Example ${{ matrix.dir }}", "reached_by": ["examples-zig", "examples-c", "examples-swift"], "arm": "E"}
+      ]
+    },
+    {
+      "name": "collision: arm M and arm T claiming one rendering reach none of it",
+      "source": "DN-127.D1 collision refusal",
+      "declarations": [
+        {"key": "lint", "name": "lint", "calls_workflow": false, "declares_matrix": true},
+        {"key": "lint-tool", "name": "lint (${{ matrix.tool }})", "calls_workflow": false, "declares_matrix": true}
+      ],
+      "renderings": [
+        {"name": "lint (ruff)", "reached_by": [], "arm": null},
+        {"name": "lint", "reached_by": ["lint"], "arm": "E"}
+      ]
+    }
+  ]
+}

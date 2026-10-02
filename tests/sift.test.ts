@@ -154,8 +154,8 @@ test('siftArgs: a graph CONCLUSION is a declared verdict — the vocabulary pair
     const graphed = {
         path: '/tmp/g.json',
         jobs: [
-            { key: 'build', display: 'build', needs: [], conclusion: 'success', calls_workflow: false },
-            { key: 'gate', display: 'gate', needs: ['build'], conclusion: 'failure', calls_workflow: false },
+            { key: 'build', display: 'build', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false },
+            { key: 'gate', display: 'gate', needs: ['build'], conclusion: 'failure', calls_workflow: false, declares_matrix: false },
         ],
     };
     const args = siftArgs({ ...baseInvocation, changedJobGraph: graphed });
@@ -175,8 +175,8 @@ test('siftArgs: an all-empty-conclusion graph declares no verdict — NO vocabul
     const inert = {
         path: '/tmp/g.json',
         jobs: [
-            { key: 'build', display: '', needs: ['deps'], conclusion: '', calls_workflow: false },
-            { key: 'deps', display: '', needs: [], conclusion: '', calls_workflow: false },
+            { key: 'build', display: '', needs: ['deps'], conclusion: '', calls_workflow: false, declares_matrix: false },
+            { key: 'deps', display: '', needs: [], conclusion: '', calls_workflow: false, declares_matrix: false },
         ],
     };
     const args = siftArgs({ ...baseInvocation, changedJobGraph: inert });

@@ -10,6 +10,12 @@
 // the exactly-one conclusion refusal, key-less quoted renderings, and the jobs listing read on
 // every workflow, edge or none.
 //
+// THE RENDERING GRAMMAR IS STATED HERE ONCE IN TYPESCRIPT (DN-127.D1): the separator, the matrix-leg
+// opener, the expression delimiters, the one template matcher and its guard, and the reach under the
+// collision refusal. Its C++ statement is insight-eidos `sift/src/job_rendering.hpp`; one case table,
+// copied byte for byte into both repositories (here `tests/fixtures/job_rendering_cases.json`) and
+// compared by a superproject check, keeps the two one rule.
+//
 // ⚠ WHY js-yaml AND NOT A SUBSET PARSER OF OUR OWN — the choice IS the point. The input is a
 // workflow file a contributor can influence, and a hand-rolled reader would be a second reader of
 // a format we do not own, over hostile-capable bytes, inside the one path whose whole
@@ -35,13 +41,15 @@ import { load, YAMLException } from 'js-yaml';
 type Octokit = ReturnType<typeof getOctokit>;
 
 // One job as the workflow file declares it (pre-join): the mapping key, the verbatim `name:`,
-// the `needs:` edges by key, and its species — true exactly when the body declares a job-level
-// `uses:` (DN-118.O3).
+// the `needs:` edges by key, and its two species — `callsWorkflow` true exactly when the body
+// declares a job-level `uses:` (DN-118.O3), `declaresMatrix` true exactly when it declares
+// `strategy.matrix`, whatever its value (DN-127.D1).
 export interface DeclaredJobRecord {
     key: string;
     name: string;
     needs: string[];
     callsWorkflow: boolean;
+    declaresMatrix: boolean;
 }
 
 // One job as the run's listing renders it: the platform's own name and NATIVE conclusion.
@@ -50,17 +58,18 @@ export interface RenderedJob {
     conclusion: string;
 }
 
-// The ADR-22.D13 wire entry for a DECLARATION. ALL FIVE FIELDS ALWAYS TRAVEL — `key` and `display`
+// The ADR-22.D13 wire entry for a DECLARATION. ALL SIX FIELDS ALWAYS TRAVEL — `key` and `display`
 // are required by the engine and never defaulted from each other (a graph keyed on the wrong
 // coordinate folds nothing and reads exactly like a clean run); empty strings are first-class
-// statements, not omissions. `calls_workflow` is required here and refused on a rendering, each
-// violation an engine wiring error (DN-118.O3).
+// statements, not omissions. `calls_workflow` and `declares_matrix` are required here and refused
+// on a rendering, each violation an engine wiring error (DN-118.O3, DN-127.D1).
 export interface DeclaredJobEntry {
     key: string;
     display: string;
     needs: string[];
     conclusion: string;
     calls_workflow: boolean;
+    declares_matrix: boolean;
 }
 
 // The wire entry for a RENDERING the listing quoted: an empty `key`, and no species, because a
@@ -74,21 +83,117 @@ export interface RenderedJobEntry {
 
 export type DeclaredJobWire = DeclaredJobEntry | RenderedJobEntry;
 
-// The reusable-workflow rendering separator (ADR-22.D13 — cited, never restated; the grammar's
-// mirror witness lives in tests/joblog.test.ts).
+// The reusable-workflow rendering separator (arm R, ADR-22.D13), the platform's matrix-leg opener
+// (arm M), and the delimiters of one expression span: a span opens at `${{` and closes at the
+// first `}}` after it, and an opener no closer follows is literal bytes (DN-127.D1).
 const REUSABLE_SEPARATOR = ' / ';
+const MATRIX_LEG_OPENER = ' (';
+const EXPRESSION_OPEN = '${{';
+const EXPRESSION_CLOSE = '}}';
 
-// Whether the rendered name `rendered` belongs to the declaration anchored at `display` whose
-// species is `callsWorkflow` (DN-118.O3).
-function renderingBelongsTo(rendered: string, display: string, callsWorkflow: boolean): boolean {
-    if (rendered === display) return true;
-    return callsWorkflow && rendered.startsWith(display + REUSABLE_SEPARATOR);
+// The four arms of DN-127.D1, in the order a declaration's claim is named.
+export type Arm = 'E' | 'R' | 'M' | 'T';
+
+// One declaration as the grammar reads it: its anchor (the declared `name:`, else its key) and its
+// two species.
+export interface Declaration {
+    anchor: string;
+    callsWorkflow: boolean;
+    declaresMatrix: boolean;
+}
+
+// One declaration reaching one rendering: its index in the declarations read, and the arm.
+export interface Reach {
+    declaration: number;
+    arm: Arm;
+}
+
+// A text's expression spans, as [start, end) pairs, in order.
+function expressionSpans(text: string): Array<[number, number]> {
+    const spans: Array<[number, number]> = [];
+    let at = 0;
+    for (;;) {
+        const open = text.indexOf(EXPRESSION_OPEN, at);
+        if (open < 0) return spans;
+        const close = text.indexOf(EXPRESSION_CLOSE, open + EXPRESSION_OPEN.length);
+        if (close < 0) return spans;
+        spans.push([open, close + EXPRESSION_CLOSE.length]);
+        at = close + EXPRESSION_CLOSE.length;
+    }
+}
+
+// The literal pieces of a text between its expression spans: one more than the spans.
+function literalPieces(text: string): string[] {
+    const pieces: string[] = [];
+    let at = 0;
+    for (const [open, end] of expressionSpans(text)) {
+        pieces.push(text.slice(at, open));
+        at = end;
+    }
+    pieces.push(text.slice(at));
+    return pieces;
+}
+
+// Whether a text holds a byte outside its expression spans that is neither a space nor a tab; a
+// text holding none declares no byte of its rendering (the one guard, DN-127.D1).
+function declaresAByte(text: string): boolean {
+    return literalPieces(text).some((piece) => /[^ \t]/.test(piece));
+}
+
+// THE ONE TEMPLATE MATCHER: whether `rendered` is a rendering of the declared `text` — every byte
+// outside the text's spans equal and `rendered` consumed whole, each span standing for any byte
+// sequence, the empty one included. Glob semantics: literal bytes match themselves, never a
+// pattern; leftmost matching of each middle piece is exact for that one wildcard. A text that
+// declares no byte matches nothing.
+function matchesTemplate(text: string, rendered: string): boolean {
+    if (!declaresAByte(text)) return false;
+    const pieces = literalPieces(text);
+    if (pieces.length === 1) return rendered === pieces[0];
+    const head = pieces[0]!;
+    const tail = pieces[pieces.length - 1]!;
+    if (rendered.length < head.length + tail.length || !rendered.startsWith(head) || !rendered.endsWith(tail)) {
+        return false;
+    }
+    let middle = rendered.slice(head.length, rendered.length - tail.length);
+    for (const piece of pieces.slice(1, -1)) {
+        const found = middle.indexOf(piece);
+        if (found < 0) return false;
+        middle = middle.slice(found + piece.length);
+    }
+    return true;
+}
+
+// The first arm, in E, R, M, T order, by which `declaration` claims `rendered`; null when it claims
+// it by none, and for an empty anchor, which declares nothing (DN-127.D1, DN-118.O3).
+function claim(rendered: string, declaration: Declaration): Arm | null {
+    const anchor = declaration.anchor;
+    if (!anchor) return null;
+    if (rendered === anchor) return 'E';
+    if (declaration.callsWorkflow && rendered.startsWith(anchor + REUSABLE_SEPARATOR)) return 'R';
+    if (declaration.declaresMatrix && !anchor.includes(EXPRESSION_OPEN) && rendered.startsWith(anchor + MATRIX_LEG_OPENER)) {
+        return 'M';
+    }
+    if (expressionSpans(anchor).length > 0 && matchesTemplate(anchor, rendered)) return 'T';
+    return null;
+}
+
+// Every declaration that REACHES `rendered`, in declaration order, each with its arm. Arms E and R
+// reach whatever else claims the rendering; arms M and T reach it only when no other declaration
+// claims it by any arm, since its bytes cannot say whose it is (DN-127.D1).
+export function reach(rendered: string, declarations: Declaration[]): Reach[] {
+    const claims: Reach[] = [];
+    declarations.forEach((declaration, index) => {
+        const arm = claim(rendered, declaration);
+        if (arm !== null) claims.push({ declaration: index, arm });
+    });
+    if (claims.length <= 1) return claims;
+    return claims.filter((each) => each.arm === 'E' || each.arm === 'R');
 }
 
 // A YAML scalar's text, or '' for anything that is not a scalar — a workflow file is free to
 // contain shapes we must not throw on. Verbatim for strings: a `name:` carrying a `${{ }}`
-// expression is kept as written and simply fails the join — this producer does not render
-// expressions, and a job whose rendering it cannot know stays UNRESOLVED rather than guessed.
+// expression is kept as written, and the join reads it as a template (arm T); this producer never
+// renders an expression.
 function scalarText(value: unknown): string {
     if (typeof value === 'string') return value;
     if (typeof value === 'number' || typeof value === 'boolean') return String(value);
@@ -138,11 +243,15 @@ export function parseWorkflowJobs(yaml: string): DeclaredJobRecord[] {
     const declared: DeclaredJobRecord[] = [];
     for (const [key, body] of Object.entries(jobs)) {
         if (!key) continue; // an empty key names nothing `needs:` could reference
-        const job: DeclaredJobRecord = { key, name: '', needs: [], callsWorkflow: false };
+        const job: DeclaredJobRecord = { key, name: '', needs: [], callsWorkflow: false, declaresMatrix: false };
         if (isPlainMap(body)) {
             job.name = scalarText(body['name']);
             job.needs = declaredNeeds(body);
             job.callsWorkflow = Object.prototype.hasOwnProperty.call(body, 'uses'); // DN-118.O3
+            // The key's PRESENCE, whatever its value: a literal mapping and an expression both
+            // declare a matrix, and a `strategy:` without it declares none (DN-127.D1).
+            const strategy = body['strategy'];
+            job.declaresMatrix = isPlainMap(strategy) && Object.prototype.hasOwnProperty.call(strategy, 'matrix');
         }
         // A job whose body is null or a scalar declares no name and no edges, and it is still
         // KEPT: its key is a legitimate target of another job's `needs:`.
@@ -158,16 +267,23 @@ export function joinDeclaredJobs(
     declared: DeclaredJobRecord[],
     rendered: RenderedJob[],
 ): DeclaredJobWire[] {
+    // What the log renders each job under, per GitHub's own rule: the declared `name:`, else the
+    // key. On a caller, a matrix job or a template it is an ANCHOR, not a single row's name — the
+    // engine expands it over the renderings at match time; the set is never stored (it would
+    // snapshot a rendering only the platform authors, and the staleness would be silent).
+    const declarations: Declaration[] = declared.map((job) => ({
+        anchor: job.name || job.key,
+        callsWorkflow: job.callsWorkflow,
+        declaresMatrix: job.declaresMatrix,
+    }));
+    const members: RenderedJob[][] = declared.map(() => []);
+    for (const row of rendered) {
+        for (const reached of reach(row.name, declarations)) members[reached.declaration]!.push(row);
+    }
     const joined: DeclaredJobWire[] = [];
-    for (const job of declared) {
-        // What the log renders this job under, per GitHub's own rule: the declared `name:`, else
-        // the key. On a caller it is an ANCHOR, not a single row's name — the engine expands it
-        // over the reusable-workflow fan-out at match time; the set is never stored (it would
-        // snapshot a rendering only the platform authors, and the staleness would be silent).
-        const anchor = job.name || job.key;
-        const members = rendered.filter((row) =>
-            renderingBelongsTo(row.name, anchor, job.callsWorkflow),
-        );
+    declared.forEach((job, index) => {
+        const anchor = declarations[index]!.anchor;
+        const reaching = members[index]!;
         // Rendered NOWHERE ⇒ `display` stays EMPTY — the acquirer's only honest statement about
         // this key, and the coordinate the engine counts for its coverage clause. Never filled
         // speculatively.
@@ -179,12 +295,13 @@ export function joinDeclaredJobs(
         // them). Empty is NOT DECLARED (ADR-22.D10) — a third state, and the honest one.
         joined.push({
             key: job.key,
-            display: members.length > 0 ? anchor : '',
+            display: reaching.length > 0 ? anchor : '',
             needs: job.needs,
-            conclusion: members.length === 1 ? members[0]!.conclusion : '',
+            conclusion: reaching.length === 1 ? reaching[0]!.conclusion : '',
             calls_workflow: job.callsWorkflow,
+            declares_matrix: job.declaresMatrix,
         });
-    }
+    });
     // The rendered rows, QUOTED — the platform's own verdicts at the platform's own grain. NO
     // `key`, and that is the type doing the work: `key` is what `needs:` references, and a
     // rendering is not referenceable — nothing may declare an edge to one. Reachable only by
