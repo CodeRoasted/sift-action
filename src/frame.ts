@@ -62,8 +62,36 @@ const MAX_TEMPLATE_ID_DISPLAY_BYTES = 64;
 // "B not shown", 11 B "; template ", 67 B of id, 20 + 11 B naming the artifact, 3 B spare):
 // 20 × (1 024 + 256 + 34 + 2 × (144 + 12 + tag)) = 32 520 B + 40 × tag, plus at most 20
 // severity sections of about 90 B each, the headline, stale banner, remainder line, declared
-// details line and footer (under 2 KiB). About 36 KiB for a short `comment-tag`, leaving
+// details line, the claim boundary (about 280 B), the n-gram line (under 300 B) and footer (under
+// 3 KiB). About 36 KiB for a short `comment-tag`, leaving
 // 29 KiB for the envelope strings (branch, labels, tag), which GitHub bounds far below that.
+
+// The report's claim boundary, as every human-readable view of the engine states it under its
+// two inputs: insight-eidos `kClaimBoundary` (`sift/api/sift.api-report.cppm`), Eqya's wording of
+// LIM-25's first two sentences, no figure (W469). The JSON carries no member for it, so the frame
+// holds a copy, and preflight reds when the pinned engine's markdown stops carrying it verbatim.
+export const CLAIM_BOUNDARY =
+    'Sift compares exactly two runs and keeps no history. On two successful runs, Drift means the ' +
+    'logs differ, not that this change caused the difference: a line that comes and goes between ' +
+    "your workflow's successful runs reads as Drift, because Sift has never seen those runs.";
+
+// The engine's n-gram disclosure (ADR-9.D3, W446), rendered from the JSON a report always carries
+// (`inputs.<side>.ngram_refusals`) in the engine's own sentence (`ngram_refusal_line`,
+// insight-eidos `sift/src/report/change_report_serialize.cpp`), so a comment that does not embed
+// the engine's markdown still states it. '' when no window refused. preflight reds when the pinned
+// engine's markdown stops carrying this sentence verbatim.
+export function ngramRefusalLine(report: SiftReport): string {
+    const sides = [report.inputs.baseline.ngram_refusals ?? [], report.inputs.changed.ngram_refusals ?? []];
+    const windows = sides[0]!.length + sides[1]!.length;
+    if (windows === 0) return '';
+    const refused = sides.flat().reduce((sum, refusal) => sum + refusal.refused, 0);
+    const first = (sides[0]!.length > 0 ? sides[0]! : sides[1]!)[0]!;
+    return (
+        `N-gram limit reached in ${windows} ${windows === 1 ? 'step' : 'steps'} (${first.cap} keys each): ` +
+        `${refused} line-to-line ${refused === 1 ? 'transition was' : 'transitions were'} not counted, so path ` +
+        `changes in ${windows === 1 ? 'that step' : 'those steps'} may be incomplete`
+    );
+}
 
 // Locale-independent thousands grouping (deterministic; no toLocaleString).
 function groupThousands(value: number): string {
@@ -495,11 +523,27 @@ function staleBanner(context: SiftCommentContext): string {
     );
 }
 
+// What the VISIBLE frame states of the report beyond its rows, and never inside a collapsed block:
+// the n-gram disclosure wherever the engine's markdown is not embedded — the Clean state has no
+// details block, and a markdown too large to embed is replaced by its size line — then the claim
+// boundary, on every report, as every human view of the engine states it (W446, W469). The text is
+// the engine's (CLAIM_BOUNDARY, ngramRefusalLine), escaped as any engine string.
+function reportStatements(report: SiftReport, state: State, details: DetailsMode): string {
+    const parts: string[] = [];
+    const refusals = ngramRefusalLine(report);
+    if (refusals !== '' && (state === State.Clean || details === DetailsMode.Declare)) {
+        parts.push(`_${escapeInline(refusals)}. Per unit in the report JSON's \`inputs\`._`);
+    }
+    parts.push(`_${escapeInline(CLAIM_BOUNDARY)}_`);
+    return `\n\n${parts.join('\n\n')}`;
+}
+
 function compose(report: SiftReport | null, context: SiftCommentContext, details: DetailsMode): string {
     const state = selectState(report);
     const header = context.comment_tag ? `${HEADER} (${context.comment_tag})` : HEADER;
     const stale = context.baseline_stale ? `${staleBanner(context)}\n\n` : '';
-    return `${stickyMarker(context.comment_tag)}\n${header}\n\n${stale}${body(report, context, state, details)}\n\n${footer(context)}`;
+    const statements = report ? reportStatements(report, state, details) : '';
+    return `${stickyMarker(context.comment_tag)}\n${header}\n\n${stale}${body(report, context, state, details)}${statements}\n\n${footer(context)}`;
 }
 
 // The full sticky-comment markdown. `report === null` ⇒ cold start. A

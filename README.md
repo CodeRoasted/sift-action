@@ -145,7 +145,7 @@ successful runs, Drift means the logs differ, not that this change caused the di
 comes and goes between your workflow's successful runs reads as Drift, because Sift has never seen
 those runs. Measured on 21 264 pairs of successful runs from public repositories, 12 357 (58.1 %)
 read Drift. (Measured with the Sift 1.10.6 engine. Every report states the first two sentences under
-its inputs.)
+its inputs, and the PR comment states them above its footer, whatever its state.)
 
 ## Choosing the baseline — you are King
 
@@ -196,7 +196,10 @@ at the end:
   A row within the cap is shown whole, with no marker.
 - **The full report is embedded in the collapsed block only when the whole comment then fits.**
   Otherwise the block holds one line giving the report's size and pointing at the artifact. It is
-  never embedded in part.
+  never embedded in part. What the report says of its own reach stays visible either way: the
+  two-run claim boundary on every comment, and, when an n-gram window hit its key limit, the
+  report's line saying so on a comment that does not embed the report (the Clean comment has no
+  collapsed block).
 - **The full report is uploaded on every run that has one** as the **`sift-report`** workflow
   artifact (`sift-report-<comment-tag>` with a `comment-tag`): `report.json` exactly as the engine
   wrote it, and `report.md`, its markdown. The comment footer links to it. It is the content the

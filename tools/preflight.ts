@@ -62,6 +62,7 @@ import {
 } from '../src/sift.js';
 import { fetchTargetJobLog, JOB_LOG_TRANSPORT, type FetchJobLogParams } from '../src/joblog.js';
 import { TRANSPORT_CATALOGUE } from '../src/types.js';
+import { CLAIM_BOUNDARY, ngramRefusalLine } from '../src/frame.js';
 import { resolveSift } from '../src/resolve-sift.js';
 import { SIFT_VERSION } from '../src/sift-version.js';
 
@@ -903,6 +904,58 @@ async function main(): Promise<void> {
         if (verdict !== '') failures.push(`  template cell: ${verdict}.\n      vector: ${joined.args.join(' ')}`);
     }
 
+    // ── H) the frame's two copies of engine text (W469, W446) — still the pinned engine's words ──
+    // The comment's visible frame states the claim boundary and the n-gram disclosure itself,
+    // because the JSON carries the first nowhere and the second only as numbers. Both are copies of
+    // engine text, so the pinned engine's own markdown must carry each verbatim. The pair binds the
+    // engine's n-gram cap (4096 keys) in one window: 6 000 distinct templates in shuffled order, so
+    // the disclosure is really rendered, and an empty line cannot pass as an agreeing one.
+    {
+        const words = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel', 'india', 'juliet'];
+        const lineOf = (index: number): string =>
+            `step ${[0, 1, 2, 3].map((digit) => words[Math.floor(index / 10 ** digit) % 10]).join(' ')} done`;
+        const all = Array.from({ length: 6000 }, (_, index) => lineOf(index % 10_000));
+        // A fixed permutation: stride 7 is coprime with 6 000, so every line appears once.
+        const shuffled = all.map((_, index) => all[(index * 7) % all.length]!);
+        const capBaseline = join(work, 'ngram-baseline.log');
+        const capChanged = join(work, 'ngram-changed.log');
+        await writeFile(capBaseline, `${all.slice(0, 3000).join('\n')}\n`);
+        await writeFile(capChanged, `${shuffled.join('\n')}\n`);
+        const outputPath = join(work, 'report-ngram.json');
+        const invocation: SiftInvocation = {
+            siftBin,
+            baselineLog: capBaseline,
+            changedLog: capChanged,
+            baselineLabel: 'preflight-baseline',
+            changedLabel: 'preflight-changed',
+            baselineOutcome: '',
+            changedOutcome: '',
+            failOn: 'none',
+            outputPath,
+            changedTransport: LOG_FILE_TRANSPORT,
+            baselineTransport: LOG_FILE_TRANSPORT,
+        };
+        const args = siftArgs(invocation);
+        const r = await runVector(siftBin, args, outputPath);
+        let verdict = '';
+        if (r.rejected || !r.ranClean || !r.wroteReport) {
+            verdict = `the engine did not write a report (exit ${r.exitCode})`;
+        } else {
+            const report = readReport(await readFile(outputPath), outputPath, r.exitCode);
+            const markdown = report.markdown ?? '';
+            const disclosure = ngramRefusalLine(report);
+            if (disclosure === '') {
+                verdict = 'no window refused, so this pair no longer exercises the disclosure — re-derive it';
+            } else if (!markdown.includes(disclosure)) {
+                verdict = `the engine's markdown does not carry the frame's n-gram sentence "${disclosure}"`;
+            } else if (!markdown.includes(CLAIM_BOUNDARY)) {
+                verdict = "the engine's markdown does not carry the frame's CLAIM_BOUNDARY verbatim";
+            }
+        }
+        process.stdout.write(`preflight text cell [the frame's copies of engine text]: ${verdict === '' ? 'verbatim' : 'BROKEN'}\n`);
+        if (verdict !== '') failures.push(`  text cell: ${verdict}.\n      vector: ${args.join(' ')}`);
+    }
+
     if (failures.length > 0) {
         process.stderr.write(
             `\nPREFLIGHT FAILED — engine ${siftBin} (SIFT_VERSION ${SIFT_VERSION})\n` +
@@ -921,7 +974,7 @@ async function main(): Promise<void> {
             `the output contract on all ${HOSTILE_CELLS.length} hostile pairs, peeled the target-job ` +
             "stack with its probe agreeing, framed a target job's declared success, named a failed " +
             "target job's listed failed step, joined a banner's value to its declared step across both " +
-            'graphs, and its half-pair behaviour is still ' +
+            "graphs, still writes the frame's copies of its text verbatim, and its half-pair behaviour is still " +
             `'${PINNED_ENGINE_HALF_PAIR}'.\n`,
     );
 }

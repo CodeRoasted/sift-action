@@ -55,9 +55,20 @@ export interface ReportSummary {
     changed_outcome_note?: string;
 }
 
+// One unit window whose n-gram accounting refused observations at its key cap (ADR-9.D3): the
+// unit's rendered path, its line count, the transitions refused and the cap. Present on a side
+// only when a window refused something.
+export interface NgramRefusal {
+    unit: string;
+    lines: number;
+    refused: number;
+    cap: number;
+}
+
 export interface InputProvenance {
     label: string;
     lines_observed: number;
+    ngram_refusals?: NgramRefusal[];
     // Omitted by the engine when the path did not measure it — the aligned path, which is the
     // one the Action's `sift a.log b.log` invocation takes, never counts whole-log templates.
     // Optional here also keeps an older engine's always-present key readable.

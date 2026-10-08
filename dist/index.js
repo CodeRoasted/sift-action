@@ -66930,6 +66930,15 @@ var MAX_INLINE_ROWS = 20;
 var MAX_SUMMARY_DISPLAY_BYTES = 1024;
 var MAX_WHERE_DISPLAY_BYTES = 256;
 var MAX_TEMPLATE_ID_DISPLAY_BYTES = 64;
+var CLAIM_BOUNDARY = "Sift compares exactly two runs and keeps no history. On two successful runs, Drift means the logs differ, not that this change caused the difference: a line that comes and goes between your workflow's successful runs reads as Drift, because Sift has never seen those runs.";
+function ngramRefusalLine(report) {
+  const sides = [report.inputs.baseline.ngram_refusals ?? [], report.inputs.changed.ngram_refusals ?? []];
+  const windows = sides[0].length + sides[1].length;
+  if (windows === 0) return "";
+  const refused = sides.flat().reduce((sum, refusal) => sum + refusal.refused, 0);
+  const first = (sides[0].length > 0 ? sides[0] : sides[1])[0];
+  return `N-gram limit reached in ${windows} ${windows === 1 ? "step" : "steps"} (${first.cap} keys each): ${refused} line-to-line ${refused === 1 ? "transition was" : "transitions were"} not counted, so path changes in ${windows === 1 ? "that step" : "those steps"} may be incomplete`;
+}
 function groupThousands(value) {
   return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
@@ -67155,16 +67164,28 @@ function staleBanner(context5) {
   const age = context5.baseline_age_hours != null ? formatAge(context5.baseline_age_hours) : "unknown age";
   return `> \u26A0\uFE0F **Stale baseline \u2014 ${age} old, past the ${context5.baseline_age_bound ?? ""} bound.** No green run has re-seeded it since; this diff compares against that aged snapshot and loses meaning as the streak grows.`;
 }
+function reportStatements(report, state3, details) {
+  const parts = [];
+  const refusals = ngramRefusalLine(report);
+  if (refusals !== "" && (state3 === "clean" /* Clean */ || details === 1 /* Declare */)) {
+    parts.push(`_${escapeInline(refusals)}. Per unit in the report JSON's \`inputs\`._`);
+  }
+  parts.push(`_${escapeInline(CLAIM_BOUNDARY)}_`);
+  return `
+
+${parts.join("\n\n")}`;
+}
 function compose(report, context5, details) {
   const state3 = selectState(report);
   const header = context5.comment_tag ? `${HEADER} (${context5.comment_tag})` : HEADER;
   const stale = context5.baseline_stale ? `${staleBanner(context5)}
 
 ` : "";
+  const statements = report ? reportStatements(report, state3, details) : "";
   return `${stickyMarker(context5.comment_tag)}
 ${header}
 
-${stale}${body(report, context5, state3, details)}
+${stale}${body(report, context5, state3, details)}${statements}
 
 ${footer(context5)}`;
 }

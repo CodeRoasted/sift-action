@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { renderComment, STICKY_MARKER, escapeInline } from '../src/frame.js';
+import { CLAIM_BOUNDARY, ngramRefusalLine, renderComment, STICKY_MARKER, escapeInline } from '../src/frame.js';
 import { polarityGlyph, severityGlyph } from '../src/glyph.js';
 import { parseCommentLevel, selectState, shouldComment, State } from '../src/verdict.js';
 import type { RankedChange, SiftCommentContext, SiftReport } from '../src/types.js';
@@ -1217,3 +1217,82 @@ test('budget: the worst case the frame can meet stays under the limit — the in
     assert.ok(size <= 40_960, `the worst-case body is ${size} B; frame.ts's invariant claims about 36 KiB`);
     assert.ok(out.includes(`template h:${'f'.repeat(62)}…`), 'the template id is cut at 64 B with an ellipsis');
 });
+
+// ── W469 and W446: what the VISIBLE frame states of every report ─────────────────────────────
+//
+// W469: every human view of the engine states the claim boundary under its inputs; the comment's
+// visible frame carries it on every report, whether the engine's markdown is embedded or replaced
+// by its size line. W446: the n-gram disclosure reaches a reader of the Clean comment, which has no
+// details block, and of a comment whose markdown was too large to embed — rendered from the JSON in
+// the engine's own sentence. RED at sift-action 02493dc, whose frame carried neither.
+
+// The comment with its full-report block cut out: what a reader sees without opening anything.
+function visibleFrame(out: string): string {
+    const at = out.indexOf(FULL_REPORT_OPEN);
+    if (at < 0) return out;
+    const close = out.indexOf('\n\n</details>', at);
+    return out.slice(0, at) + out.slice(close + '\n\n</details>'.length);
+}
+
+const CLAIM_LINE = `_${escapeInline(CLAIM_BOUNDARY)}_`;
+
+const REFUSING_INPUTS = {
+    baseline: { label: 'base', lines_observed: 6000, ngram_refusals: [{ unit: '<root> ▸ build', lines: 6000, refused: 1903, cap: 4096 }] },
+    changed: {
+        label: 'head',
+        lines_observed: 6100,
+        ngram_refusals: [
+            { unit: '<root> ▸ build', lines: 6100, refused: 2000, cap: 4096 },
+            { unit: '<root> ▸ test', lines: 5000, refused: 1, cap: 4096 },
+        ],
+    },
+};
+
+test('ngramRefusalLine: the engine sentence — windows over both sides, refused summed, the first cap; singular forms; empty when none refused', () => {
+    const base = load('clean_suppressed.json');
+    assert.equal(ngramRefusalLine(base), '');
+    assert.equal(
+        ngramRefusalLine({ ...base, inputs: REFUSING_INPUTS }),
+        'N-gram limit reached in 3 steps (4096 keys each): 3904 line-to-line transitions were not counted, so path changes in those steps may be incomplete',
+    );
+    const one = { ...base, inputs: { baseline: REFUSING_INPUTS.baseline, changed: { label: 'head', lines_observed: 1 } } };
+    one.inputs.baseline = { ...REFUSING_INPUTS.baseline, ngram_refusals: [{ unit: 'u', lines: 9, refused: 1, cap: 4096 }] };
+    assert.equal(
+        ngramRefusalLine(one),
+        'N-gram limit reached in 1 step (4096 keys each): 1 line-to-line transition was not counted, so path changes in that step may be incomplete',
+    );
+});
+
+test('W469: every report state states the claim boundary in its VISIBLE frame, once; a cold start states none', () => {
+    for (const name of ['clean_empty.json', 'clean_suppressed.json', 'drift.json', 'regression.json']) {
+        const out = renderComment(load(name), ctx());
+        const visible = visibleFrame(out);
+        assert.equal(visible.split(CLAIM_LINE).length - 1, 1, `${name}: the claim boundary must be in the visible frame once:\n${visible}`);
+        assert.ok(visible.indexOf(CLAIM_LINE) < visible.indexOf('<sub>'), `${name}: it sits above the footer`);
+    }
+    assert.ok(!renderComment(null, ctx({ baseline: undefined })).includes(CLAIM_BOUNDARY), 'a cold start compares nothing');
+});
+
+test('W469 and W446: a markdown too large to embed keeps the claim boundary and the n-gram line in the visible frame', () => {
+    const report: SiftReport = { ...load('drift.json'), inputs: REFUSING_INPUTS, markdown: 'M'.repeat(70_000) };
+    const out = renderComment(report, ctx());
+    assert.ok(detailsBody(out).startsWith('The full report is 70,000 B of markdown'), 'precondition: the markdown is replaced');
+    const visible = visibleFrame(out);
+    assert.ok(visible.includes(CLAIM_LINE), visible);
+    assert.ok(visible.includes(`_${escapeInline(ngramRefusalLine(report))}. Per unit in the report JSON's \`inputs\`._`), visible);
+});
+
+test('W446: the Clean comment states the n-gram line when a window refused, and nothing when none did', () => {
+    const clean = load('clean_suppressed.json');
+    assert.equal(selectState(clean), State.Clean, 'precondition: the fixture is Clean');
+    const refusing = renderComment({ ...clean, inputs: REFUSING_INPUTS }, ctx());
+    assert.ok(refusing.includes(escapeInline(ngramRefusalLine({ ...clean, inputs: REFUSING_INPUTS }))), refusing);
+    assert.ok(!renderComment(clean, ctx()).includes('N-gram limit'), 'no refusal, no line');
+});
+
+test('W446: an embedded markdown carries the n-gram line itself, so the visible frame does not repeat it', () => {
+    const report: SiftReport = { ...load('drift.json'), inputs: REFUSING_INPUTS };
+    const out = renderComment(report, ctx());
+    assert.ok(!visibleFrame(out).includes('N-gram limit'), visibleFrame(out));
+});
+
