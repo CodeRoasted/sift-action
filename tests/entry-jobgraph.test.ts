@@ -1,9 +1,9 @@
-// The job-graph read as the SHIPPED ENTRY performs it (ADR-22.D17, DN-118.D4). jobgraph.test.ts
+// The job-graph read as the SHIPPED ENTRY performs it (ADR-22.D17, DN-118.O3). jobgraph.test.ts
 // executes the coordinate function and the resolver; these arms execute src/main.ts itself, because
 // both decisions are taken at the call site and are invisible to the resolver's own tests: WHICH
 // commit is read (until 2026-09-27 main.ts took it from the event payload, a PR's `base.sha`, a file
-// that did not run), and WHETHER the graph is read at all (it is not at `target-job` grain, where the
-// one-job diff can mint no correct fold row).
+// that did not run), and WHETHER the graph is read at all (at every grain since DN-118.D4's gate on
+// `target-job` was withdrawn, arm R5).
 //
 // The entry runs as a child process against a local stand-in for the REST API (GITHUB_API_URL),
 // with a `pull_request` event payload whose `base.sha` differs from the runner's
@@ -59,7 +59,7 @@ const TARGET_JOB_LOG = [
     '2026-09-27T10:00:02.0000000Z error: b failed',
 ].join('\n');
 
-// The grain line DN-118.D4 rules for `target-job`; its first words are the absent-graph family's.
+// The line DN-118.D4's gate printed at `target-job` grain, which its withdrawal removes.
 const ONE_JOB_GRAIN_LINE = /no declared job graph — this run diffs one job's log/;
 
 interface RecordedRequest {
@@ -278,33 +278,57 @@ test('entry (A3): GITHUB_WORKFLOW_SHA unset ⇒ no graph, zero graph requests, o
     assert.match(naming[0]!, /no declared job graph/, `the line must say the graph is absent${describeRun(run)}`);
 });
 
-// DN-118.D4 (G1): a one-job diff cannot mint a correct fold row, so the Action does not pay for the
-// graph there — no contents read, no second jobs listing, no flag — and says why, once.
-test('entry (G1): at target-job grain there is no contents read, no --changed-job-graph, and one log line naming the grain', async () => {
+// DN-118.O3 (R5), the Action's half: once the pinned engine refuses a fold whose aggregator and
+// member claim one row, the graph is read at `target-job` grain too — one contents read, at the
+// runner's commit, a second jobs listing (the graph join's, beside the log sourcing's), the flag in
+// the argv — and the one-job line is gone. RED at sift-action a136364, where the gate made zero
+// contents reads at this grain. The engine's half (a `New — FAILING` row in a target job the graph
+// declares successful takes the job frame) is driven on the pinned engine in tools/preflight.ts.
+test('entry (R5): at target-job grain the graph is read once at GITHUB_WORKFLOW_SHA and passes --changed-job-graph', async () => {
     const run = await runEntry({ source: 'target-job', workflowSha: EXECUTED_SHA });
-    assert.ok(run.argv, `the entry never reached the engine, so "no flag" would be vacuous${describeRun(run)}`);
+    assert.ok(run.argv, `the entry never reached the engine${describeRun(run)}`);
     assert.deepEqual(
-        contentsReads(run),
-        [],
-        `expected zero contents reads at target-job grain, got ${contentsReads(run).length}${describeRun(run)}`,
+        contentsReads(run).map((request) => [request.pathname, request.ref]),
+        [[`/repos/${OWNER}/${REPO}/contents/${WORKFLOW_PATH}`, EXECUTED_SHA]],
+        `expected exactly one contents read at target-job grain, at the runner's commit ${EXECUTED_SHA}${describeRun(run)}`,
     );
     assert.equal(
         jobsListings(run).length,
-        1,
-        'expected exactly one jobs listing (the log sourcing\'s own); a second one is the graph ' +
-            `join's${describeRun(run)}`,
+        2,
+        `expected two jobs listings, the log sourcing's and the graph join's${describeRun(run)}`,
     );
-    assert.ok(
-        !run.argv.includes('--changed-job-graph'),
-        `the engine must receive no --changed-job-graph at target-job grain${describeRun(run)}`,
+    assert.ok(run.argv.includes('--changed-job-graph'), `the engine must receive --changed-job-graph${describeRun(run)}`);
+    assert.ok(run.graph, `the engine received no graph file${describeRun(run)}`);
+    assert.deepEqual(
+        run.graph.filter((job) => job.key === '').map((job) => [job.display, job.conclusion]),
+        LISTING.map((row) => [row.name, row.conclusion]),
+        `every listed job travels with its declared conclusion${describeRun(run)}`,
     );
-    const naming = run.stdout.split('\n').filter((line) => ONE_JOB_GRAIN_LINE.test(line));
     assert.equal(
-        naming.length,
-        1,
-        `expected exactly one log line naming the one-job grain, got ${naming.length}${describeRun(run)}`,
+        run.stdout.split('\n').filter((line) => ONE_JOB_GRAIN_LINE.test(line)).length,
+        0,
+        `the withdrawn gate's one-job line must not appear${describeRun(run)}`,
     );
-    assert.match(naming[0]!, /the `needs:` fold needs rows from two jobs/, `the line must say why${describeRun(run)}`);
+});
+
+// DN-140.D4: the entry declares the changed log's provenance from the row it fetched the log by —
+// the target job's id and attempt — and a `log:` file declares none.
+test('entry (DN-140.D4): target-job declares the fetched job\'s id and attempt; a log: file declares neither', async () => {
+    const target = LISTING.find((job) => job.name === TARGET_JOB)!;
+    const sourced = await runEntry({ source: 'target-job', workflowSha: EXECUTED_SHA });
+    assert.ok(sourced.argv, `the entry never reached the engine${describeRun(sourced)}`);
+    const at = sourced.argv.indexOf('--changed-log-job-id');
+    assert.deepEqual(
+        [sourced.argv[at + 1], sourced.argv[sourced.argv.indexOf('--changed-log-attempt') + 1]],
+        [String(target.id), String(target.run_attempt)],
+        `the provenance must name job ${target.id} at attempt ${target.run_attempt}${describeRun(sourced)}`,
+    );
+    const filed = await runEntry({ source: 'log', workflowSha: EXECUTED_SHA });
+    assert.ok(filed.argv, `the entry never reached the engine${describeRun(filed)}`);
+    assert.ok(
+        !filed.argv.some((arg) => arg.startsWith('--changed-log-') || arg.startsWith('--baseline-log-')),
+        `a log: file's job and attempt are unknown, so nothing is declared${describeRun(filed)}`,
+    );
 });
 
 // DN-118.D4 (G2): a `log:` file may carry several jobs' logs, where the fold is correct, so the

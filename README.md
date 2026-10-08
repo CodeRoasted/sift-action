@@ -59,17 +59,23 @@ one structural change.
 Every Sift step's log says which grain it acquired, e.g. `Sift: grain — acquired 1
 job of the 7 this run lists ("build")`.
 
+**The declared job graph, and what it gives one job.** The Action reads the workflow file
+at the commit this run executed (with the `contents: read` permission) and this run's
+jobs listing, and passes both to the engine as the run's declared job graph, whichever
+way the log was sourced. On one job's log it does two things: a row is judged against
+**its own job's** declared conclusion, so a new error in a job GitHub declared successful
+reads as an absorbed error (High), not as the cause of the run's failure; and, with
+`target-job`, a failed job's row names the step the listing declares failed, with how long
+it ran (the Action tells the engine which job and which attempt the log is, so a re-run's
+listing never names a step of another attempt). A refused read is logged and the diff runs
+without the graph.
+
 **The required-check fold needs several jobs' logs.** When an aggregator job (one that
 only `needs:` others, such as a "required checks" gate) goes red, the engine can replace
-its rows with one row naming the member job that actually failed. It needs the
-workflow's declared `needs:` graph and rows from both jobs. The Action passes that graph
-only when it diffs a `log:` file: it reads the workflow file at the commit this run
-executed, with the `contents: read` permission, and a refused read is logged and leaves
-the diff unfolded. With `target-job` it passes none, because that mode diffs one job and
-a fold row there could only name the wrong job; its log says ``Sift: no declared job
-graph — this run diffs one job's log, and the `needs:` fold needs rows from two
-jobs.`` So a fold row appears only when a `log:` file holds several jobs' logs. The
-whole-run mode is planned.
+its rows with one row naming the member job that actually failed. It needs rows from
+both jobs, so it fires only when a `log:` file holds several jobs' logs; with
+`target-job`, which diffs one job, the engine refuses a fold whose two sides would claim
+the same rows. The whole-run mode is planned.
 
 ## Advanced usage
 
@@ -457,7 +463,7 @@ root — never re-authored here.
 - `src/verdict.ts` — the four-state machine (cold-start / clean / drift / regression).
 - `src/baseline.ts` — baseline source selection (auto / branch= / artifact= / path= / none) via the GitHub API.
 - `src/joblog.ts` — `target-job` log sourcing: job lookup, the job log as served bytes and their declared delivery stack, SIFT_CAPTURE selection of whole lines, the native-conclusion token for `changed-outcome: auto`.
-- `src/jobgraph.ts` — the workflow's declared `needs:` graph, read at the commit the runner names as executed (`GITHUB_WORKFLOW_SHA`), for a `log:` file only.
+- `src/jobgraph.ts` — the run's declared job graph: the workflow's declared jobs, read at the commit the runner names as executed (`GITHUB_WORKFLOW_SHA`), joined with the run's jobs listing (each job's conclusion, id, attempt and listed steps).
 - `src/sift.ts` — engine invocation (`--format both`, `--fail-on`).
 - `src/comment.ts` — sticky-comment upsert. `src/artifact.ts` — baseline publish, the `sift-report` upload, and the fork render/post transport.
 - `src/main.ts` — orchestration.

@@ -41,6 +41,12 @@ export interface SiftInvocation {
     // the engine deduces it and reports what it read (ADR-14.D9's carve-out).
     changedTransport: readonly string[];
     baselineTransport?: readonly string[];
+    // The changed log's provenance, declared by the acquirer that fetched ONE job's log by its id
+    // (DN-140.D4): the listing row's id and, when it states one, its attempt. The engine names a
+    // listed failed step only when the rendering it joins agrees with both. Undefined for a `log:`
+    // file, whose job and attempt the Action does not know. There is no baseline half: no row
+    // naming a step rests on the baseline side, so its flags have no reader (DN-140.D9).
+    changedLogProvenance?: { jobId: number; attempt: number | null };
     // Opt-in AI narrative (ADR-13.D5). The pinned local model + server are provisioned by
     // runExplainSetup() before this runs; `sift --explain` then auto-spawns the bundled server,
     // narrates additively, and tears it down. Fail-soft: a missing/unreachable model leaves the
@@ -503,6 +509,12 @@ export function siftArgs(invocation: SiftInvocation): string[] {
     ];
     if (invocation.baselineTransport !== undefined) {
         args.push('--baseline-transport', transportToken(invocation.baselineTransport));
+    }
+    if (invocation.changedLogProvenance) {
+        args.push('--changed-log-job-id', String(invocation.changedLogProvenance.jobId));
+        if (invocation.changedLogProvenance.attempt !== null) {
+            args.push('--changed-log-attempt', String(invocation.changedLogProvenance.attempt));
+        }
     }
     // ADR-22.D10 — a caller-declared verdict is a PAIR: the native token AND the vocabulary that
     // interprets it. Unconditional and not an input, for the same reason as `--channel` above: it

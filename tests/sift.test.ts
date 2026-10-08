@@ -275,6 +275,31 @@ test('A1: no argv carries the one-token --transport', () => {
     }
 });
 
+// ── DN-140.D4, as DN-140.D9 corrects it: the CHANGED log's provenance, and no baseline half ────
+
+test('provenance: a target-job log declares the job id it was fetched by and its attempt', () => {
+    const args = siftArgs({ ...baseInvocation, changedLogProvenance: { jobId: 81441945730, attempt: 2 } });
+    assert.equal(flagValue(args, '--changed-log-job-id'), '81441945730', `argv: ${args.join(' ')}`);
+    assert.equal(flagValue(args, '--changed-log-attempt'), '2', `argv: ${args.join(' ')}`);
+});
+
+test('provenance: a row stating no attempt declares the job id alone', () => {
+    const args = siftArgs({ ...baseInvocation, changedLogProvenance: { jobId: 7, attempt: null } });
+    assert.equal(flagValue(args, '--changed-log-job-id'), '7', `argv: ${args.join(' ')}`);
+    assert.ok(!args.includes('--changed-log-attempt'), `argv: ${args.join(' ')}`);
+});
+
+test('provenance: a `log:` file declares none, and no argv ever carries a baseline provenance flag', () => {
+    const bare = siftArgs(baseInvocation);
+    assert.ok(!bare.includes('--changed-log-job-id') && !bare.includes('--changed-log-attempt'), `argv: ${bare.join(' ')}`);
+    for (const args of [bare, siftArgs({ ...baseInvocation, changedLogProvenance: { jobId: 7, attempt: 1 } })]) {
+        assert.ok(
+            !args.includes('--baseline-log-job-id') && !args.includes('--baseline-log-attempt'),
+            `no row naming a step rests on the baseline side (DN-140.D9): ${args.join(' ')}`,
+        );
+    }
+});
+
 test('siftArgs: --explain is absent by default (opt-in)', () => {
     assert.ok(!siftArgs(baseInvocation).includes('--explain'));
     assert.ok(!siftArgs({ ...baseInvocation, explain: false }).includes('--explain'));

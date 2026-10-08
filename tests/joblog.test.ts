@@ -67,6 +67,7 @@ interface Job {
     name: string;
     status: string;
     conclusion?: string | null;
+    run_attempt?: number;
 }
 
 // `log` may be a FUNCTION OF THE JOB ID, and that is not a convenience: a fixed body makes every
@@ -348,6 +349,22 @@ test('A5 control: after a mark with no stamp, a space is payload — the line is
 // ── job lookup ───────────────────────────────────────────────────────────────────────────────
 
 const text = (bytes: Uint8Array): string => Buffer.from(bytes).toString('utf8');
+
+// DN-140.D4: the log's provenance is the listing row it was fetched by — its id, and its attempt
+// when the row states one — returned beside the bytes, since the bytes carry neither.
+test('fetchTargetJobLog: returns the job id the log was fetched by and the row\'s attempt (DN-140.D4)', async () => {
+    const jobs: Job[] = [
+        { id: 7, name: 'lint', status: 'completed', conclusion: 'success' },
+        { id: 8, name: 'build', status: 'completed', conclusion: 'failure', run_attempt: 2 },
+    ];
+    const requests: DownloadRequest[] = [];
+    const out = await fetchTargetJobLog(fetchParams(jobs, (jobId) => st(`log-of-job-${jobId}`), {}, requests));
+    assert.equal(out.jobId, 8, `provenance names job ${out.jobId}`);
+    assert.equal(requests[0]?.job_id, out.jobId, 'the declared id is the id the log was fetched by');
+    assert.equal(out.runAttempt, 2);
+    const unstated = await fetchTargetJobLog(fetchParams(BUILD_JOB, st('x')));
+    assert.equal(unstated.runAttempt, null, 'a row stating no attempt declares none');
+});
 
 test('fetchTargetJobLog: exact name match, completed job, served bytes + conclusion returned', async () => {
     const out = await fetchTargetJobLog(fetchParams(BUILD_JOB, cat(st('hello'), st('world'))));

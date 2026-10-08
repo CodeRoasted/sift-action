@@ -63351,10 +63351,15 @@ async function fetchTargetJobLog(params) {
   return {
     bytes: selectCapture(served, capture),
     transport: JOB_LOG_TRANSPORT,
+    jobId: job.id,
+    runAttempt: statedAttempt(job.run_attempt),
     conclusion: job.conclusion ?? null,
     jobName: job.name,
     runJobCount: jobs.length
   };
+}
+function statedAttempt(attempt) {
+  return typeof attempt === "number" && Number.isSafeInteger(attempt) && attempt >= 1 ? attempt : null;
 }
 function overCeiling(jobName, bytes) {
   return new Error(
@@ -66757,7 +66762,6 @@ function executedWorkflowCoordinate(env) {
   }
   return { kind: "executed", path: path9, sha: workflowSha };
 }
-var ONE_JOB_GRAIN_NO_GRAPH_LINE = "Sift: no declared job graph \u2014 this run diffs one job's log, and the `needs:` fold needs rows from two jobs.";
 async function resolveChangedJobGraph(params) {
   const { octokit, owner, repo, runId, workflow, info: info2 } = params;
   if (workflow.kind === "refused") {
@@ -102837,6 +102841,12 @@ function siftArgs(invocation) {
   if (invocation.baselineTransport !== void 0) {
     args.push("--baseline-transport", transportToken(invocation.baselineTransport));
   }
+  if (invocation.changedLogProvenance) {
+    args.push("--changed-log-job-id", String(invocation.changedLogProvenance.jobId));
+    if (invocation.changedLogProvenance.attempt !== null) {
+      args.push("--changed-log-attempt", String(invocation.changedLogProvenance.attempt));
+    }
+  }
   const graphDeclaresConclusion = invocation.changedJobGraph ? statesAJobConclusion(invocation.changedJobGraph.jobs) || statesAListedStepConclusion(invocation.changedJobGraph.jobs) : false;
   if (invocation.baselineOutcome || invocation.changedOutcome || graphDeclaresConclusion) {
     args.push("--outcome-vocabulary", "github");
@@ -103054,6 +103064,7 @@ async function run() {
   let changedOutcome = rawChangedOutcome === "auto" ? "" : rawChangedOutcome;
   let grain;
   let changedTransport;
+  let changedLogProvenance;
   if (targetJob) {
     const capture = getInput("capture") || "auto";
     const jobLog = await fetchTargetJobLog({
@@ -103066,6 +103077,7 @@ async function run() {
     });
     await fs13.writeFile(changedLog, jobLog.bytes);
     changedTransport = jobLog.transport;
+    changedLogProvenance = { jobId: jobLog.jobId, attempt: jobLog.runAttempt };
     if (rawChangedOutcome === "auto") {
       changedOutcome = jobLog.conclusion ?? "";
     }
@@ -103140,19 +103152,14 @@ async function run() {
     if (explain) {
       await provisionExplain(siftBin);
     }
-    let changedJobGraph = null;
-    if (grain.kind === "job") {
-      info(ONE_JOB_GRAIN_NO_GRAPH_LINE);
-    } else {
-      changedJobGraph = await resolveChangedJobGraph({
-        octokit,
-        owner,
-        repo,
-        runId: context2.runId,
-        workflow: executedWorkflowCoordinate(process.env),
-        info
-      });
-    }
+    const changedJobGraph = await resolveChangedJobGraph({
+      octokit,
+      owner,
+      repo,
+      runId: context2.runId,
+      workflow: executedWorkflowCoordinate(process.env),
+      info
+    });
     const result = await runSift({
       siftBin,
       baselineLog: baseline.logPath,
@@ -103165,6 +103172,7 @@ async function run() {
       outputPath: reportJsonPath,
       changedTransport,
       baselineTransport: baseline.transport,
+      changedLogProvenance,
       explain,
       explainModel,
       changedJobGraph: changedJobGraph ? { path: path8.join(workDir, "changed-job-graph.json"), jobs: changedJobGraph } : void 0

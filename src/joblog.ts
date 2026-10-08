@@ -211,6 +211,13 @@ export interface TargetJobLog {
     /** The delivery stack these bytes carry, outermost first — `--changed-transport` (DN-89.D38 §2). */
     transport: readonly string[];
     /**
+     * Which listing row the bytes were fetched by, and that row's attempt — the log's provenance,
+     * declared beside it as `--changed-log-job-id` / `--changed-log-attempt` (DN-140.D4). The bytes
+     * carry neither. `runAttempt` is null when the row does not state one, and is then not declared.
+     */
+    jobId: number;
+    runAttempt: number | null;
+    /**
      * The target job's conclusion ('success' | 'failure' | 'cancelled' | …) — GitHub's
      * NATIVE verdict token. `changed-outcome: auto` forwards it verbatim to the engine
      * (`--changed-outcome`), which maps it through the GitHub semantic package
@@ -299,10 +306,17 @@ export async function fetchTargetJobLog(params: FetchJobLogParams): Promise<Targ
     return {
         bytes: selectCapture(served, capture),
         transport: JOB_LOG_TRANSPORT,
+        jobId: job.id,
+        runAttempt: statedAttempt(job.run_attempt),
         conclusion: job.conclusion ?? null,
         jobName: job.name,
         runJobCount: jobs.length,
     };
+}
+
+// A listing row's attempt when it states a whole one from 1, else null (nothing declared).
+function statedAttempt(attempt: number | undefined): number | null {
+    return typeof attempt === 'number' && Number.isSafeInteger(attempt) && attempt >= 1 ? attempt : null;
 }
 
 function overCeiling(jobName: string, bytes: number): Error {

@@ -13,8 +13,11 @@ inputs:
       (the API serves logs for completed jobs only; the target's own conclusion then also gives you
       `changed-outcome` for free). The log is diffed as the bytes GitHub serves, its byte-order mark
       and per-line timestamps declared to the engine, which peels them; `capture` selects marked
-      sections, whole lines byte for byte. Mutually exclusive with `log` (target-job wins). Passes no `needs:` job graph:
-      the required-check fold needs rows from two jobs, and this source diffs one.
+      sections, whole lines byte for byte. Mutually exclusive with `log` (target-job wins). Like
+      `log`, passes the workflow's declared job graph when it can be read (see `log`): it frames
+      each row by its own job's declared conclusion, and a failed job's row names the step the
+      listing declares failed (the Action declares which job and attempt the log is). No fold row
+      comes of it, since a fold needs rows from two jobs and this source diffs one.
     required: false
     default: ''
   capture:
@@ -28,10 +31,11 @@ inputs:
   log:
     description: >-
       Path to the current run's captured log to diff (the build/CI log). Required for mode
-      comment|render unless `target-job` is set; unused for mode post. With `log`, the Action also
-      passes the workflow's declared `needs:` graph, read at the commit this run executed with the
-      `contents: read` permission, so the engine can fold a red aggregator job into the member that
-      failed. A fold row appears only when the file holds several jobs' logs.
+      comment|render unless `target-job` is set; unused for mode post. The Action also passes the
+      workflow's declared job graph, read at the commit this run executed with the `contents: read`
+      permission, and this run's jobs listing: the engine frames each row by its job's declared
+      conclusion and can fold a red aggregator job into the member that failed. A fold row appears
+      only when the file holds several jobs' logs.
     required: false
     # Override only. By default the Action downloads + sha256-verifies the
     # version-pinned `sift-linux-x64` release asset (resolve-sift.ts). Set this to
@@ -214,11 +218,12 @@ outputs:
 # baseline-log artifact (the runner's runtime token, not `github-token`), in the fork
 # `render` job too.
 #   contents: write     — ONLY if commit-comment is set (push-mode commit comments); else omit
-# Not requested by the documented workflows: `contents: read`. With `target-job` the Action reads
-# no repository file. With `log:` it reads one, the workflow's declared `needs:` graph at the commit
-# the run executed, for the aggregator fold; that fold needs rows from two jobs, so it can fire only
-# when the `log:` file holds several jobs' logs. Without the grant the read may be refused: the log
-# says so, and the diff runs unfolded.
+# Not requested by the documented workflows: `contents: read`. With it, the Action reads one
+# repository file, the workflow's declared job graph at the commit the run executed, on every run:
+# each job's declared conclusion frames that job's rows, with `target-job` a listed step declared
+# failed is named on its job's row, and the aggregator fold can fire when a `log:` file holds
+# several jobs' logs.
+# Without the grant the read may be refused: the log says so, and the diff runs without the graph.
 # Fork PRs get a read-only token: the comment/artifact writes degrade with a
 # warning (the advisory gate still applies).
 

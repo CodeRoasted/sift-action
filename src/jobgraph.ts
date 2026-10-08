@@ -23,11 +23,12 @@
 // default schema (no code execution, no !!js types), and the bytes arrive under the contents
 // API's own response cap.
 //
-// READ ONLY WHERE A FOLD ROW CAN BE CORRECT (DN-118.D4). The fold replaces an aggregator's rows with
-// a failed member's, so it needs rows from two jobs. A `target-job` diff holds one job's rows, and
-// there every fold row the engine can mint is a misattribution; the entry does not call the resolver
-// at that grain and logs `ONE_JOB_GRAIN_NO_GRAPH_LINE` instead. A `log:` file may hold several jobs'
-// logs, where the fold is correct, so the graph is read for it.
+// READ AT EVERY GRAIN. The graph has three readers in the engine: the job-grain claim frame (a
+// row's own job's declared conclusion, DN-89.D15), step naming (a listed step declared failed,
+// named on its job's row, DN-140.D5), and the `needs:` fold. The first two are correct on one
+// job's log. The fold needs rows from two jobs, and the engine refuses a fold whose aggregator and
+// member claim one row (DN-118.O3, part 3), so a `target-job` diff mints no fold row; DN-118.D4
+// kept the read off that grain until the pinned engine carried that refusal, and is withdrawn.
 //
 // FAIL-SOFT BY DESIGN, and absent ≠ empty: every acquisition failure (no runner coordinate for the
 // executed workflow file, an unreadable file, a denied `contents: read`, a failed jobs listing) resolves to ABSENT — no flag,
@@ -628,12 +629,6 @@ export function executedWorkflowCoordinate(env: RunnerWorkflowEnv): WorkflowCoor
     }
     return { kind: 'executed', path, sha: workflowSha };
 }
-
-// The one log line of a `target-job` run, stated where the resolver lives because it is the same
-// absent-graph family as the resolver's own lines, and the reason is the fold's, not the entry's.
-export const ONE_JOB_GRAIN_NO_GRAPH_LINE =
-    "Sift: no declared job graph — this run diffs one job's log, and the `needs:` fold needs rows " +
-    'from two jobs.';
 
 export interface ResolveJobGraphParams {
     octokit: Octokit;

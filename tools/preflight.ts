@@ -192,8 +192,10 @@ function stampedJobLog(failing: boolean): Buffer {
 // The client the Action talks to, reduced to the two calls `fetchTargetJobLog` makes: one
 // completed job, and its log served as a byte stream when the body is requested unparsed —
 // otherwise decoded as text, the way the real client hands back a `text/plain` body.
-function servingClient(served: Buffer): FetchJobLogParams['octokit'] {
-    const job = { id: 1, name: 'build', status: 'completed', conclusion: 'success' };
+function servingClient(
+    served: Buffer,
+    job: Record<string, unknown> = { id: 1, name: 'build', status: 'completed', conclusion: 'success' },
+): FetchJobLogParams['octokit'] {
     const client = {
         paginate: async () => [job],
         rest: {
@@ -226,6 +228,27 @@ async function acquireStamped(failing: boolean): Promise<{ bytes: Uint8Array; tr
         capture: 'auto',
     });
     return { bytes: out.bytes, transport: out.transport };
+}
+
+// One job's log as the API serves it, named `build`: a passing `make test` step, and — when
+// `failingStep` — a `./lint.sh` step closing on GitHub's declared error marker.
+function oneJobLog(failingStep: boolean): Buffer {
+    return logOf([
+        Buffer.concat([bytes(0xef, 0xbb, 0xbf), utf8(`${STAMP}Current runner version: '2.335.1'`)]),
+        utf8(`${STAMP}Complete job name: build`),
+        utf8(`${STAMP}##[group]Run make test`),
+        utf8(`${STAMP}ok: 12 passed`),
+        utf8(`${STAMP}##[endgroup]`),
+        ...(failingStep
+            ? [
+                  utf8(`${STAMP}##[group]Run ./lint.sh`),
+                  utf8(`${STAMP}linting`),
+                  utf8(`${STAMP}##[error]Process completed with exit code 1.`),
+                  utf8(`${STAMP}##[endgroup]`),
+              ]
+            : []),
+        utf8(`${STAMP}Post job cleanup.`),
+    ]);
 }
 
 interface RunResult {
@@ -657,6 +680,157 @@ async function main(): Promise<void> {
         }
     }
 
+    // ── E) DN-118.O3 arm R5, the engine's half — a target job's declared success frames its rows ─
+    // The graph is read at `target-job` grain since DN-118.D4's gate was withdrawn. On one job's
+    // log its first reader is the job-grain claim frame: a run that failed elsewhere, whose target
+    // job the listing declares successful, absorbs a new declared error in that job (High, "its job
+    // is declared successful") where the run's failure alone mints `New — FAILING` at Critical. The
+    // graph is the producer's own output for a one-job listing; the control is the same vector
+    // without it, so a frame that stopped engaging cannot pass as one that holds.
+    {
+        const jobLog = oneJobLog;
+        const frameBaseline = join(work, 'frame-baseline.log');
+        const frameChanged = join(work, 'frame-changed.log');
+        await writeFile(frameBaseline, jobLog(false));
+        await writeFile(frameChanged, jobLog(true));
+        const graphPath = join(work, 'frame-graph.json');
+        const jobs = joinDeclaredJobs(
+            parseWorkflowJobs(['jobs:', '  build:', '    runs-on: ubuntu-latest', '    steps:', '      - run: make test', '      - run: ./lint.sh'].join('\n')),
+            [{ id: 801, name: 'build', conclusion: 'success', run_attempt: 1, steps: [], runner_id: 41, runner_name: 'r' }],
+        );
+        await writeFile(graphPath, JSON.stringify(jobs));
+        const frameCell = async (withGraph: boolean): Promise<{ args: string[]; rows: string[]; verdict: string }> => {
+            const outputPath = join(work, `report-frame-${withGraph ? 'graph' : 'bare'}.json`);
+            const invocation: SiftInvocation = {
+                siftBin,
+                baselineLog: frameBaseline,
+                changedLog: frameChanged,
+                baselineLabel: 'preflight-baseline',
+                changedLabel: 'preflight-changed',
+                baselineOutcome: 'success',
+                changedOutcome: 'failure',
+                failOn: 'none',
+                outputPath,
+                changedTransport: JOB_LOG_TRANSPORT,
+                baselineTransport: JOB_LOG_TRANSPORT,
+                ...(withGraph ? { changedJobGraph: { path: graphPath, jobs } } : {}),
+            };
+            const args = siftArgs(invocation);
+            const r = await runVector(siftBin, args, outputPath);
+            if (r.rejected || !r.ranClean || !r.wroteReport) {
+                return { args, rows: [], verdict: `the engine did not write a report (exit ${r.exitCode})` };
+            }
+            const report = readReport(await readFile(outputPath), outputPath, r.exitCode);
+            const rows = report.ranked_changes.map((row) => `${row.severity} ${row.summary}`);
+            return { args, rows, verdict: '' };
+        };
+        const framed = await frameCell(true);
+        const bare = await frameCell(false);
+        let verdict = framed.verdict || bare.verdict;
+        if (verdict === '' && !bare.rows.some((row) => row.startsWith('critical') && row.includes('FAILING'))) {
+            verdict = `the control without the graph no longer mints a Critical FAILING row (${JSON.stringify(bare.rows)}), so this cell proves nothing`;
+        } else if (
+            verdict === '' &&
+            !framed.rows.some((row) => row.startsWith('high') && row.includes('its job is declared successful'))
+        ) {
+            verdict = `with the graph, no row reads its job's declared success: ${JSON.stringify(framed.rows)}`;
+        } else if (verdict === '' && framed.rows.some((row) => row.includes('FAILING'))) {
+            verdict = `with the graph, a row still claims FAILING: ${JSON.stringify(framed.rows)}`;
+        }
+        process.stdout.write(
+            `preflight frame cell [target job declared successful in a failed run]: ${verdict === '' ? 'framed' : 'BROKEN'}\n`,
+        );
+        if (verdict !== '') failures.push(`  frame cell: ${verdict}.\n      vector: ${framed.args.join(' ')}`);
+    }
+
+    // ── F) DN-140.D4 and D5 — a failed target job's row names the step its listing declares failed ─
+    // End to end through the Action's own halves: the log acquired by `fetchTargetJobLog` from a
+    // listing row (its id and attempt returned beside the bytes), the graph joined from that same
+    // row by the producer, the vector built by `siftArgs` with the provenance declared. The pinned
+    // engine names step 3 on the job's FAILING row, with the seconds it ran. The control drops the
+    // provenance and must name nothing, counting the side `provenance_undeclared`, so a naming that
+    // engaged without the declaration cannot pass here.
+    {
+        const failedRow = {
+            id: 901,
+            name: 'build',
+            status: 'completed',
+            conclusion: 'failure',
+            run_attempt: 1,
+            steps: [
+                { number: 1, name: 'Set up job', status: 'completed', conclusion: 'success', started_at: '2026-10-07T10:00:00Z', completed_at: '2026-10-07T10:00:02Z' },
+                { number: 2, name: 'Run make test', status: 'completed', conclusion: 'success', started_at: '2026-10-07T10:00:02Z', completed_at: '2026-10-07T10:00:10Z' },
+                { number: 3, name: 'Lint the tree', status: 'completed', conclusion: 'failure', started_at: '2026-10-07T10:00:10Z', completed_at: '2026-10-07T10:00:41Z' },
+            ],
+            runner_id: 51,
+            runner_name: 'GitHub Actions 51',
+        };
+        const acquired = await fetchTargetJobLog({
+            octokit: servingClient(oneJobLog(true), failedRow),
+            owner: 'preflight',
+            repo: 'preflight',
+            runId: 1,
+            jobName: 'build',
+            capture: 'auto',
+        });
+        const namingBaseline = join(work, 'naming-baseline.log');
+        const namingChanged = join(work, 'naming-changed.log');
+        await writeFile(namingBaseline, oneJobLog(false));
+        await writeFile(namingChanged, acquired.bytes);
+        const graphPath = join(work, 'naming-graph.json');
+        const jobs = joinDeclaredJobs(
+            parseWorkflowJobs(['jobs:', '  build:', '    runs-on: ubuntu-latest', '    steps:', '      - run: make test', '      - run: ./lint.sh'].join('\n')),
+            [{ ...failedRow, steps: failedRow.steps.map(({ status: _status, ...step }) => step) }],
+        );
+        await writeFile(graphPath, JSON.stringify(jobs));
+        const namingCell = async (declared: boolean) => {
+            const outputPath = join(work, `report-naming-${declared ? 'declared' : 'undeclared'}.json`);
+            const invocation: SiftInvocation = {
+                siftBin,
+                baselineLog: namingBaseline,
+                changedLog: namingChanged,
+                baselineLabel: 'preflight-baseline',
+                changedLabel: 'preflight-changed',
+                baselineOutcome: 'success',
+                changedOutcome: acquired.conclusion ?? '',
+                failOn: 'none',
+                outputPath,
+                changedTransport: acquired.transport,
+                baselineTransport: JOB_LOG_TRANSPORT,
+                changedJobGraph: { path: graphPath, jobs },
+                ...(declared ? { changedLogProvenance: { jobId: acquired.jobId, attempt: acquired.runAttempt } } : {}),
+            };
+            const args = siftArgs(invocation);
+            const r = await runVector(siftBin, args, outputPath);
+            if (r.rejected || !r.ranClean || !r.wroteReport) {
+                return { args, rows: [] as string[], naming: '', failure: `the engine did not write a report (exit ${r.exitCode})` };
+            }
+            const raw = JSON.parse((await readFile(outputPath)).toString('utf8')) as {
+                summary?: { job_outcomes?: { step_naming?: unknown } };
+            };
+            const report = readReport(await readFile(outputPath), outputPath, r.exitCode);
+            return {
+                args,
+                rows: report.ranked_changes.map((row) => row.summary),
+                naming: JSON.stringify(raw.summary?.job_outcomes?.step_naming ?? null),
+                failure: '',
+            };
+        };
+        const named = await namingCell(true);
+        const unnamed = await namingCell(false);
+        const expected = 'failed step: 3 "Lint the tree" (31s)';
+        let verdict = named.failure || unnamed.failure;
+        if (verdict === '' && !named.rows.some((row) => row.includes(expected))) {
+            verdict = `with the provenance declared, no row reads ${expected}: ${JSON.stringify(named.rows)} (step_naming ${named.naming})`;
+        } else if (verdict === '' && (unnamed.rows.some((row) => row.includes('failed step:')) || !unnamed.naming.includes('"provenance_undeclared":1'))) {
+            verdict = `the control without provenance named a step or did not count it undeclared: ${JSON.stringify(unnamed.rows)} (step_naming ${unnamed.naming})`;
+        }
+        process.stdout.write(
+            `preflight naming cell [a failed target job's listed failed step]: ${verdict === '' ? 'named' : 'BROKEN'}\n`,
+        );
+        if (verdict !== '') failures.push(`  naming cell: ${verdict}.\n      vector: ${named.args.join(' ')}`);
+    }
+
     if (failures.length > 0) {
         process.stderr.write(
             `\nPREFLIGHT FAILED — engine ${siftBin} (SIFT_VERSION ${SIFT_VERSION})\n` +
@@ -673,7 +847,8 @@ async function main(): Promise<void> {
         `preflight OK — the pinned engine accepted all ${VERDICT_CELLS.length} verdict cells, ` +
             `all ${GRAPH_CELLS.length} graph cells and all ${TRANSPORT_CELLS.length} transport cells, kept ` +
             `the output contract on all ${HOSTILE_CELLS.length} hostile pairs, peeled the target-job ` +
-            'stack with its probe agreeing, and its half-pair behaviour is still ' +
+            "stack with its probe agreeing, framed a target job's declared success, named a failed " +
+            "target job's listed failed step, and its half-pair behaviour is still " +
             `'${PINNED_ENGINE_HALF_PAIR}'.\n`,
     );
 }

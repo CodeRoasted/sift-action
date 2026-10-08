@@ -20,12 +20,7 @@ import {
     type BaselineSpec,
 } from './baseline.js';
 import { acquiredGrainLine, fetchTargetJobLog, type AcquiredGrain } from './joblog.js';
-import {
-    ONE_JOB_GRAIN_NO_GRAPH_LINE,
-    executedWorkflowCoordinate,
-    resolveChangedJobGraph,
-    type DeclaredJobWire,
-} from './jobgraph.js';
+import { executedWorkflowCoordinate, resolveChangedJobGraph } from './jobgraph.js';
 import { upsertStickyComment, upsertCommitComment } from './comment.js';
 import { publishBaselineLog, publishReport, writeRenderedComment } from './artifact.js';
 import { renderComment } from './frame.js';
@@ -216,13 +211,15 @@ async function run(): Promise<void> {
     // The native verdict token this run forwards to the engine ('' = none — the
     // engine's run-outcome ladder (ADR-17.D5) falls to the console tail, then Unknown).
     let changedOutcome = rawChangedOutcome === 'auto' ? '' : rawChangedOutcome;
-    // The grain this step acquired (ADR-14.D8). One value decides both the grain line below and
-    // whether the declared job graph is read (DN-118.D4).
+    // The grain this step acquired (ADR-14.D8), stated in the grain line below.
     let grain: AcquiredGrain;
     // The delivery stack of the bytes in changed.log, declared from how they were acquired
     // (DN-89.D38): the API job-log stack for `target-job`, none for a `log:` file. It is also what
     // the published baseline records, since the baseline IS these bytes.
     let changedTransport: readonly string[];
+    // Which job and attempt the changed log is, known only when this step fetched one job's log by
+    // its id (DN-140.D4); a `log:` file declares neither.
+    let changedLogProvenance: { jobId: number; attempt: number | null } | undefined;
     if (targetJob) {
         // Zero-plumbing sourcing: pull the finished build job's log off the API as
         // BYTES (run Sift in a job that `needs:` it), its delivery stack declared,
@@ -239,6 +236,7 @@ async function run(): Promise<void> {
         });
         await fs.writeFile(changedLog, jobLog.bytes);
         changedTransport = jobLog.transport;
+        changedLogProvenance = { jobId: jobLog.jobId, attempt: jobLog.runAttempt };
         if (rawChangedOutcome === 'auto') {
             changedOutcome = jobLog.conclusion ?? ''; // GitHub's native token, verbatim
         }
@@ -358,32 +356,27 @@ async function run(): Promise<void> {
         if (explain) {
             await provisionExplain(siftBin);
         }
-        // The CHANGED run's declared `needs:` job graph (jobgraph.ts — the ADR-22.D13 wire), so the
-        // engine can fold a required-check aggregator row into the member that actually failed.
-        // Fail-soft: acquisition failure ⇒ null ⇒ no flag ⇒ the fold is inert and the run is
-        // untouched.
-        //
-        // Read only for a `log:` file (DN-118.D4). The fold needs rows from two jobs; a
-        // `target-job` diff holds one, where every fold row the engine can mint names the wrong
-        // job, so that grain spends no contents read, no jobs listing and no permission on it.
+        // The CHANGED run's declared job graph (jobgraph.ts — the ADR-22.D13 wire), read at every
+        // grain. Each job's declared conclusion frames the rows of that job (DN-89.D15), and a
+        // listed step the platform declares failed is named on its job's row (DN-140.D5); both are
+        // correct on one job's log. The `needs:` fold needs rows from two jobs, and the engine
+        // refuses a fold whose aggregator and member claim one row (DN-118.O3), so a one-job diff
+        // mints no fold row — the reason DN-118.D4's gate on this read was withdrawn once the
+        // pinned engine carried that refusal. Fail-soft: acquisition failure ⇒ null ⇒ no flag,
+        // with the reason logged, and the run is untouched.
         //
         // The file is read where the RUNNER says the run loaded it, never at a ref taken from the
         // event payload: a PR's base is not the executed file on `pull_request` (the merge commit
         // is), and the executed file is the trusted one on every event. The argument, and the
         // refusal of any fallback, live at `executedWorkflowCoordinate` (ADR-22.D17).
-        let changedJobGraph: DeclaredJobWire[] | null = null;
-        if (grain.kind === 'job') {
-            core.info(ONE_JOB_GRAIN_NO_GRAPH_LINE);
-        } else {
-            changedJobGraph = await resolveChangedJobGraph({
-                octokit,
-                owner,
-                repo,
-                runId: github.context.runId,
-                workflow: executedWorkflowCoordinate(process.env),
-                info: core.info,
-            });
-        }
+        const changedJobGraph = await resolveChangedJobGraph({
+            octokit,
+            owner,
+            repo,
+            runId: github.context.runId,
+            workflow: executedWorkflowCoordinate(process.env),
+            info: core.info,
+        });
         const result = await runSift({
             siftBin,
             baselineLog: baseline.logPath,
@@ -396,6 +389,7 @@ async function run(): Promise<void> {
             outputPath: reportJsonPath,
             changedTransport,
             baselineTransport: baseline.transport,
+            changedLogProvenance,
             explain,
             explainModel,
             changedJobGraph: changedJobGraph
