@@ -48,7 +48,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import type { DeclaredJobWire } from '../src/jobgraph.js';
+import { joinDeclaredJobs, parseWorkflowJobs, type RenderedJob } from '../src/jobgraph.js';
 import {
     engineEnv,
     readReport,
@@ -253,25 +253,68 @@ async function main(): Promise<void> {
     }
 
     // ── A′) the `--changed-job-graph` coordinate, in its three ship shapes ───────────────────
-    // The graph is the wire jobgraph.ts produces (ADR-22.D13), and each shape below is one the
-    // Action REALLY emits — not a synthetic corner. The verdict cells above stay graph-FREE
-    // because acquisition-absent is itself a ship shape (every `target-job` run, a denied
-    // `contents: read`, a missing GITHUB_WORKFLOW_REF or GITHUB_WORKFLOW_SHA), so both halves of the
+    // Each graph is the wire jobgraph.ts PRODUCES — `parseWorkflowJobs` over a workflow file,
+    // joined by `joinDeclaredJobs` with a listing — never a hand-written wire, so a producer change
+    // the pinned engine refuses reds here, not only a flag. The verdict cells above stay graph-FREE
+    // because acquisition-absent is itself a ship shape (a denied `contents: read`, a missing
+    // GITHUB_WORKFLOW_REF or GITHUB_WORKFLOW_SHA, a listing that failed), so both halves of the
     // conditional stay driven on the real engine.
     const GRAPH_CELLS: ReadonlyArray<{
         name: string;
-        jobs: DeclaredJobWire[];
+        workflow: string;
+        listing: RenderedJob[];
         baselineOutcome: string;
         changedOutcome: string;
     }> = [
         {
-            // The full PR shape: run tokens AND a graph with an edge, a resolved conclusion, a
-            // fan-out anchor, and a key-less quoted rendering — every wire feature at once.
+            // The full PR shape: run tokens AND a graph carrying every conclusion state and every
+            // listed-steps state this producer writes (DN-89.D26, DN-140.D3) — an edge, a resolved
+            // conclusion, a reusable-workflow fan-out (`concluded_per_rendering`), a matrix whose
+            // legs render, a declaration no row reaches (`no_rendering`), a job still running
+            // (`not_concluded`), listed steps with converted and `not_timed` times, `[]`, and
+            // `emptied_by_platform`.
             name: 'graph + both verdicts',
-            jobs: [
-                { key: 'build', display: 'build', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false, steps: [] },
-                { key: 'gate', display: 'gate', needs: ['build'], conclusion: 'failure', calls_workflow: false, declares_matrix: false, steps: [] },
-                { key: '', display: 'Bazel / test windows', needs: [], conclusion: 'failure' },
+            workflow: [
+                'jobs:',
+                '  build:',
+                '    runs-on: ubuntu-latest',
+                '    steps:',
+                '      - uses: actions/checkout@v5',
+                '      - run: make test',
+                '  bazel:',
+                '    name: Bazel',
+                '    uses: ./.github/workflows/bazel.yml',
+                '  unit:',
+                '    strategy:',
+                '      matrix:',
+                '        os: [linux, windows]',
+                '  ghost:',
+                '    runs-on: ubuntu-latest',
+                '  sift:',
+                '    runs-on: ubuntu-latest',
+                '  gate:',
+                '    needs: [build, bazel, unit]',
+            ].join('\n'),
+            listing: [
+                {
+                    id: 501,
+                    name: 'build',
+                    conclusion: 'failure',
+                    run_attempt: 1,
+                    steps: [
+                        { number: 1, name: 'Set up job', conclusion: 'success', started_at: '2026-10-07T10:00:00Z', completed_at: '2026-10-07T10:00:02Z' },
+                        { number: 2, name: 'Run make test', conclusion: 'failure', started_at: '2026-10-07T10:00:02Z', completed_at: '2026-10-07T10:03:41Z' },
+                        { number: 3, name: 'Complete job', conclusion: 'success', started_at: '2026-10-07T10:03:41.5Z', completed_at: null },
+                    ],
+                    runner_id: 11,
+                    runner_name: 'GitHub Actions 11',
+                },
+                { id: 502, name: 'Bazel / test linux', conclusion: 'success', run_attempt: 1, steps: [], runner_id: 12, runner_name: 'GitHub Actions 12' },
+                { id: 503, name: 'Bazel / test windows', conclusion: 'failure', run_attempt: 1, steps: [], runner_id: 13, runner_name: 'GitHub Actions 13' },
+                { id: 504, name: 'unit (linux)', conclusion: 'success', run_attempt: 1, steps: [], runner_id: null, runner_name: null },
+                { id: 505, name: 'unit (windows)', conclusion: 'skipped', run_attempt: 1, steps: [], runner_id: null, runner_name: null },
+                { id: 506, name: 'sift', conclusion: null, run_attempt: 1, steps: [{ number: 1, name: 'Set up job', conclusion: null, started_at: '2026-10-07T10:04:00Z', completed_at: null }], runner_id: 14, runner_name: 'GitHub Actions 14' },
+                { id: 507, name: 'gate', conclusion: 'failure', run_attempt: 1, steps: [], runner_id: 15, runner_name: 'GitHub Actions 15' },
             ],
             baselineOutcome: 'success',
             changedOutcome: 'failure',
@@ -281,20 +324,22 @@ async function main(): Promise<void> {
             // declared verdicts, so the vocabulary rides on them alone — the exact pairing branch
             // ADR-22.D13 added, driven with no run token to mask it.
             name: 'graph conclusions only, no run tokens',
-            jobs: [{ key: 'build', display: 'build', needs: ['deps'], conclusion: 'failure', calls_workflow: false, declares_matrix: false, steps: [] },
-                   { key: 'deps', display: 'deps', needs: [], conclusion: '', calls_workflow: false, declares_matrix: false, steps: [] }],
+            workflow: ['jobs:', '  deps:', '    runs-on: ubuntu-latest', '  build:', '    needs: deps'].join('\n'),
+            listing: [
+                { id: 601, name: 'deps', conclusion: 'success', run_attempt: 2, steps: [], runner_id: 21, runner_name: 'r' },
+                { id: 602, name: 'build', conclusion: 'failure', run_attempt: 2, steps: [], runner_id: 22, runner_name: 'r' },
+            ],
             baselineOutcome: '',
             changedOutcome: '',
         },
         {
-            // The edge-gated acquisition (no edges ⇒ the jobs listing is skipped ⇒ displays and
-            // conclusions all empty) — the shape this repo's own dogfood emits. No verdict
-            // anywhere, so NO vocabulary rides: the engine must accept a conclusion-less graph
-            // bare (all-empty is fine — the refusal trigger is incomplete ∧ unresolved).
-            name: 'inert graph, no verdicts, no vocabulary',
-            jobs: [
-                { key: 'build', display: '', needs: [], conclusion: '', calls_workflow: false, declares_matrix: false, steps: [] },
-                { key: 'actionlint', display: '', needs: [], conclusion: '', calls_workflow: false, declares_matrix: false, steps: [] },
+            // Every conclusion withheld — the jobs had not concluded when the listing was read, and
+            // one declaration renders nowhere — so the graph states no verdict and NO vocabulary
+            // rides: the engine must accept it bare (its refusal trigger is a STATED conclusion).
+            name: 'every conclusion withheld, no verdicts, no vocabulary',
+            workflow: ['jobs:', '  build:', '    runs-on: ubuntu-latest', '  later:', '    needs: build'].join('\n'),
+            listing: [
+                { id: 701, name: 'build', conclusion: null, run_attempt: 1, steps: [{ number: 1, name: 'Set up job', conclusion: null, started_at: null, completed_at: null }], runner_id: 31, runner_name: 'r' },
             ],
             baselineOutcome: '',
             changedOutcome: '',
@@ -303,9 +348,10 @@ async function main(): Promise<void> {
     for (const [index, cell] of GRAPH_CELLS.entries()) {
         const outputPath = join(work, `report-graph-${index}.json`);
         const graphPath = join(work, `graph-${index}.json`);
+        const jobs = joinDeclaredJobs(parseWorkflowJobs(cell.workflow), cell.listing);
         // The file body is written the way runSift writes it — JSON.stringify of the typed wire —
         // so this drives the bytes the engine will really receive, not a hand-authored guess.
-        await writeFile(graphPath, JSON.stringify(cell.jobs));
+        await writeFile(graphPath, JSON.stringify(jobs));
         const invocation: SiftInvocation = {
             siftBin,
             baselineLog,
@@ -316,7 +362,7 @@ async function main(): Promise<void> {
             changedOutcome: cell.changedOutcome,
             failOn: 'significant',
             outputPath,
-            changedJobGraph: { path: graphPath, jobs: cell.jobs },
+            changedJobGraph: { path: graphPath, jobs },
         };
         const args = siftArgs(invocation);
         const r = await runVector(siftBin, args, outputPath);

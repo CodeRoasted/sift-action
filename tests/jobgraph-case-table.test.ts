@@ -21,6 +21,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { joinDeclaredJobs, parseWorkflowJobs, reach, type DeclaredJobWire } from '../src/jobgraph.js';
+import { listedRows } from './listing-rows.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TABLE = path.join(__dirname, '..', '..', 'tests', 'fixtures', 'job_rendering_cases.json');
@@ -78,10 +79,13 @@ for (const entry of CASES) {
         const declared = parseWorkflowJobs(workflowOf(entry));
         const failures: string[] = [];
         for (const rendering of entry.renderings) {
-            const joined = joinDeclaredJobs(declared, [{ name: rendering.name, conclusion: 'success' }]);
+            const joined = joinDeclaredJobs(declared, listedRows([{ name: rendering.name, conclusion: 'success' }]));
             // A keyed entry reaching the one listed rendering copies its conclusion; one reaching
-            // nothing states none. Its display is its anchor either way (DN-127.D7).
-            const reached = joined.slice(0, declared.length).filter((job) => job.conclusion !== '').map((job) => job.key);
+            // nothing withholds it as `no_rendering`. Its display is its anchor either way (DN-127.D7).
+            const reached = joined
+                .slice(0, declared.length)
+                .filter((job) => typeof job.conclusion === 'string')
+                .map((job) => job.key);
             if (JSON.stringify(reached) !== JSON.stringify(rendering.reached_by)) {
                 failures.push(
                     `\`${rendering.name}\`: reached by ${JSON.stringify(reached)}, the table states ` +
@@ -97,14 +101,15 @@ for (const entry of CASES) {
 // read as the engine reads it — each keyed entry a declaration anchored at its display, every
 // keyless entry reached through `reach` — reaches what the table states. Every keyed entry carries
 // its anchor, resolved or not, and its conclusion agrees with what it places: a copied token for
-// exactly one, the empty statement for none or for two or more. Unlike the arms above the listing is
-// whole, since a declaration reaching nothing is one whose every claim another contests.
+// exactly one, withheld `no_rendering` for none and `concluded_per_rendering` for two or more
+// (DN-89.D26). Unlike the arms above the listing is whole, since a declaration reaching nothing is
+// one whose every claim another contests.
 for (const entry of CASES) {
     test(`case table (DN-127.D7), the producer's wire read by the engine: ${entry.name}`, () => {
         const declared = parseWorkflowJobs(workflowOf(entry));
         const wire = joinDeclaredJobs(
             declared,
-            entry.renderings.map((rendering) => ({ name: rendering.name, conclusion: 'success' })),
+            listedRows(entry.renderings.map((rendering) => ({ name: rendering.name, conclusion: 'success' }))),
         );
         const keyed = wire.slice(0, declared.length);
         const failures: string[] = [];
@@ -136,7 +141,13 @@ for (const entry of CASES) {
         }
         keyed.forEach((job, index) => {
             const count = placed[index]!;
-            const agrees = job.conclusion !== '' ? count === 1 : count !== 1;
+            const state = typeof job.conclusion === 'string' ? 'stated' : job.conclusion.withheld;
+            const agrees =
+                state === 'stated' || state === 'not_concluded'
+                    ? count === 1
+                    : state === 'concluded_per_rendering'
+                      ? count >= 2
+                      : count === 0;
             if (!agrees) {
                 failures.push(
                     `keyed \`${job.key}\`: its conclusion ${JSON.stringify(job.conclusion)} disagrees with the ` +

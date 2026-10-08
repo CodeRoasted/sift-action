@@ -66339,6 +66339,14 @@ var {
 } = yaml;
 
 // src/jobgraph.ts
+function statesAJobConclusion(jobs) {
+  return jobs.some((job) => typeof job.conclusion === "string");
+}
+function statesAListedStepConclusion(jobs) {
+  return jobs.some(
+    (job) => "listed_steps" in job && Array.isArray(job.listed_steps) && job.listed_steps.some((step) => typeof step.conclusion === "string")
+  );
+}
 var REUSABLE_SEPARATOR = " / ";
 var MATRIX_LEG_OPENER = " (";
 var EXPRESSION_OPEN = "${{";
@@ -66481,6 +66489,109 @@ function parseWorkflowJobs(yaml2) {
   }
   return declared;
 }
+var ListingRowRefusal = class extends Error {
+};
+function rowConclusion(row) {
+  return typeof row.conclusion === "string" && row.conclusion !== "" ? row.conclusion : { withheld: "not_concluded" };
+}
+var LISTING_TIME_LENGTH = 20;
+var LISTING_TIME_SEPARATORS = [
+  [4, "-"],
+  [7, "-"],
+  [10, "T"],
+  [13, ":"],
+  [16, ":"],
+  [19, "Z"]
+];
+var LISTING_TIME_FIELDS = [
+  [0, 4],
+  [5, 2],
+  [8, 2],
+  [11, 2],
+  [14, 2],
+  [17, 2]
+];
+var EPOCH_YEAR = 1970;
+var LAST_HOUR = 23;
+var LAST_MINUTE = 59;
+var MS_PER_SECOND = 1e3;
+function epochSeconds(text) {
+  if (text.length !== LISTING_TIME_LENGTH) return null;
+  if (!LISTING_TIME_SEPARATORS.every(([at, separator]) => text[at] === separator)) return null;
+  const values = [];
+  for (const [at, width] of LISTING_TIME_FIELDS) {
+    const field = text.slice(at, at + width);
+    if (!/^[0-9]+$/.test(field)) return null;
+    values.push(Number(field));
+  }
+  const [year, month, day, hour, minute, second] = values;
+  if (year < EPOCH_YEAR || hour > LAST_HOUR || minute > LAST_MINUTE || second > LAST_MINUTE) return null;
+  const ms = Date.UTC(year, month - 1, day, hour, minute, second);
+  const date = new Date(ms);
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return ms / MS_PER_SECOND;
+}
+function listingTime(text) {
+  const seconds = typeof text === "string" ? epochSeconds(text) : null;
+  return seconds === null ? { withheld: "not_timed" } : seconds;
+}
+function isWholeAtLeastOne(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+}
+function listedSteps(row) {
+  const steps = row.steps ?? [];
+  if (steps.length === 0) {
+    const runnerAssigned = (row.runner_id ?? 0) !== 0 || (row.runner_name ?? "") !== "";
+    return runnerAssigned ? { withheld: "emptied_by_platform" } : [];
+  }
+  const listed = [];
+  let previous = 0;
+  for (const step of steps) {
+    if (!isWholeAtLeastOne(step.number) || step.number <= previous) {
+      throw new ListingRowRefusal(
+        `job "${row.name}" lists step number ${String(step.number)} after ${previous}; the wire carries strictly increasing whole step numbers from 1`
+      );
+    }
+    if (typeof step.name !== "string" || step.name === "") {
+      throw new ListingRowRefusal(`job "${row.name}" lists step ${step.number} with no name`);
+    }
+    const started = listingTime(step.started_at);
+    const completed = listingTime(step.completed_at);
+    if (typeof started === "number" && typeof completed === "number" && completed < started) {
+      throw new ListingRowRefusal(
+        `job "${row.name}" lists step ${step.number} completing at ${step.completed_at} before it started at ${step.started_at}`
+      );
+    }
+    listed.push({
+      number: step.number,
+      name: step.name,
+      conclusion: typeof step.conclusion === "string" && step.conclusion !== "" ? step.conclusion : { withheld: "not_concluded" },
+      started_at: started,
+      completed_at: completed
+    });
+    previous = step.number;
+  }
+  return listed;
+}
+function renderingOf(row) {
+  if (!isWholeAtLeastOne(row.id)) {
+    throw new ListingRowRefusal(`job "${row.name}" carries no job id the wire can state (${String(row.id)})`);
+  }
+  if (!isWholeAtLeastOne(row.run_attempt)) {
+    throw new ListingRowRefusal(
+      `job "${row.name}" carries no run attempt the wire can state (${String(row.run_attempt)})`
+    );
+  }
+  return {
+    key: "",
+    display: row.name,
+    needs: [],
+    conclusion: rowConclusion(row),
+    job_id: row.id,
+    run_attempt: row.run_attempt,
+    listed_steps: listedSteps(row)
+  };
+}
 function joinDeclaredJobs(declared, rendered) {
   const declarations = declared.map((job) => ({
     anchor: job.name || job.key,
@@ -66499,14 +66610,14 @@ function joinDeclaredJobs(declared, rendered) {
       key: job.key,
       display: anchor,
       needs: job.needs,
-      conclusion: reaching.length === 1 ? reaching[0].conclusion : "",
+      conclusion: reaching.length === 0 ? { withheld: "no_rendering" } : reaching.length === 1 ? rowConclusion(reaching[0]) : { withheld: "concluded_per_rendering" },
       calls_workflow: job.callsWorkflow,
       declares_matrix: job.declaresMatrix,
-      steps: job.steps
+      declared_steps: job.steps
     });
   });
   for (const row of rendered) {
-    joined.push({ key: "", display: row.name, needs: [], conclusion: row.conclusion });
+    joined.push(renderingOf(row));
   }
   return joined;
 }
@@ -66580,16 +66691,30 @@ async function resolveChangedJobGraph(params) {
       run_id: runId,
       per_page: 100
     });
-    const rendered = jobs.map((job) => ({
-      name: job.name,
-      conclusion: job.conclusion ?? ""
-    }));
-    return joinDeclaredJobs(declared, rendered);
+    return joinDeclaredJobs(declared, jobs.map(listingRow));
   } catch (error2) {
     const message = error2 instanceof Error ? error2.message : String(error2);
-    info2(`Sift: no declared job graph \u2014 the run's jobs listing failed (${message}).`);
+    const what = error2 instanceof ListingRowRefusal ? `a row of the run's jobs listing cannot be stated on the wire (${message})` : `the run's jobs listing failed (${message})`;
+    info2(`Sift: no declared job graph \u2014 ${what}.`);
     return null;
   }
+}
+function listingRow(job) {
+  return {
+    id: job.id,
+    name: job.name,
+    conclusion: job.conclusion ?? null,
+    run_attempt: job.run_attempt,
+    steps: job.steps?.map((step) => ({
+      number: step.number,
+      name: step.name,
+      conclusion: step.conclusion,
+      started_at: step.started_at,
+      completed_at: step.completed_at
+    })),
+    runner_id: job.runner_id,
+    runner_name: job.runner_name
+  };
 }
 
 // src/glyph.ts
@@ -102309,7 +102434,7 @@ import { promises as fs11 } from "fs";
 import * as path7 from "path";
 
 // src/sift-version.ts
-var SIFT_VERSION = "1.10.5";
+var SIFT_VERSION = "1.10.6";
 
 // src/resolve-sift.ts
 var RELEASE_REPO = "CodeRoasted/sift-action";
@@ -102602,7 +102727,7 @@ function siftArgs(invocation) {
     "--transport",
     "none"
   ];
-  const graphDeclaresConclusion = invocation.changedJobGraph?.jobs.some((job) => job.conclusion !== "") ?? false;
+  const graphDeclaresConclusion = invocation.changedJobGraph ? statesAJobConclusion(invocation.changedJobGraph.jobs) || statesAListedStepConclusion(invocation.changedJobGraph.jobs) : false;
   if (invocation.baselineOutcome || invocation.changedOutcome || graphDeclaresConclusion) {
     args.push("--outcome-vocabulary", "github");
   }

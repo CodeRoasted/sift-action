@@ -43,10 +43,12 @@ const WORKFLOW_AT: Record<string, string> = {
     [BASE_SHA]: ['jobs:', '  a: {}', '  b: {}', '  gate:', '    needs: [a]'].join('\n'),
     [EXECUTED_SHA]: ['jobs:', '  a: {}', '  b: {}', '  gate:', '    needs: [b]'].join('\n'),
 };
+// The listing rows as the REST API serves them: each row's identity at its attempt, its steps and
+// its runner, which the graph's renderings carry or decide from (DN-140.D2, DN-140.D3).
 const LISTING = [
-    { id: 101, name: 'a', status: 'completed', conclusion: 'success' },
-    { id: 102, name: 'b', status: 'completed', conclusion: 'failure' },
-    { id: 103, name: 'gate', status: 'completed', conclusion: 'failure' },
+    { id: 101, name: 'a', status: 'completed', conclusion: 'success', run_attempt: 1, steps: [], runner_id: 1, runner_name: 'r1' },
+    { id: 102, name: 'b', status: 'completed', conclusion: 'failure', run_attempt: 1, steps: [], runner_id: 2, runner_name: 'r2' },
+    { id: 103, name: 'gate', status: 'completed', conclusion: 'failure', run_attempt: 1, steps: [], runner_id: 3, runner_name: 'r3' },
 ];
 // The `target-job` source: the failed member, whose raw log the stand-in serves with the runner's
 // timestamp prefix and its one Job marker.

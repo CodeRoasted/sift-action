@@ -58,37 +58,106 @@ export interface DeclaredJobRecord {
     steps: DeclaredStep[];
 }
 
-// One job as the run's listing renders it: the platform's own name and NATIVE conclusion.
-export interface RenderedJob {
+// One step as the run's listing row lists it (the REST job object's `steps[]`): the platform's
+// number, its rendered name, its native conclusion (`null` while not concluded) and its two RFC 3339
+// times (`null` when the row carries none).
+export interface ListingStep {
+    number: number;
     name: string;
-    conclusion: string;
+    conclusion: string | null;
+    started_at?: string | null;
+    completed_at?: string | null;
 }
+
+// One job as the run's listing renders it — the REST job object, reduced to what the wire states
+// and what decides a state: the row's identity at its attempt (`id`, `run_attempt`), the platform's
+// own name and NATIVE conclusion (`null` while the job has not concluded), the steps it RAN, and the
+// two runner fields, read only to decide `listed_steps`' state and never shipped (DN-140.D3).
+export interface RenderedJob {
+    id: number;
+    name: string;
+    conclusion: string | null;
+    run_attempt?: number;
+    steps?: ListingStep[];
+    runner_id?: number | null;
+    runner_name?: string | null;
+}
+
+// A conclusion the producer WITHHOLDS, with the reason it states (DN-89.D26). `listing_not_read` is
+// the fourth reason on the wire and this producer never writes it: the Action reads the listing
+// whenever the workflow file resolved, and a failed listing makes the whole graph ABSENT.
+export type WithheldConclusion = { withheld: 'no_rendering' | 'concluded_per_rendering' | 'not_concluded' };
+
+// A job's or a listed step's conclusion on the wire: the platform's native token verbatim, or
+// withheld with its reason. The empty string is never written — it is the silence DN-89.D26 refuses.
+export type WireConclusion = string | WithheldConclusion;
+
+// One listed step on the wire, exactly five members (DN-140.D2). Times are whole seconds since the
+// Unix epoch, UTC, or withheld `not_timed` when the row carries none or carries one this producer
+// does not convert.
+export interface WireListedStep {
+    number: number;
+    name: string;
+    conclusion: string | { withheld: 'not_concluded' };
+    started_at: number | { withheld: 'not_timed' };
+    completed_at: number | { withheld: 'not_timed' };
+}
+
+// A rendering's `listed_steps` in the three states a LIVE producer writes (DN-140.D3): the steps the
+// row lists, `[]` when it lists none and no runner was assigned (no step can have run), or withheld
+// `emptied_by_platform` when it lists none though a runner was assigned. The fourth state,
+// `not_acquired`, belongs to re-spelled corpus graphs; a live producer writing it is a defect.
+export type WireListedSteps = WireListedStep[] | { withheld: 'emptied_by_platform' };
 
 // The ADR-22.D13 wire entry for a DECLARATION. ALL SEVEN FIELDS ALWAYS TRAVEL — `key` and `display`
 // are required by the engine and never defaulted from each other (a graph keyed on the wrong
 // coordinate folds nothing and reads exactly like a clean run). `display` is the declaration's
-// anchor, resolved or not, and the engine refuses an empty one (DN-127.D7). `calls_workflow`, `declares_matrix` and `steps` are required here and
-// refused on a rendering, each violation an engine wiring error (DN-118.O3, DN-127.D1, DN-89.D34).
+// anchor, resolved or not, and the engine refuses an empty one (DN-127.D7). `conclusion` is stated
+// or withheld with its reason (DN-89.D26). `calls_workflow`, `declares_matrix` and `declared_steps`
+// are required here and refused on a rendering, each violation an engine wiring error (DN-118.O3,
+// DN-127.D1, DN-89.D34); `declared_steps` names its provenance, the workflow file, so it is never
+// read as the listing's steps (DN-140.D2).
 export interface DeclaredJobEntry {
     key: string;
     display: string;
     needs: string[];
-    conclusion: string;
+    conclusion: WireConclusion;
     calls_workflow: boolean;
     declares_matrix: boolean;
-    steps: DeclaredStep[];
+    declared_steps: DeclaredStep[];
 }
 
-// The wire entry for a RENDERING the listing quoted: an empty `key`, and no species, because a
-// rendering is not a declaration.
+// The wire entry for a RENDERING the listing quoted: an empty `key`, no species, because a
+// rendering is not a declaration, and the three members only a rendering carries — the listing
+// row's `job_id`, its `run_attempt` and its `listed_steps` (DN-140.D2), each refused on a keyed
+// entry. Its conclusion is stated, or withheld `not_concluded`, the one reason a rendering may carry.
 export interface RenderedJobEntry {
     key: '';
     display: string;
     needs: string[];
-    conclusion: string;
+    conclusion: string | { withheld: 'not_concluded' };
+    job_id: number;
+    run_attempt: number;
+    listed_steps: WireListedSteps;
 }
 
 export type DeclaredJobWire = DeclaredJobEntry | RenderedJobEntry;
+
+// Whether a graph states a verdict the engine must interpret through a vocabulary: a stated job
+// conclusion on any entry (`job`), or a stated listed-step conclusion on a rendering (`step`). A
+// graph whose every conclusion is withheld states none and needs no vocabulary (ADR-22.D10).
+export function statesAJobConclusion(jobs: readonly DeclaredJobWire[]): boolean {
+    return jobs.some((job) => typeof job.conclusion === 'string');
+}
+
+export function statesAListedStepConclusion(jobs: readonly DeclaredJobWire[]): boolean {
+    return jobs.some(
+        (job) =>
+            'listed_steps' in job &&
+            Array.isArray(job.listed_steps) &&
+            job.listed_steps.some((step) => typeof step.conclusion === 'string'),
+    );
+}
 
 // The reusable-workflow rendering separator (arm R, ADR-22.D13), the platform's matrix-leg opener
 // (arm M), and the delimiters of one expression span: a span opens at `${{` and closes at the
@@ -294,9 +363,148 @@ export function parseWorkflowJobs(yaml: string): DeclaredJobRecord[] {
     return declared;
 }
 
+// A listing row this producer cannot state truthfully on the wire. Thrown by `renderingOf`; the
+// resolver turns it into an ABSENT graph with the reason logged, never into a wire the engine
+// refuses (which would fail the run) and never into a guessed value.
+export class ListingRowRefusal extends Error {}
+
+// A listing row's conclusion as the wire states it: its token, or withheld `not_concluded` when
+// the row carries none — the platform's `null` translated, never passed through (DN-89.D26).
+function rowConclusion(row: RenderedJob): string | { withheld: 'not_concluded' } {
+    return typeof row.conclusion === 'string' && row.conclusion !== ''
+        ? row.conclusion
+        : { withheld: 'not_concluded' };
+}
+
+// The one spelling GitHub's listing writes for a step time, `YYYY-MM-DDTHH:MM:SSZ`, at fixed
+// offsets: the separators and each field's offset and width.
+const LISTING_TIME_LENGTH = 20;
+const LISTING_TIME_SEPARATORS: ReadonlyArray<[number, string]> = [
+    [4, '-'],
+    [7, '-'],
+    [10, 'T'],
+    [13, ':'],
+    [16, ':'],
+    [19, 'Z'],
+];
+const LISTING_TIME_FIELDS: ReadonlyArray<[number, number]> = [
+    [0, 4],
+    [5, 2],
+    [8, 2],
+    [11, 2],
+    [14, 2],
+    [17, 2],
+];
+const EPOCH_YEAR = 1970;
+const LAST_HOUR = 23;
+const LAST_MINUTE = 59;
+const MS_PER_SECOND = 1000;
+
+// Whole seconds since the Unix epoch for a listing time, or null when the text is not the one
+// spelling above — a fractional second, an offset, an out-of-range field and an impossible date
+// all included — so no float and no rounding reaches the wire (DN-140.D2). The crawler's
+// `epoch_seconds` (insight-eidos `sift/src/crawl/job_graph.cpp`) applies the same rule; every value
+// here is an integer well inside 2^53, so `Date.UTC` and the division by 1000 are exact.
+export function epochSeconds(text: string): number | null {
+    if (text.length !== LISTING_TIME_LENGTH) return null;
+    if (!LISTING_TIME_SEPARATORS.every(([at, separator]) => text[at] === separator)) return null;
+    const values: number[] = [];
+    for (const [at, width] of LISTING_TIME_FIELDS) {
+        const field = text.slice(at, at + width);
+        if (!/^[0-9]+$/.test(field)) return null;
+        values.push(Number(field));
+    }
+    const [year, month, day, hour, minute, second] = values as [number, number, number, number, number, number];
+    if (year < EPOCH_YEAR || hour > LAST_HOUR || minute > LAST_MINUTE || second > LAST_MINUTE) return null;
+    const ms = Date.UTC(year, month - 1, day, hour, minute, second);
+    const date = new Date(ms);
+    // `Date.UTC` rolls an impossible day or month over into the next; the round trip refuses it.
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+    return ms / MS_PER_SECOND;
+}
+
+function listingTime(text: string | null | undefined): number | { withheld: 'not_timed' } {
+    const seconds = typeof text === 'string' ? epochSeconds(text) : null;
+    return seconds === null ? { withheld: 'not_timed' } : seconds;
+}
+
+function isWholeAtLeastOne(value: unknown): value is number {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
+}
+
+// A listing row's `listed_steps`, in the state DN-140.D3 decides from the row itself: its steps
+// when it lists any; otherwise `[]` when no runner was assigned (`runner_id` null or 0 and
+// `runner_name` null or empty) and withheld `emptied_by_platform` when one was. A row that lists
+// steps the wire cannot carry — a number below 1 or not strictly increasing, an empty name, a
+// completion before its start — is refused, naming the job and the step.
+function listedSteps(row: RenderedJob): WireListedSteps {
+    const steps = row.steps ?? [];
+    if (steps.length === 0) {
+        const runnerAssigned = (row.runner_id ?? 0) !== 0 || (row.runner_name ?? '') !== '';
+        return runnerAssigned ? { withheld: 'emptied_by_platform' } : [];
+    }
+    const listed: WireListedStep[] = [];
+    let previous = 0;
+    for (const step of steps) {
+        if (!isWholeAtLeastOne(step.number) || step.number <= previous) {
+            throw new ListingRowRefusal(
+                `job "${row.name}" lists step number ${String(step.number)} after ${previous}; the wire ` +
+                    'carries strictly increasing whole step numbers from 1',
+            );
+        }
+        if (typeof step.name !== 'string' || step.name === '') {
+            throw new ListingRowRefusal(`job "${row.name}" lists step ${step.number} with no name`);
+        }
+        const started = listingTime(step.started_at);
+        const completed = listingTime(step.completed_at);
+        if (typeof started === 'number' && typeof completed === 'number' && completed < started) {
+            throw new ListingRowRefusal(
+                `job "${row.name}" lists step ${step.number} completing at ${step.completed_at} before it ` +
+                    `started at ${step.started_at}`,
+            );
+        }
+        listed.push({
+            number: step.number,
+            name: step.name,
+            conclusion:
+                typeof step.conclusion === 'string' && step.conclusion !== ''
+                    ? step.conclusion
+                    : { withheld: 'not_concluded' },
+            started_at: started,
+            completed_at: completed,
+        });
+        previous = step.number;
+    }
+    return listed;
+}
+
+// One listing row, QUOTED as a rendering: the platform's name and conclusion at the platform's own
+// grain, the row's job id and attempt, and the steps it ran (DN-140.D2). A live listing row always
+// carries `id` and `run_attempt`; one that does not is refused rather than written `not_acquired`,
+// which only a re-spelled corpus graph may carry (DN-140.D3).
+export function renderingOf(row: RenderedJob): RenderedJobEntry {
+    if (!isWholeAtLeastOne(row.id)) {
+        throw new ListingRowRefusal(`job "${row.name}" carries no job id the wire can state (${String(row.id)})`);
+    }
+    if (!isWholeAtLeastOne(row.run_attempt)) {
+        throw new ListingRowRefusal(
+            `job "${row.name}" carries no run attempt the wire can state (${String(row.run_attempt)})`,
+        );
+    }
+    return {
+        key: '',
+        display: row.name,
+        needs: [],
+        conclusion: rowConclusion(row),
+        job_id: row.id,
+        run_attempt: row.run_attempt,
+        listed_steps: listedSteps(row),
+    };
+}
+
 // The declared jobs joined with the run's rendered listing — the acquirer resolves the mapping
 // because it is the party holding both the YAML and the jobs listing (the engine never guesses
-// across the two).
+// across the two). Throws `ListingRowRefusal` on a listing row the wire cannot carry.
 export function joinDeclaredJobs(
     declared: DeclaredJobRecord[],
     rendered: RenderedJob[],
@@ -326,16 +534,22 @@ export function joinDeclaredJobs(
         // ⚠ A CONCLUSION IS DECLARED FOR EXACTLY ONE RENDERED JOB, OR NOT AT ALL. When a declared
         // job fans out, GitHub emits N conclusions and NO row for the caller; rolling those N into
         // one would make us the author of a verdict the platform did not state (ADR-20.D23 — the
-        // refusal stands; the fan-out's verdicts travel below at the grain the platform declared
-        // them). Empty is NOT DECLARED (ADR-22.D10) — a third state, and the honest one.
+        // refusal stands, stated as `concluded_per_rendering`; the fan-out's verdicts travel below
+        // at the grain the platform declared them). A declaration no row reaches is withheld
+        // `no_rendering`: the join found no row, which is a fact, not a silence (DN-89.D26).
         joined.push({
             key: job.key,
             display: anchor,
             needs: job.needs,
-            conclusion: reaching.length === 1 ? reaching[0]!.conclusion : '',
+            conclusion:
+                reaching.length === 0
+                    ? { withheld: 'no_rendering' }
+                    : reaching.length === 1
+                      ? rowConclusion(reaching[0]!)
+                      : { withheld: 'concluded_per_rendering' },
             calls_workflow: job.callsWorkflow,
             declares_matrix: job.declaresMatrix,
-            steps: job.steps,
+            declared_steps: job.steps,
         });
     });
     // The rendered rows, QUOTED — the platform's own verdicts at the platform's own grain. NO
@@ -344,7 +558,7 @@ export function joinDeclaredJobs(
     // containment under a declared anchor, which keeps the causal graph exactly as big as the
     // producer declared it.
     for (const row of rendered) {
-        joined.push({ key: '', display: row.name, needs: [], conclusion: row.conclusion });
+        joined.push(renderingOf(row));
     }
     return joined;
 }
@@ -491,14 +705,35 @@ export async function resolveChangedJobGraph(
             run_id: runId,
             per_page: 100,
         });
-        const rendered: RenderedJob[] = jobs.map((job) => ({
-            name: job.name,
-            conclusion: job.conclusion ?? '',
-        }));
-        return joinDeclaredJobs(declared, rendered);
+        return joinDeclaredJobs(declared, jobs.map(listingRow));
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        info(`Sift: no declared job graph — the run's jobs listing failed (${message}).`);
+        const what =
+            error instanceof ListingRowRefusal
+                ? `a row of the run's jobs listing cannot be stated on the wire (${message})`
+                : `the run's jobs listing failed (${message})`;
+        info(`Sift: no declared job graph — ${what}.`);
         return null;
     }
+}
+
+type ListedJob = Awaited<ReturnType<Octokit['rest']['actions']['listJobsForWorkflowRun']>>['data']['jobs'][number];
+
+// The REST job object reduced to the fields `RenderedJob` reads.
+export function listingRow(job: ListedJob): RenderedJob {
+    return {
+        id: job.id,
+        name: job.name,
+        conclusion: job.conclusion ?? null,
+        run_attempt: job.run_attempt,
+        steps: job.steps?.map((step) => ({
+            number: step.number,
+            name: step.name,
+            conclusion: step.conclusion,
+            started_at: step.started_at,
+            completed_at: step.completed_at,
+        })),
+        runner_id: job.runner_id,
+        runner_name: job.runner_name,
+    };
 }

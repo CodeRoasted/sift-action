@@ -21,6 +21,7 @@ import {
     unreadableReportMessage,
     type SiftInvocation,
 } from '../src/sift.js';
+import type { DeclaredJobWire } from '../src/jobgraph.js';
 
 const baseInvocation: SiftInvocation = {
     siftBin: 'sift',
@@ -154,8 +155,8 @@ test('siftArgs: a graph CONCLUSION is a declared verdict — the vocabulary pair
     const graphed = {
         path: '/tmp/g.json',
         jobs: [
-            { key: 'build', display: 'build', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false, steps: [] },
-            { key: 'gate', display: 'gate', needs: ['build'], conclusion: 'failure', calls_workflow: false, declares_matrix: false, steps: [] },
+            { key: 'build', display: 'build', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false, declared_steps: [] },
+            { key: 'gate', display: 'gate', needs: ['build'], conclusion: 'failure', calls_workflow: false, declares_matrix: false, declared_steps: [] },
         ],
     };
     const args = siftArgs({ ...baseInvocation, changedJobGraph: graphed });
@@ -169,16 +170,40 @@ test('siftArgs: a graph CONCLUSION is a declared verdict — the vocabulary pair
     );
 });
 
-test('siftArgs: an all-empty-conclusion graph declares no verdict — NO vocabulary rides on it', () => {
-    // Empty is NOT DECLARED (ADR-22.D10) — nothing to interpret, so nothing is declared to
-    // interpret it with. The biconditional stays exact: vocabulary iff something carries a verdict.
-    const inert = {
-        path: '/tmp/g.json',
-        jobs: [
-            { key: 'build', display: '', needs: ['deps'], conclusion: '', calls_workflow: false, declares_matrix: false, steps: [] },
-            { key: 'deps', display: '', needs: [], conclusion: '', calls_workflow: false, declares_matrix: false, steps: [] },
+// A graph whose every conclusion — job and listed step alike — is WITHHELD states no verdict
+// (DN-89.D26): nothing to interpret, so nothing is declared to interpret it with. The
+// biconditional stays exact: vocabulary iff something carries a verdict.
+const WITHHELD_EVERYWHERE: DeclaredJobWire[] = [
+    { key: 'build', display: 'build', needs: ['deps'], conclusion: { withheld: 'not_concluded' }, calls_workflow: false, declares_matrix: false, declared_steps: [] },
+    { key: 'deps', display: 'deps', needs: [], conclusion: { withheld: 'no_rendering' }, calls_workflow: false, declares_matrix: false, declared_steps: [] },
+    {
+        key: '',
+        display: 'build',
+        needs: [],
+        conclusion: { withheld: 'not_concluded' },
+        job_id: 7,
+        run_attempt: 1,
+        listed_steps: [
+            { number: 1, name: 'Set up job', conclusion: { withheld: 'not_concluded' }, started_at: 1781534400, completed_at: { withheld: 'not_timed' } },
         ],
-    };
+    },
+];
+
+test('siftArgs: a stated LISTED-STEP conclusion is a declared verdict too — the vocabulary rides on it alone', () => {
+    // The engine's half-pair refusal reads listed step conclusions beside job conclusions
+    // (DN-140.D2): a rendering whose job is still running can list a step that already failed.
+    const [build, deps, rendering] = WITHHELD_EVERYWHERE as [DeclaredJobWire, DeclaredJobWire, Extract<DeclaredJobWire, { job_id: number }>];
+    const stepStated: DeclaredJobWire[] = [
+        build,
+        deps,
+        { ...rendering, listed_steps: [{ number: 1, name: 'Set up job', conclusion: 'failure', started_at: 1781534400, completed_at: 1781534405 }] },
+    ];
+    const args = siftArgs({ ...baseInvocation, changedJobGraph: { path: '/tmp/g.json', jobs: stepStated } });
+    assert.equal(args[args.indexOf('--outcome-vocabulary') + 1], 'github', `argv: ${args.join(' ')}`);
+});
+
+test('siftArgs: a graph whose every conclusion is withheld declares no verdict — NO vocabulary rides on it', () => {
+    const inert = { path: '/tmp/g.json', jobs: WITHHELD_EVERYWHERE };
     const args = siftArgs({ ...baseInvocation, changedJobGraph: inert });
     assert.ok(args.includes('--changed-job-graph'), 'the declaration itself still travels');
     assert.ok(

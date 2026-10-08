@@ -9,7 +9,7 @@ import * as core from '@actions/core';
 import * as exec from '@actions/exec';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { promises as fs } from 'fs';
-import type { DeclaredJobWire } from './jobgraph.js';
+import { statesAJobConclusion, statesAListedStepConclusion, type DeclaredJobWire } from './jobgraph.js';
 import {
     MAX_CHANGED_LOG_BYTES,
     MAX_ENGINE_ALIGNMENT_CELLS,
@@ -509,16 +509,19 @@ export function siftArgs(invocation: SiftInvocation): string[] {
     // every document becomes incomparable with the truth for a reason no reader can see. The
     // vocabulary coordinate touches no composition and cannot move that identity.
     //
-    // Sent whenever ANY declared verdict is present — a run token on either side, or a job
-    // conclusion inside the declared graph, which the engine interprets through this SAME
-    // vocabulary (ADR-22.D13: same declarer, same run; a second vocabulary field would be a second
-    // enumeration of one concept). Without it a run token resolves against the stream's dialect,
-    // which a raw build log does not have — the token then resolves to nothing and every rule that
-    // reads the verdict silently does not apply — and a graph conclusion is REFUSED outright: the
-    // pinned engine exits non-zero on any non-empty `conclusion` with no vocabulary (the half-pair
-    // refusal, at the CLI boundary). All-empty conclusions assert nothing and need no vocabulary.
-    const graphDeclaresConclusion =
-        invocation.changedJobGraph?.jobs.some((job) => job.conclusion !== '') ?? false;
+    // Sent whenever ANY declared verdict is present — a run token on either side, or a STATED
+    // conclusion inside the declared graph (a job's, or a listed step's), which the engine
+    // interprets through this SAME vocabulary (ADR-22.D13: same declarer, same run; a second
+    // vocabulary field would be a second enumeration of one concept). Without it a run token
+    // resolves against the stream's dialect, which a raw build log does not have — the token then
+    // resolves to nothing and every rule that reads the verdict silently does not apply — and a
+    // graph conclusion is REFUSED outright: the pinned engine exits non-zero on a stated
+    // conclusion with no vocabulary (the half-pair refusal, at the CLI boundary). A graph whose
+    // every conclusion is withheld asserts nothing and needs no vocabulary (DN-89.D26).
+    const graphDeclaresConclusion = invocation.changedJobGraph
+        ? statesAJobConclusion(invocation.changedJobGraph.jobs) ||
+          statesAListedStepConclusion(invocation.changedJobGraph.jobs)
+        : false;
     if (invocation.baselineOutcome || invocation.changedOutcome || graphDeclaresConclusion) {
         args.push('--outcome-vocabulary', 'github');
     }

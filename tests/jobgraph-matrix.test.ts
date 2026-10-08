@@ -23,6 +23,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { joinDeclaredJobs, parseWorkflowJobs, reach, type DeclaredJobWire, type RenderedJob } from '../src/jobgraph.js';
+import { listedRows } from './listing-rows.js';
 
 const MATRIX_WORKFLOW = [
     'name: ci',
@@ -90,7 +91,7 @@ const MATRIX_WORKFLOW = [
     '        dir: [lib-a]',
 ].join('\n');
 
-const MATRIX_LISTING: RenderedJob[] = [
+const MATRIX_LISTING: RenderedJob[] = listedRows([
     { name: 'unit (linux)', conclusion: 'failure' },
     { name: 'unit (windows)', conclusion: 'success' },
     { name: 'build (ubuntu-latest, 3.12, a-matrix-value-the-platform-cut-at-100-...', conclusion: 'failure' },
@@ -111,7 +112,7 @@ const MATRIX_LISTING: RenderedJob[] = [
     { name: 'Deploy prod', conclusion: 'success' },
     { name: 'Example zig-vt (macOS, no SDK)', conclusion: 'skipped' },
     { name: 'Example lib-a', conclusion: 'failure' },
-];
+]);
 
 function joinedMatrixGraph(): DeclaredJobWire[] {
     return joinDeclaredJobs(parseWorkflowJobs(MATRIX_WORKFLOW), MATRIX_LISTING);

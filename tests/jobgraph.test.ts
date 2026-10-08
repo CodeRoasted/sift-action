@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    epochSeconds,
     executedWorkflowCoordinate,
     joinDeclaredJobs,
     parseWorkflowJobs,
@@ -17,6 +18,7 @@ import {
     type RenderedJob,
     type ResolveJobGraphParams,
 } from '../src/jobgraph.js';
+import { listedRows } from './listing-rows.js';
 
 // ── parseWorkflowJobs — the workflow file's declarations, verbatim ───────────
 
@@ -65,11 +67,11 @@ test('parseWorkflowJobs: unreadable YAML and a jobs-less file THROW the reason �
 
 // ── joinDeclaredJobs — the acquirer resolves the mapping, both halves travel ─
 
-const RENDERED_FANOUT: RenderedJob[] = [
+const RENDERED_FANOUT: RenderedJob[] = listedRows([
     { name: 'Build', conclusion: 'success' },
     { name: 'Bazel / test linux', conclusion: 'success' },
     { name: 'Bazel / test windows', conclusion: 'failure' },
-];
+]);
 
 test('joinDeclaredJobs: the anchor is the `name:` when present, else the key — GitHub\'s own rendering rule', () => {
     const joined = joinDeclaredJobs(
@@ -83,9 +85,10 @@ test('joinDeclaredJobs: the anchor is the `name:` when present, else the key —
     assert.equal(joined[1]!.display, 'Bazel', 'the fan-out prefix still resolves the anchor');
 });
 
-test('joinDeclaredJobs: a conclusion is declared for EXACTLY ONE rendered job, or not at all', () => {
+test('joinDeclaredJobs: a conclusion is declared for EXACTLY ONE rendered job, or withheld as concluded per rendering', () => {
     // A fan-out has N conclusions and NO caller row; rolling them into one would author a verdict
-    // the platform never stated. Empty = NOT DECLARED — a third state, not success.
+    // the platform never stated. Withheld is a third state with its reason, never success, and
+    // never the empty string DN-89.D26 refuses.
     const joined = joinDeclaredJobs(
         [
             { key: 'build', name: 'Build', needs: [], callsWorkflow: false, declaresMatrix: false, steps: [] },
@@ -94,9 +97,9 @@ test('joinDeclaredJobs: a conclusion is declared for EXACTLY ONE rendered job, o
         RENDERED_FANOUT,
     );
     assert.equal(joined[0]!.conclusion, 'success', 'rendered exactly once ⇒ that row\'s conclusion IS its conclusion');
-    assert.equal(
+    assert.deepEqual(
         joined[1]!.conclusion,
-        '',
+        { withheld: 'concluded_per_rendering' },
         'a fan-out (2 rendered rows) must NOT be rolled into one caller-grain verdict',
     );
 });
@@ -111,7 +114,7 @@ test('joinDeclaredJobs: rendered NOWHERE ⇒ the anchor still travels, and no co
         'Ghost',
         'the engine reaches over every declaration, so an unresolved one still says what it claims',
     );
-    assert.equal(joined[0]!.conclusion, '', 'no rendering ⇒ no conclusion to read');
+    assert.deepEqual(joined[0]!.conclusion, { withheld: 'no_rendering' }, 'no rendering ⇒ withheld, with that reason');
 });
 
 test('joinDeclaredJobs: every rendered row is QUOTED key-less — a rendering is not referenceable', () => {
@@ -127,6 +130,11 @@ test('joinDeclaredJobs: every rendered row is QUOTED key-less — a rendering is
         quoted.map((job) => [job.display, job.conclusion]),
         RENDERED_FANOUT.map((row) => [row.name, row.conclusion]),
         'quoted rows carry the platform\'s name and NATIVE conclusion, verbatim',
+    );
+    assert.deepEqual(
+        quoted.map((job) => ('job_id' in job ? [job.job_id, job.run_attempt] : null)),
+        RENDERED_FANOUT.map((row) => [row.id, row.run_attempt]),
+        'each quoted row carries the listing row\'s own job id and attempt (DN-140.D2)',
     );
     assert.ok(
         quoted.every((job) => job.needs.length === 0),
@@ -185,21 +193,21 @@ const REWIRED_AT: Record<string, string> = {
     [BASE_SHA]: ['jobs:', '  a: {}', '  b: {}', '  gate:', '    needs: [a]'].join('\n'),
     [EXECUTED_SHA]: ['jobs:', '  a: {}', '  b: {}', '  gate:', '    needs: [b]'].join('\n'),
 };
-const REWIRED_LISTING = [
+const REWIRED_LISTING = listedRows([
     { name: 'a', conclusion: 'success' },
     { name: 'b', conclusion: 'failure' },
     { name: 'gate', conclusion: 'failure' },
-];
+]);
 
 // A workflow that declares no `needs:` edge, and its run's listing: `m` concluded `success`.
 const EDGE_FREE_SHA = 'f'.repeat(40);
 REWIRED_AT[EDGE_FREE_SHA] = ['jobs:', '  f:', '    name: Build', '  m:', '    name: Merge coverage'].join('\n');
-const EDGE_FREE_LISTING = [
+const EDGE_FREE_LISTING = listedRows([
     { name: 'Build', conclusion: 'failure' },
     { name: 'Merge coverage', conclusion: 'success' },
-];
+]);
 
-function standIn(listing: { name: string; conclusion: string }[] = REWIRED_LISTING) {
+function standIn(listing: unknown[] = REWIRED_LISTING) {
     const calls: string[] = [];
     const octokit = {
         rest: {
@@ -221,7 +229,7 @@ function standIn(listing: { name: string; conclusion: string }[] = REWIRED_LISTI
     return { octokit: octokit as unknown as ResolveJobGraphParams['octokit'], calls };
 }
 
-async function resolveAt(sha: string | undefined, listing?: { name: string; conclusion: string }[]) {
+async function resolveAt(sha: string | undefined, listing?: unknown[]) {
     const { octokit, calls } = standIn(listing);
     const lines: string[] = [];
     const graph = await resolveChangedJobGraph({
@@ -288,7 +296,7 @@ test('resolveChangedJobGraph (E1): an edge-free workflow\'s jobs carry their dec
     const merged = graph.find((job) => job.key === 'm');
     assert.deepEqual(
         merged,
-        { key: 'm', display: 'Merge coverage', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false, steps: [] },
+        { key: 'm', display: 'Merge coverage', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false, declared_steps: [] },
         `the succeeded job's entry: ${JSON.stringify(merged)}`,
     );
     const built = graph.find((job) => job.key === 'f');
@@ -339,12 +347,12 @@ REWIRED_AT[CHECKS_FAMILY_SHA] = [
     '      - uses: actions/checkout@v4',
     '      - run: ./check_locale.sh',
 ].join('\n');
-const CHECKS_FAMILY_LISTING = [
+const CHECKS_FAMILY_LISTING = listedRows([
     { name: 'Checks', conclusion: 'success' },
     { name: 'Checks / Image', conclusion: 'success' },
     { name: 'Checks / Locale', conclusion: 'success' },
     { name: 'Checks / Dependencies / osv-scan', conclusion: 'success' },
-];
+]);
 
 // (R2) A plain job named `Checks / X` is not a rendering of the plain job `Checks`, so `checks`
 // carries the one conclusion the platform declared for it. Anti-vacuity, asserted first: the caller
@@ -374,16 +382,24 @@ test('resolveChangedJobGraph (R2): a plain job named `Checks / X` is not a rende
     assert.deepEqual(
         keyed,
         [
-            { key: 'dependencies', display: 'Checks / Dependencies', needs: [], conclusion: 'success', calls_workflow: true, declares_matrix: false, steps: [] },
-            { key: 'security', display: 'Checks / Image', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false, steps: [{ uses: 'actions/checkout@v4' }, { run: './scan_image.sh' }] },
-            { key: 'checks', display: 'Checks', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false, steps: [{ uses: 'actions/checkout@v4' }, { run: './check.sh' }] },
-            { key: 'locale', display: 'Checks / Locale', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false, steps: [{ uses: 'actions/checkout@v4' }, { run: './check_locale.sh' }] },
+            { key: 'dependencies', display: 'Checks / Dependencies', needs: [], conclusion: 'success', calls_workflow: true, declares_matrix: false, declared_steps: [] },
+            { key: 'security', display: 'Checks / Image', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false, declared_steps: [{ uses: 'actions/checkout@v4' }, { run: './scan_image.sh' }] },
+            { key: 'checks', display: 'Checks', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false, declared_steps: [{ uses: 'actions/checkout@v4' }, { run: './check.sh' }] },
+            { key: 'locale', display: 'Checks / Locale', needs: [], conclusion: 'success', calls_workflow: false, declares_matrix: false, declared_steps: [{ uses: 'actions/checkout@v4' }, { run: './check_locale.sh' }] },
         ],
         `every keyed entry carries its species, true exactly for a job-level \`uses:\`: ${JSON.stringify(keyed)}`,
     );
     assert.deepEqual(
         graph.filter((job) => job.key === ''),
-        CHECKS_FAMILY_LISTING.map((row) => ({ key: '', display: row.name, needs: [], conclusion: row.conclusion })),
+        CHECKS_FAMILY_LISTING.map((row) => ({
+            key: '',
+            display: row.name,
+            needs: [],
+            conclusion: row.conclusion,
+            job_id: row.id,
+            run_attempt: 1,
+            listed_steps: [],
+        })),
         `a quoted rendering carries no species — it is not a declaration: ${JSON.stringify(graph)}`,
     );
 });
@@ -409,7 +425,188 @@ test('parseWorkflowJobs / joinDeclaredJobs (DN-89.D34): declared step texts trav
     ];
     const declared = parseWorkflowJobs(yaml);
     assert.deepEqual(declared[0]?.steps, expected);
-    const joined = joinDeclaredJobs(declared, [{ name: 'build', conclusion: 'success' }]);
-    assert.deepEqual((joined[0] as { steps?: unknown }).steps, expected, JSON.stringify(joined));
-    assert.ok(!Object.prototype.hasOwnProperty.call(joined[1], 'steps'), 'a rendering declares no step');
+    const joined = joinDeclaredJobs(declared, listedRows([{ name: 'build', conclusion: 'success' }]));
+    assert.deepEqual((joined[0] as { declared_steps?: unknown }).declared_steps, expected, JSON.stringify(joined));
+    for (const member of ['declared_steps', 'steps']) {
+        assert.ok(!Object.prototype.hasOwnProperty.call(joined[0], 'steps'), 'the keyed list travels as `declared_steps` only');
+        assert.ok(!Object.prototype.hasOwnProperty.call(joined[1], member), `a rendering carries no \`${member}\``);
+    }
+});
+
+// ── DN-89.D26: every conclusion is stated or WITHHELD with its reason, never the empty string ──
+//
+// The producer half of `W390`: the engine refuses `""`, `null`, an unknown reason and a reason on
+// the wrong entry, so each state below is the one the join's own facts decide — one rendering
+// copies its token, none is `no_rendering`, two or more `concluded_per_rendering`, and a listing
+// row carrying no conclusion (the job had not completed) is `not_concluded`, on the keyed entry
+// it is the one rendering of and on its own keyless entry alike. `listing_not_read` is never
+// written: a listing that cannot be read makes the graph ABSENT.
+
+test('DN-89.D26: each keyed and keyless conclusion takes the state the join decides, and no entry carries ""', () => {
+    const declared = parseWorkflowJobs(
+        [
+            'jobs:',
+            '  once:',
+            '    runs-on: ubuntu-latest',
+            '  fanned:',
+            '    name: Bazel',
+            '    uses: ./.github/workflows/bazel.yml',
+            '  nowhere:',
+            '    runs-on: ubuntu-latest',
+            '  running:',
+            '    runs-on: ubuntu-latest',
+        ].join('\n'),
+    );
+    const joined = joinDeclaredJobs(
+        declared,
+        listedRows([
+            { name: 'once', conclusion: 'failure' },
+            { name: 'Bazel / linux', conclusion: 'success' },
+            { name: 'Bazel / windows', conclusion: 'failure' },
+            { name: 'running', conclusion: null },
+        ]),
+    );
+    assert.deepEqual(
+        joined.map((job) => [job.key, job.display, job.conclusion]),
+        [
+            ['once', 'once', 'failure'],
+            ['fanned', 'Bazel', { withheld: 'concluded_per_rendering' }],
+            ['nowhere', 'nowhere', { withheld: 'no_rendering' }],
+            ['running', 'running', { withheld: 'not_concluded' }],
+            ['', 'once', 'failure'],
+            ['', 'Bazel / linux', 'success'],
+            ['', 'Bazel / windows', 'failure'],
+            ['', 'running', { withheld: 'not_concluded' }],
+        ],
+        JSON.stringify(joined),
+    );
+    const wire = JSON.stringify(joined);
+    assert.ok(!wire.includes('"conclusion":""'), `the empty string is never a state: ${wire}`);
+    assert.ok(!wire.includes('"conclusion":null'), `null is translated, never passed through: ${wire}`);
+    assert.ok(!wire.includes('listing_not_read'), `the Action reads the listing or declares no graph: ${wire}`);
+});
+
+// ── DN-140.D2 and D3: the listing row's identity and the steps it RAN, on the keyless entry ──
+
+const STEPPED_ROW: RenderedJob = {
+    id: 81441945730,
+    name: 'manylinux2_28-builder:rocm7.1',
+    conclusion: 'failure',
+    run_attempt: 2,
+    steps: [
+        { number: 1, name: 'Set up job', conclusion: 'success', started_at: '2026-06-15T14:40:00Z', completed_at: '2026-06-15T14:40:05Z' },
+        { number: 3, name: 'Build docker image', conclusion: 'failure', started_at: '2026-06-15T15:11:26Z', completed_at: '2026-06-15T15:30:07Z' },
+        // A step the platform has not concluded, with no times, and one whose times carry a
+        // fraction and an offset: neither is converted, both are withheld `not_timed`.
+        { number: 5, name: 'Post Build docker image', conclusion: null, started_at: null, completed_at: null },
+        { number: 6, name: 'Complete job', conclusion: 'success', started_at: '2026-06-15T15:30:44.123Z', completed_at: '2026-06-15T17:30:45+02:00' },
+    ],
+    runner_id: 17,
+    runner_name: 'linux.rocm.gpu',
+};
+
+test('DN-140.D2: a rendering carries job_id, run_attempt and every listed step in five members, times as whole epoch seconds', () => {
+    const joined = joinDeclaredJobs([], [STEPPED_ROW]);
+    assert.deepEqual(
+        joined,
+        [
+            {
+                key: '',
+                display: 'manylinux2_28-builder:rocm7.1',
+                needs: [],
+                conclusion: 'failure',
+                job_id: 81441945730,
+                run_attempt: 2,
+                listed_steps: [
+                    { number: 1, name: 'Set up job', conclusion: 'success', started_at: 1781534400, completed_at: 1781534405 },
+                    { number: 3, name: 'Build docker image', conclusion: 'failure', started_at: 1781536286, completed_at: 1781537407 },
+                    {
+                        number: 5,
+                        name: 'Post Build docker image',
+                        conclusion: { withheld: 'not_concluded' },
+                        started_at: { withheld: 'not_timed' },
+                        completed_at: { withheld: 'not_timed' },
+                    },
+                    {
+                        number: 6,
+                        name: 'Complete job',
+                        conclusion: 'success',
+                        started_at: { withheld: 'not_timed' },
+                        completed_at: { withheld: 'not_timed' },
+                    },
+                ],
+            },
+        ],
+        JSON.stringify(joined),
+    );
+});
+
+test('DN-140.D3: no steps and no runner writes [], no steps with a runner writes emptied_by_platform, and nothing writes not_acquired', () => {
+    const cells: ReadonlyArray<{ what: string; runner_id: number | null; runner_name: string | null; expected: unknown }> = [
+        { what: 'no runner at all', runner_id: null, runner_name: null, expected: [] },
+        { what: 'runner id 0 and an empty name', runner_id: 0, runner_name: '', expected: [] },
+        { what: 'a runner id', runner_id: 9, runner_name: null, expected: { withheld: 'emptied_by_platform' } },
+        { what: 'a runner name', runner_id: null, runner_name: 'GitHub Actions 3', expected: { withheld: 'emptied_by_platform' } },
+    ];
+    for (const cell of cells) {
+        const [entry] = joinDeclaredJobs([], [
+            { id: 5, name: 'skipped job', conclusion: 'skipped', run_attempt: 1, steps: [], runner_id: cell.runner_id, runner_name: cell.runner_name },
+        ]);
+        assert.deepEqual(
+            entry && 'listed_steps' in entry ? entry.listed_steps : 'no keyless entry',
+            cell.expected,
+            `${cell.what}: ${JSON.stringify(entry)}`,
+        );
+    }
+    // A row whose `steps` member is absent reads as a row listing none, the same two states.
+    const [absent] = joinDeclaredJobs([], [{ id: 6, name: 'no steps member', conclusion: 'success', run_attempt: 1, runner_id: 4, runner_name: 'r' }]);
+    assert.deepEqual(absent && 'listed_steps' in absent ? absent.listed_steps : null, { withheld: 'emptied_by_platform' });
+    const everything = JSON.stringify(joinDeclaredJobs([], [STEPPED_ROW, ...listedRows([{ name: 'x', conclusion: 'success' }])]));
+    assert.ok(!everything.includes('not_acquired'), `a live producer never writes not_acquired: ${everything}`);
+});
+
+test('epochSeconds: only `YYYY-MM-DDTHH:MM:SSZ` converts, by integer arithmetic; everything else is null', () => {
+    assert.equal(epochSeconds('1970-01-01T00:00:00Z'), 0);
+    assert.equal(epochSeconds('2026-06-15T15:30:07Z'), 1781537407);
+    assert.equal(epochSeconds('2024-02-29T23:59:59Z'), 1709251199, 'a leap day converts');
+    for (const text of [
+        '2026-06-15T15:30:07.000Z',
+        '2026-06-15T15:30:07+00:00',
+        '2026-06-15 15:30:07Z',
+        '1969-12-31T23:59:59Z',
+        '2026-02-30T00:00:00Z',
+        '2026-13-01T00:00:00Z',
+        '2026-06-15T24:00:00Z',
+        '2026-06-15T15:60:00Z',
+        '2026-06-15T15:30:60Z',
+        '2026-06-1xT15:30:07Z',
+        '',
+    ]) {
+        assert.equal(epochSeconds(text), null, `"${text}" must not convert`);
+    }
+});
+
+test('DN-140.D2: a listing row the wire cannot carry makes the graph ABSENT, naming the job — never a wire the engine refuses', async () => {
+    const cells: ReadonlyArray<{ what: string; row: Record<string, unknown>; reason: RegExp }> = [
+        { what: 'no run attempt', row: { run_attempt: undefined }, reason: /job "Build" carries no run attempt/ },
+        { what: 'a zero job id', row: { id: 0 }, reason: /job "Build" carries no job id/ },
+        {
+            what: 'a repeated step number',
+            row: { steps: [{ number: 2, name: 'a', conclusion: 'success' }, { number: 2, name: 'b', conclusion: 'success' }] },
+            reason: /job "Build" lists step number 2 after 2/,
+        },
+        { what: 'a step with no name', row: { steps: [{ number: 1, name: '', conclusion: 'success' }] }, reason: /job "Build" lists step 1 with no name/ },
+        {
+            what: 'a step completing before it started',
+            row: { steps: [{ number: 1, name: 'a', conclusion: 'success', started_at: '2026-06-15T15:30:07Z', completed_at: '2026-06-15T15:30:06Z' }] },
+            reason: /job "Build" lists step 1 completing at 2026-06-15T15:30:06Z before it started/,
+        },
+    ];
+    for (const cell of cells) {
+        const [row] = listedRows([{ name: 'Build', conclusion: 'failure' }]);
+        const { graph, lines } = await resolveAt(EDGE_FREE_SHA, [{ ...row, ...cell.row }, ...listedRows([{ name: 'Merge coverage', conclusion: 'success' }], 2001)]);
+        assert.equal(graph, null, `${cell.what}: expected ABSENT, got ${JSON.stringify(graph)}`);
+        assert.equal(lines.filter((line) => line.startsWith('Sift: no declared job graph')).length, 1, `${cell.what}: ${JSON.stringify(lines)}`);
+        assert.match(lines[lines.length - 1] ?? '', cell.reason, `${cell.what}: ${JSON.stringify(lines)}`);
+    }
 });
