@@ -658,20 +658,7 @@ export async function resolveChangedJobGraph(
 
     let declared: DeclaredJobRecord[];
     try {
-        // `contents: read` is the one permission this fetch needs; a denial lands in the catch
-        // below and self-reports, because a fold that silently stopped firing reads as clean.
-        const response = await octokit.rest.repos.getContent({
-            owner,
-            repo,
-            path,
-            ref: sha,
-            mediaType: { format: 'raw' },
-        });
-        const yaml = response.data;
-        if (typeof yaml !== 'string') {
-            throw new Error(`the contents API returned no raw file for ${path}`);
-        }
-        declared = parseWorkflowJobs(yaml);
+        declared = await readWorkflowJobs(octokit, owner, repo, path, sha);
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         info(
@@ -702,13 +689,127 @@ export async function resolveChangedJobGraph(
         });
         return joinDeclaredJobs(declared, jobs.map(listingRow));
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const what =
-            error instanceof ListingRowRefusal
-                ? `a row of the run's jobs listing cannot be stated on the wire (${message})`
-                : `the run's jobs listing failed (${message})`;
-        info(`Sift: no declared job graph — ${what}.`);
+        info(`Sift: no declared job graph — ${listingFailure(error)}.`);
         return null;
+    }
+}
+
+// The declared jobs of the workflow file at `path`, read at commit `sha`. Throws the reason —
+// the caller turns it into an ABSENT graph with one log line. `contents: read` is the one
+// permission this fetch needs; a denial lands in the caller's catch and self-reports, because a
+// graph that silently stopped arriving reads as a clean run.
+async function readWorkflowJobs(
+    octokit: Octokit,
+    owner: string,
+    repo: string,
+    path: string,
+    sha: string,
+): Promise<DeclaredJobRecord[]> {
+    const response = await octokit.rest.repos.getContent({
+        owner,
+        repo,
+        path,
+        ref: sha,
+        mediaType: { format: 'raw' },
+    });
+    const yaml = response.data;
+    if (typeof yaml !== 'string') {
+        throw new Error(`the contents API returned no raw file for ${path}`);
+    }
+    return parseWorkflowJobs(yaml);
+}
+
+function listingFailure(error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error);
+    return error instanceof ListingRowRefusal
+        ? `a row of the run's jobs listing cannot be stated on the wire (${message})`
+        : `the run's jobs listing failed (${message})`;
+}
+
+// The events whose run object names the commit the run EXECUTED, as its `head_sha` (ADR-22.D17's
+// EXECUTED state). Every other event is unrecoverable after the fact — `pull_request` executed a
+// merge commit the run object does not name, `pull_request_target` the base tip — and an event no
+// documentation row was read for is refused with them, fail-closed. The crawler reads the same
+// catalog (insight-eidos `sift/src/crawl/pairer.hpp`, `kExecutedEvents`); this repository is public
+// and that one private, so each holds the list.
+export const EXECUTED_EVENTS: readonly string[] = [
+    'push',
+    'workflow_dispatch',
+    'schedule',
+    'issues',
+    'workflow_run',
+    'merge_group',
+];
+
+export interface ResolveBaselineJobGraphParams {
+    octokit: Octokit;
+    owner: string;
+    repo: string;
+    /** The run that published the baseline artifact. */
+    baselineRunId: number;
+    info: (message: string) => void;
+}
+
+// The BASELINE run's declared job graph, for `--baseline-job-graph`: the declared step texts the
+// engine classes a step banner by come from both runs' own workflow files, so a value a `${{ }}`
+// expression wrote into a banner joins one class instead of splitting into a new and a vanished
+// step (DN-89.D34). Acquired after the fact, as the crawler acquires a baseline's: the run object
+// names its event, its workflow file, its `head_sha` and its attempt; the file is read at
+// `head_sha` only for an EXECUTED event, and the listing at that attempt, so a re-run's later
+// attempt never answers for the run's bytes. Null = ABSENT with the reason logged; never throws.
+export async function resolveBaselineJobGraph(
+    params: ResolveBaselineJobGraphParams,
+): Promise<DeclaredJobWire[] | null> {
+    const { octokit, owner, repo, baselineRunId, info } = params;
+    const absent = (reason: string): null => {
+        info(
+            `Sift: no baseline job graph — ${reason}. The diff still runs; a step banner carrying a ` +
+                'value is not matched to its declared step across the two runs.',
+        );
+        return null;
+    };
+    let run: { event: string; path: string; head_sha: string; run_attempt?: number };
+    try {
+        run = (await octokit.rest.actions.getWorkflowRun({ owner, repo, run_id: baselineRunId })).data;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return absent(`baseline run ${baselineRunId} could not be read (${message})`);
+    }
+    if (!EXECUTED_EVENTS.includes(run.event)) {
+        return absent(
+            `baseline run ${baselineRunId} is a \`${run.event}\` run, whose run object does not name the ` +
+                'commit it executed',
+        );
+    }
+    if (!run.path) {
+        return absent(`baseline run ${baselineRunId} names no workflow file`);
+    }
+    if (!isWholeAtLeastOne(run.run_attempt)) {
+        return absent(`baseline run ${baselineRunId} states no attempt (${String(run.run_attempt)})`);
+    }
+    let declared: DeclaredJobRecord[];
+    try {
+        declared = await readWorkflowJobs(octokit, owner, repo, run.path, run.head_sha);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return absent(`could not read ${run.path} at ${run.head_sha} (${message})`);
+    }
+    info(
+        `Sift: baseline job graph read from ${run.path} at ${run.head_sha} (the commit baseline run ` +
+            `${baselineRunId}, a \`${run.event}\` run, executed): ${declared.length} jobs, listing at attempt ` +
+            `${run.run_attempt}.`,
+    );
+    try {
+        const jobs = await octokit.paginate(octokit.rest.actions.listJobsForWorkflowRunAttempt, {
+            owner,
+            repo,
+            run_id: baselineRunId,
+            attempt_number: run.run_attempt,
+            per_page: 100,
+        });
+        return joinDeclaredJobs(declared, jobs.map(listingRow));
+    } catch (error) {
+        return absent(listingFailure(error));
     }
 }
 

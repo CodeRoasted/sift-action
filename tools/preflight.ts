@@ -831,6 +831,78 @@ async function main(): Promise<void> {
         if (verdict !== '') failures.push(`  naming cell: ${verdict}.\n      vector: ${named.args.join(' ')}`);
     }
 
+    // ── G) DN-89.D34 on the Action path — a value in a step banner joins its declared step ───────
+    // Both runs declare `run: git diff ${{ github.sha }}`, and each banner renders its own commit.
+    // With BOTH graphs on the wire — each the producer's output for its own run, the baseline one
+    // passed as `--baseline-job-graph` — the two banners are one declared step and the pair reads
+    // no change. The control drops the baseline graph and must read the split the route repairs
+    // (a new and a vanished step), so a route that stopped engaging cannot pass as one that holds.
+    {
+        const bannerLog = (sha: string): Buffer =>
+            logOf([
+                Buffer.concat([bytes(0xef, 0xbb, 0xbf), utf8(`${STAMP}Current runner version: '2.335.1'`)]),
+                utf8(`${STAMP}Complete job name: build`),
+                utf8(`${STAMP}##[group]Run git diff ${sha}`),
+                utf8(`${STAMP}git diff ${sha}`),
+                utf8(`${STAMP}diff output line`),
+                utf8(`${STAMP}##[endgroup]`),
+                utf8(`${STAMP}##[group]Run make test`),
+                utf8(`${STAMP}ok: 12 passed`),
+                utf8(`${STAMP}##[endgroup]`),
+                utf8(`${STAMP}Post job cleanup.`),
+            ]);
+        const templateBaseline = join(work, 'template-baseline.log');
+        const templateChanged = join(work, 'template-changed.log');
+        await writeFile(templateBaseline, bannerLog('a'.repeat(40)));
+        await writeFile(templateChanged, bannerLog('b'.repeat(40)));
+        const workflow = ['jobs:', '  build:', '    steps:', '      - run: git diff ${{ github.sha }}', '      - run: make test'].join('\n');
+        const graphOf = (id: number) =>
+            joinDeclaredJobs(parseWorkflowJobs(workflow), [
+                { id, name: 'build', conclusion: 'success', run_attempt: 1, steps: [], runner_id: 61, runner_name: 'r' },
+            ]);
+        const changedGraph = { path: join(work, 'template-changed-graph.json'), jobs: graphOf(902) };
+        const baselineGraph = { path: join(work, 'template-baseline-graph.json'), jobs: graphOf(903) };
+        await writeFile(changedGraph.path, JSON.stringify(changedGraph.jobs));
+        await writeFile(baselineGraph.path, JSON.stringify(baselineGraph.jobs));
+        const templateCell = async (withBaseline: boolean) => {
+            const outputPath = join(work, `report-template-${withBaseline ? 'both' : 'changed'}.json`);
+            const invocation: SiftInvocation = {
+                siftBin,
+                baselineLog: templateBaseline,
+                changedLog: templateChanged,
+                baselineLabel: 'preflight-baseline',
+                changedLabel: 'preflight-changed',
+                baselineOutcome: 'success',
+                changedOutcome: 'success',
+                failOn: 'none',
+                outputPath,
+                changedTransport: JOB_LOG_TRANSPORT,
+                baselineTransport: JOB_LOG_TRANSPORT,
+                changedJobGraph: changedGraph,
+                ...(withBaseline ? { baselineJobGraph: baselineGraph } : {}),
+            };
+            const args = siftArgs(invocation);
+            const r = await runVector(siftBin, args, outputPath);
+            if (r.rejected || !r.ranClean || !r.wroteReport) {
+                return { args, total: -1, failure: `the engine did not write a report (exit ${r.exitCode})` };
+            }
+            const report = readReport(await readFile(outputPath), outputPath, r.exitCode);
+            return { args, total: report.summary.total_changes, failure: '' };
+        };
+        const joined = await templateCell(true);
+        const split = await templateCell(false);
+        let verdict = joined.failure || split.failure;
+        if (verdict === '' && split.total === 0) {
+            verdict = 'the control without the baseline graph reads no change, so this cell proves nothing';
+        } else if (verdict === '' && joined.total !== 0) {
+            verdict = `with both graphs the pair still reads ${joined.total} change(s), where one declared step renders two values`;
+        }
+        process.stdout.write(
+            `preflight template cell [a value in a step banner, both graphs]: ${verdict === '' ? `joined (control: ${split.total} changes)` : 'BROKEN'}\n`,
+        );
+        if (verdict !== '') failures.push(`  template cell: ${verdict}.\n      vector: ${joined.args.join(' ')}`);
+    }
+
     if (failures.length > 0) {
         process.stderr.write(
             `\nPREFLIGHT FAILED — engine ${siftBin} (SIFT_VERSION ${SIFT_VERSION})\n` +
@@ -848,7 +920,8 @@ async function main(): Promise<void> {
             `all ${GRAPH_CELLS.length} graph cells and all ${TRANSPORT_CELLS.length} transport cells, kept ` +
             `the output contract on all ${HOSTILE_CELLS.length} hostile pairs, peeled the target-job ` +
             "stack with its probe agreeing, framed a target job's declared success, named a failed " +
-            "target job's listed failed step, and its half-pair behaviour is still " +
+            "target job's listed failed step, joined a banner's value to its declared step across both " +
+            'graphs, and its half-pair behaviour is still ' +
             `'${PINNED_ENGINE_HALF_PAIR}'.\n`,
     );
 }

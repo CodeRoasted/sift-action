@@ -53,13 +53,16 @@ export interface SiftInvocation {
     // deterministic report + the gate exit code untouched. No credential — the Action never carries one.
     explain?: boolean;
     explainModel?: string; // advanced override; default = the auto-provisioned pinned model
-    // The CHANGED run's declared `needs:` job graph (ADR-22.D13 — a JSON file behind
-    // `--changed-job-graph`), produced by jobgraph.ts. ABSENT (undefined) ⇒ no flag ⇒ the fold is
-    // inert; a present-but-empty `jobs` array declares a workflow with zero jobs — different facts,
-    // and the engine acts on the difference. There is deliberately no baseline half: the fold
-    // operates on the changed run's aggregator, and the flag NAME carries that asymmetry.
+    // The CHANGED run's declared job graph (ADR-22.D13 — a JSON file behind
+    // `--changed-job-graph`), produced by jobgraph.ts. ABSENT (undefined) ⇒ no flag ⇒ the graph's
+    // readers are inert; a present-but-empty `jobs` array declares a workflow with zero jobs —
+    // different facts, and the engine acts on the difference.
     // runSift() writes `jobs` to `path` before exec; siftArgs() only names the path.
     changedJobGraph?: { path: string; jobs: DeclaredJobWire[] };
+    // The BASELINE run's declared job graph (`--baseline-job-graph`), the same wire, read after the
+    // fact by `resolveBaselineJobGraph`. Its one reader is the step-template route: a banner is
+    // classed by its declared step text only when BOTH runs supply their own (DN-89.D34).
+    baselineJobGraph?: { path: string; jobs: DeclaredJobWire[] };
 }
 
 export interface SiftResult {
@@ -538,10 +541,14 @@ export function siftArgs(invocation: SiftInvocation): string[] {
     // graph conclusion is REFUSED outright: the pinned engine exits non-zero on a stated
     // conclusion with no vocabulary (the half-pair refusal, at the CLI boundary). A graph whose
     // every conclusion is withheld asserts nothing and needs no vocabulary (DN-89.D26).
-    const graphDeclaresConclusion = invocation.changedJobGraph
-        ? statesAJobConclusion(invocation.changedJobGraph.jobs) ||
-          statesAListedStepConclusion(invocation.changedJobGraph.jobs)
-        : false;
+    // The baseline graph's job conclusions are read by nothing, but the pinned engine still reads a
+    // baseline listed step's conclusion, so a stated one there pairs with the vocabulary too.
+    const graphDeclaresConclusion =
+        (invocation.changedJobGraph
+            ? statesAJobConclusion(invocation.changedJobGraph.jobs) ||
+              statesAListedStepConclusion(invocation.changedJobGraph.jobs)
+            : false) ||
+        (invocation.baselineJobGraph ? statesAListedStepConclusion(invocation.baselineJobGraph.jobs) : false);
     if (invocation.baselineOutcome || invocation.changedOutcome || graphDeclaresConclusion) {
         args.push('--outcome-vocabulary', 'github');
     }
@@ -556,6 +563,9 @@ export function siftArgs(invocation: SiftInvocation): string[] {
     // spells. Present ⇒ the flag names the path runSift() writes; absent ⇒ no flag, fold inert.
     if (invocation.changedJobGraph) {
         args.push('--changed-job-graph', invocation.changedJobGraph.path);
+    }
+    if (invocation.baselineJobGraph) {
+        args.push('--baseline-job-graph', invocation.baselineJobGraph.path);
     }
     if (invocation.failOn !== 'none') {
         args.push('--fail-on', invocation.failOn);
@@ -577,11 +587,10 @@ export async function runSift(invocation: SiftInvocation): Promise<SiftResult> {
     // siftArgs stays pure (unit-testable without spawning). All four wire fields always travel:
     // the type guarantees presence, and JSON.stringify of the literal-ordered objects is
     // deterministic for a given graph.
-    if (invocation.changedJobGraph) {
-        await fs.writeFile(
-            invocation.changedJobGraph.path,
-            JSON.stringify(invocation.changedJobGraph.jobs),
-        );
+    for (const graph of [invocation.changedJobGraph, invocation.baselineJobGraph]) {
+        if (graph) {
+            await fs.writeFile(graph.path, JSON.stringify(graph.jobs));
+        }
     }
     // ignoreReturnCode: exit 2 is the advisory gate, not an Action error — so the code must be
     // INSPECTED here rather than ignored. The distinction the old code lost: `ignoreReturnCode`

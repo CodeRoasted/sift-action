@@ -25,7 +25,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import AdmZip from 'adm-zip';
+
 import type { DeclaredJobWire } from '../src/jobgraph.js';
+import { BASELINE_META_FILE, CONTEXT_VERSION } from '../src/types.js';
 
 const ENTRY = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'main.js');
 
@@ -37,11 +40,18 @@ const WORKFLOW_PATH = '.github/workflows/ci.yml';
 const EXECUTED_SHA = 'e'.repeat(40);
 const BASE_SHA = 'b'.repeat(40);
 const HEAD_SHA = 'd'.repeat(40);
+// The baseline run an `artifact=` baseline was published by: a `push` run at its own commit, whose
+// listing is served at its own attempt.
+const BASELINE_RUN_ID = 3131;
+const BASELINE_RUN_SHA = 'c'.repeat(40);
+const BASELINE_RUN_ATTEMPT = 2;
+const BASELINE_ARTIFACT = 'sift-baseline-main';
 
 // The re-wired aggregator: the base declares `gate` needs `a`; the PR re-wires it to `b`.
 const WORKFLOW_AT: Record<string, string> = {
     [BASE_SHA]: ['jobs:', '  a: {}', '  b: {}', '  gate:', '    needs: [a]'].join('\n'),
     [EXECUTED_SHA]: ['jobs:', '  a: {}', '  b: {}', '  gate:', '    needs: [b]'].join('\n'),
+    [BASELINE_RUN_SHA]: ['jobs:', '  a:', '    steps:', '      - run: echo baseline-declared', '  b: {}', '  gate:', '    needs: [a]'].join('\n'),
 };
 // The listing rows as the REST API serves them: each row's identity at its attempt, its steps and
 // its runner, which the graph's renderings carry or decide from (DN-140.D2, DN-140.D3).
@@ -72,6 +82,7 @@ interface EntryRun {
     requests: RecordedRequest[];
     stdout: string;
     graph: DeclaredJobWire[] | null;
+    baselineGraph: DeclaredJobWire[] | null;
     /** The engine's argv, or null when the entry never reached the engine. */
     argv: string[] | null;
     exitCode: number | null;
@@ -83,8 +94,21 @@ type Source = 'log' | 'target-job';
 
 interface EntryOptions {
     source: Source;
+    /** Where the baseline comes from: a local file (no run), or a named artifact a run published. */
+    baseline?: 'path' | 'artifact';
     /** undefined = the variable is UNSET. */
     workflowSha: string | undefined;
+}
+
+// The named baseline artifact: the log and a 0.3.0 sidecar recording the job-log stack.
+function baselineZip(): Buffer {
+    const zip = new AdmZip();
+    zip.addFile('baseline.log', Buffer.from('compile\nok\n', 'utf8'));
+    zip.addFile(
+        BASELINE_META_FILE,
+        Buffer.from(JSON.stringify({ context_version: CONTEXT_VERSION, outcome_token: 'success', transport: [] }), 'utf8'),
+    );
+    return zip.toBuffer();
 }
 
 function serve(recorded: RecordedRequest[]) {
@@ -110,6 +134,48 @@ function serve(recorded: RecordedRequest[]) {
             response.end(JSON.stringify({ total_count: LISTING.length, jobs: LISTING }));
             return;
         }
+        if (pathname === `/repos/${OWNER}/${REPO}/actions/artifacts`) {
+            response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+            response.end(
+                JSON.stringify({
+                    total_count: 1,
+                    artifacts: [
+                        {
+                            id: 55,
+                            name: BASELINE_ARTIFACT,
+                            expired: false,
+                            size_in_bytes: 512,
+                            created_at: '2026-10-07T08:00:00Z',
+                            workflow_run: { id: BASELINE_RUN_ID, head_sha: BASELINE_RUN_SHA, head_branch: 'main' },
+                        },
+                    ],
+                }),
+            );
+            return;
+        }
+        if (pathname === `/repos/${OWNER}/${REPO}/actions/artifacts/55/zip`) {
+            response.writeHead(200, { 'content-type': 'application/zip' });
+            response.end(baselineZip());
+            return;
+        }
+        if (pathname === `/repos/${OWNER}/${REPO}/actions/runs/${BASELINE_RUN_ID}`) {
+            response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+            response.end(
+                JSON.stringify({
+                    id: BASELINE_RUN_ID,
+                    event: 'push',
+                    path: WORKFLOW_PATH,
+                    head_sha: BASELINE_RUN_SHA,
+                    run_attempt: BASELINE_RUN_ATTEMPT,
+                }),
+            );
+            return;
+        }
+        if (pathname === `/repos/${OWNER}/${REPO}/actions/runs/${BASELINE_RUN_ID}/attempts/${BASELINE_RUN_ATTEMPT}/jobs`) {
+            response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+            response.end(JSON.stringify({ total_count: LISTING.length, jobs: LISTING }));
+            return;
+        }
         const target = LISTING.find((job) => job.name === TARGET_JOB)!;
         if (pathname === `/repos/${OWNER}/${REPO}/actions/jobs/${target.id}/logs`) {
             response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
@@ -126,6 +192,7 @@ async function runEntry(options: EntryOptions): Promise<EntryRun> {
     const { source, workflowSha } = options;
     const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'sift-entry-'));
     const captured = path.join(dir, 'captured-graph.json');
+    const capturedBaseline = path.join(dir, 'captured-baseline-graph.json');
     const capturedArgv = path.join(dir, 'captured-argv.json');
     const engine = path.join(dir, 'fake-sift');
     await fsp.writeFile(
@@ -136,6 +203,8 @@ async function runEntry(options: EntryOptions): Promise<EntryRun> {
             `require('fs').writeFileSync(${JSON.stringify(capturedArgv)}, JSON.stringify(args));`,
             "const at = args.indexOf('--changed-job-graph');",
             `if (at >= 0) require('fs').copyFileSync(args[at + 1], ${JSON.stringify(captured)});`,
+            "const base = args.indexOf('--baseline-job-graph');",
+            `if (base >= 0) require('fs').copyFileSync(args[base + 1], ${JSON.stringify(capturedBaseline)});`,
             'process.exit(4);',
         ].join('\n'),
     );
@@ -176,7 +245,7 @@ async function runEntry(options: EntryOptions): Promise<EntryRun> {
         GITHUB_SHA: EXECUTED_SHA,
         GITHUB_WORKFLOW_REF: `${OWNER}/${REPO}/${WORKFLOW_PATH}@refs/pull/7/merge`,
         'INPUT_GITHUB-TOKEN': 'stand-in-token',
-        INPUT_BASELINE: `path=${log}`,
+        INPUT_BASELINE: options.baseline === 'artifact' ? `artifact=${BASELINE_ARTIFACT}` : `path=${log}`,
         'INPUT_SIFT-BINARY': engine,
         INPUT_EXPLAIN: 'false',
     };
@@ -192,9 +261,10 @@ async function runEntry(options: EntryOptions): Promise<EntryRun> {
     await new Promise<void>((resolve) => server.close(() => resolve()));
 
     const graph = await readCapture<DeclaredJobWire[]>(captured);
+    const baselineGraph = await readCapture<DeclaredJobWire[]>(capturedBaseline);
     const argv = await readCapture<string[]>(capturedArgv);
     await fsp.rm(dir, { recursive: true, force: true });
-    return { requests: recorded, stdout, graph, argv, exitCode };
+    return { requests: recorded, stdout, graph, baselineGraph, argv, exitCode };
 }
 
 // A file the fake engine wrote, or null when it wrote none.
@@ -350,5 +420,38 @@ test('entry (G2): a log: file still reads the graph once at GITHUB_WORKFLOW_SHA 
         run.stdout.split('\n').filter((line) => ONE_JOB_GRAIN_LINE.test(line)).length,
         0,
         `the one-job grain line must not appear for a log: file${describeRun(run)}`,
+    );
+});
+
+// DN-89.D34 on the Action path: a baseline published by a run brings that run's own declared graph,
+// read after the fact at the commit the run executed and its listing at the run's own attempt, and
+// rides as `--baseline-job-graph`. A `path=` baseline names no run, so it brings none and says so.
+test('entry (DN-89.D34): an artifact baseline\'s run graph is read at its head_sha and attempt and passed; a path= baseline passes none', async () => {
+    const run = await runEntry({ source: 'target-job', workflowSha: EXECUTED_SHA, baseline: 'artifact' });
+    assert.ok(run.argv, `the entry never reached the engine${describeRun(run)}`);
+    assert.deepEqual(
+        contentsReads(run).map((request) => request.ref).sort(),
+        [BASELINE_RUN_SHA, EXECUTED_SHA].sort(),
+        `one contents read per side, each at its own executed commit${describeRun(run)}`,
+    );
+    assert.ok(
+        run.requests.some((request) => request.pathname === `/repos/${OWNER}/${REPO}/actions/runs/${BASELINE_RUN_ID}/attempts/${BASELINE_RUN_ATTEMPT}/jobs`),
+        `the baseline listing must be read at the run's own attempt ${BASELINE_RUN_ATTEMPT}${describeRun(run)}`,
+    );
+    assert.ok(run.argv.includes('--baseline-job-graph'), `the engine must receive --baseline-job-graph${describeRun(run)}`);
+    const declared = run.baselineGraph?.find((job) => job.key === 'a') as { declared_steps?: unknown } | undefined;
+    assert.deepEqual(
+        declared?.declared_steps,
+        [{ run: 'echo baseline-declared' }],
+        `the baseline graph is the BASELINE run's declaration, not this run's${describeRun(run)}`,
+    );
+
+    const local = await runEntry({ source: 'target-job', workflowSha: EXECUTED_SHA });
+    assert.ok(local.argv, `the entry never reached the engine${describeRun(local)}`);
+    assert.ok(!local.argv.includes('--baseline-job-graph'), `a path= baseline names no run${describeRun(local)}`);
+    assert.equal(
+        local.stdout.split('\n').filter((line) => line.includes('no baseline job graph')).length,
+        1,
+        `the absence is said once${describeRun(local)}`,
     );
 });

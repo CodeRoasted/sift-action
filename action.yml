@@ -218,11 +218,13 @@ outputs:
 # baseline-log artifact (the runner's runtime token, not `github-token`), in the fork
 # `render` job too.
 #   contents: write     — ONLY if commit-comment is set (push-mode commit comments); else omit
-# Not requested by the documented workflows: `contents: read`. With it, the Action reads one
-# repository file, the workflow's declared job graph at the commit the run executed, on every run:
-# each job's declared conclusion frames that job's rows, with `target-job` a listed step declared
-# failed is named on its job's row, and the aggregator fold can fire when a `log:` file holds
-# several jobs' logs.
+# Not requested by the documented workflows: `contents: read`. With it, the Action reads the
+# workflow file at the commit this run executed, and the baseline run's at the commit THAT run
+# executed (only for an event whose run names it: push, workflow_dispatch, schedule, issues,
+# workflow_run, merge_group), for the two declared job graphs, on every run: each job's declared
+# conclusion frames that job's rows, each side's step banners are matched to its own declared
+# steps, with `target-job` a listed step declared failed is named on its job's row, and the
+# aggregator fold can fire when a `log:` file holds several jobs' logs.
 # Without the grant the read may be refused: the log says so, and the diff runs without the graph.
 # Fork PRs get a read-only token: the comment/artifact writes degrade with a
 # warning (the advisory gate still applies).

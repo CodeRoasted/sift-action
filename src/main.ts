@@ -20,7 +20,12 @@ import {
     type BaselineSpec,
 } from './baseline.js';
 import { acquiredGrainLine, fetchTargetJobLog, type AcquiredGrain } from './joblog.js';
-import { executedWorkflowCoordinate, resolveChangedJobGraph } from './jobgraph.js';
+import {
+    executedWorkflowCoordinate,
+    resolveBaselineJobGraph,
+    resolveChangedJobGraph,
+    type DeclaredJobWire,
+} from './jobgraph.js';
 import { upsertStickyComment, upsertCommitComment } from './comment.js';
 import { publishBaselineLog, publishReport, writeRenderedComment } from './artifact.js';
 import { renderComment } from './frame.js';
@@ -377,6 +382,16 @@ async function run(): Promise<void> {
             workflow: executedWorkflowCoordinate(process.env),
             info: core.info,
         });
+        // The BASELINE run's declared job graph, when the baseline came from a run (a `path=` file
+        // names none): read after the fact at that run's own executed commit and attempt, so each
+        // side's step banners are classed by that side's own declared texts (DN-89.D34).
+        const baselineRunId = Number(baseline.meta.run_id);
+        let baselineJobGraph: DeclaredJobWire[] | null = null;
+        if (baseline.meta.kind !== 'path' && Number.isSafeInteger(baselineRunId) && baselineRunId > 0) {
+            baselineJobGraph = await resolveBaselineJobGraph({ octokit, owner, repo, baselineRunId, info: core.info });
+        } else {
+            core.info('Sift: no baseline job graph — the baseline names no run it was published by.');
+        }
         const result = await runSift({
             siftBin,
             baselineLog: baseline.logPath,
@@ -394,6 +409,9 @@ async function run(): Promise<void> {
             explainModel,
             changedJobGraph: changedJobGraph
                 ? { path: path.join(workDir, 'changed-job-graph.json'), jobs: changedJobGraph }
+                : undefined,
+            baselineJobGraph: baselineJobGraph
+                ? { path: path.join(workDir, 'baseline-job-graph.json'), jobs: baselineJobGraph }
                 : undefined,
         });
         gateExit = result.exitCode;

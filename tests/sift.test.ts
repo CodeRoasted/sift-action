@@ -275,6 +275,48 @@ test('A1: no argv carries the one-token --transport', () => {
     }
 });
 
+// ── DN-89.D34: the baseline graph rides beside the changed one ───────────────────────────────
+
+test('siftArgs: --baseline-job-graph rides as the file path runSift writes, and is absent without one', () => {
+    assert.ok(!siftArgs(baseInvocation).includes('--baseline-job-graph'), 'no baseline graph ⇒ no flag');
+    const args = siftArgs({ ...baseInvocation, baselineJobGraph: { path: '/tmp/b.json', jobs: [] } });
+    assert.equal(flagValue(args, '--baseline-job-graph'), '/tmp/b.json', `argv: ${args.join(' ')}`);
+});
+
+test('siftArgs: a stated listed-step conclusion in the BASELINE graph pairs with the vocabulary; its job conclusions alone do not', () => {
+    const [build, , rendering] = WITHHELD_EVERYWHERE as [DeclaredJobWire, DeclaredJobWire, Extract<DeclaredJobWire, { job_id: number }>];
+    const jobOnly: DeclaredJobWire[] = [{ ...rendering, conclusion: 'success' }];
+    const stepStated: DeclaredJobWire[] = [
+        build,
+        { ...rendering, listed_steps: [{ number: 1, name: 'Set up job', conclusion: 'success', started_at: 1781534400, completed_at: 1781534402 }] },
+    ];
+    const quiet = siftArgs({ ...baseInvocation, baselineJobGraph: { path: '/tmp/b.json', jobs: jobOnly } });
+    assert.ok(!quiet.includes('--outcome-vocabulary'), `a baseline job conclusion is read by nothing: ${quiet.join(' ')}`);
+    const paired = siftArgs({ ...baseInvocation, baselineJobGraph: { path: '/tmp/b.json', jobs: stepStated } });
+    assert.equal(flagValue(paired, '--outcome-vocabulary'), 'github', `argv: ${paired.join(' ')}`);
+});
+
+test('runSift: writes both graph files the argv names, byte for byte the typed wire', async () => {
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'sift-graphs-'));
+    const engine = path.join(dir, 'fake-sift');
+    await fsp.writeFile(engine, `#!${process.execPath}\nprocess.exit(4);\n`);
+    await fsp.chmod(engine, 0o755);
+    const changed: DeclaredJobWire[] = [WITHHELD_EVERYWHERE[0]!];
+    const baseline: DeclaredJobWire[] = [WITHHELD_EVERYWHERE[1]!];
+    await assert.rejects(
+        runSift({
+            ...baseInvocation,
+            siftBin: engine,
+            outputPath: path.join(dir, 'report.json'),
+            changedJobGraph: { path: path.join(dir, 'changed.json'), jobs: changed },
+            baselineJobGraph: { path: path.join(dir, 'baseline.json'), jobs: baseline },
+        }),
+        /internal error/,
+    );
+    assert.equal(await fsp.readFile(path.join(dir, 'changed.json'), 'utf8'), JSON.stringify(changed));
+    assert.equal(await fsp.readFile(path.join(dir, 'baseline.json'), 'utf8'), JSON.stringify(baseline));
+});
+
 // ── DN-140.D4, as DN-140.D9 corrects it: the CHANGED log's provenance, and no baseline half ────
 
 test('provenance: a target-job log declares the job id it was fetched by and its attempt', () => {

@@ -67,8 +67,12 @@ way the log was sourced. On one job's log it does two things: a row is judged ag
 reads as an absorbed error (High), not as the cause of the run's failure; and, with
 `target-job`, a failed job's row names the step the listing declares failed, with how long
 it ran (the Action tells the engine which job and which attempt the log is, so a re-run's
-listing never names a step of another attempt). A refused read is logged and the diff runs
-without the graph.
+listing never names a step of another attempt). The baseline's own graph is read too, when
+the baseline was published by a run: the workflow file at the commit that run executed, and
+its listing at its own attempt. With both, a step whose banner carries a value (a commit,
+a version) is matched to the step it declares on each side, instead of reading as one step
+removed and another added; a baseline published by a `pull_request` run names no executed
+commit, so it brings no graph. A refused read is logged and the diff runs without that graph.
 
 **The required-check fold needs several jobs' logs.** When an aggregator job (one that
 only `needs:` others, such as a "required checks" gate) goes red, the engine can replace

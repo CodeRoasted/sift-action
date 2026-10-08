@@ -66773,18 +66773,7 @@ async function resolveChangedJobGraph(params) {
   const { path: path9, sha } = workflow;
   let declared;
   try {
-    const response = await octokit.rest.repos.getContent({
-      owner,
-      repo,
-      path: path9,
-      ref: sha,
-      mediaType: { format: "raw" }
-    });
-    const yaml2 = response.data;
-    if (typeof yaml2 !== "string") {
-      throw new Error(`the contents API returned no raw file for ${path9}`);
-    }
-    declared = parseWorkflowJobs(yaml2);
+    declared = await readWorkflowJobs(octokit, owner, repo, path9, sha);
   } catch (error2) {
     const message = error2 instanceof Error ? error2.message : String(error2);
     info2(
@@ -66805,10 +66794,83 @@ async function resolveChangedJobGraph(params) {
     });
     return joinDeclaredJobs(declared, jobs.map(listingRow));
   } catch (error2) {
-    const message = error2 instanceof Error ? error2.message : String(error2);
-    const what = error2 instanceof ListingRowRefusal ? `a row of the run's jobs listing cannot be stated on the wire (${message})` : `the run's jobs listing failed (${message})`;
-    info2(`Sift: no declared job graph \u2014 ${what}.`);
+    info2(`Sift: no declared job graph \u2014 ${listingFailure(error2)}.`);
     return null;
+  }
+}
+async function readWorkflowJobs(octokit, owner, repo, path9, sha) {
+  const response = await octokit.rest.repos.getContent({
+    owner,
+    repo,
+    path: path9,
+    ref: sha,
+    mediaType: { format: "raw" }
+  });
+  const yaml2 = response.data;
+  if (typeof yaml2 !== "string") {
+    throw new Error(`the contents API returned no raw file for ${path9}`);
+  }
+  return parseWorkflowJobs(yaml2);
+}
+function listingFailure(error2) {
+  const message = error2 instanceof Error ? error2.message : String(error2);
+  return error2 instanceof ListingRowRefusal ? `a row of the run's jobs listing cannot be stated on the wire (${message})` : `the run's jobs listing failed (${message})`;
+}
+var EXECUTED_EVENTS = [
+  "push",
+  "workflow_dispatch",
+  "schedule",
+  "issues",
+  "workflow_run",
+  "merge_group"
+];
+async function resolveBaselineJobGraph(params) {
+  const { octokit, owner, repo, baselineRunId, info: info2 } = params;
+  const absent = (reason) => {
+    info2(
+      `Sift: no baseline job graph \u2014 ${reason}. The diff still runs; a step banner carrying a value is not matched to its declared step across the two runs.`
+    );
+    return null;
+  };
+  let run2;
+  try {
+    run2 = (await octokit.rest.actions.getWorkflowRun({ owner, repo, run_id: baselineRunId })).data;
+  } catch (error2) {
+    const message = error2 instanceof Error ? error2.message : String(error2);
+    return absent(`baseline run ${baselineRunId} could not be read (${message})`);
+  }
+  if (!EXECUTED_EVENTS.includes(run2.event)) {
+    return absent(
+      `baseline run ${baselineRunId} is a \`${run2.event}\` run, whose run object does not name the commit it executed`
+    );
+  }
+  if (!run2.path) {
+    return absent(`baseline run ${baselineRunId} names no workflow file`);
+  }
+  if (!isWholeAtLeastOne(run2.run_attempt)) {
+    return absent(`baseline run ${baselineRunId} states no attempt (${String(run2.run_attempt)})`);
+  }
+  let declared;
+  try {
+    declared = await readWorkflowJobs(octokit, owner, repo, run2.path, run2.head_sha);
+  } catch (error2) {
+    const message = error2 instanceof Error ? error2.message : String(error2);
+    return absent(`could not read ${run2.path} at ${run2.head_sha} (${message})`);
+  }
+  info2(
+    `Sift: baseline job graph read from ${run2.path} at ${run2.head_sha} (the commit baseline run ${baselineRunId}, a \`${run2.event}\` run, executed): ${declared.length} jobs, listing at attempt ${run2.run_attempt}.`
+  );
+  try {
+    const jobs = await octokit.paginate(octokit.rest.actions.listJobsForWorkflowRunAttempt, {
+      owner,
+      repo,
+      run_id: baselineRunId,
+      attempt_number: run2.run_attempt,
+      per_page: 100
+    });
+    return joinDeclaredJobs(declared, jobs.map(listingRow));
+  } catch (error2) {
+    return absent(listingFailure(error2));
   }
 }
 function listingRow(job) {
@@ -102847,7 +102909,7 @@ function siftArgs(invocation) {
       args.push("--changed-log-attempt", String(invocation.changedLogProvenance.attempt));
     }
   }
-  const graphDeclaresConclusion = invocation.changedJobGraph ? statesAJobConclusion(invocation.changedJobGraph.jobs) || statesAListedStepConclusion(invocation.changedJobGraph.jobs) : false;
+  const graphDeclaresConclusion = (invocation.changedJobGraph ? statesAJobConclusion(invocation.changedJobGraph.jobs) || statesAListedStepConclusion(invocation.changedJobGraph.jobs) : false) || (invocation.baselineJobGraph ? statesAListedStepConclusion(invocation.baselineJobGraph.jobs) : false);
   if (invocation.baselineOutcome || invocation.changedOutcome || graphDeclaresConclusion) {
     args.push("--outcome-vocabulary", "github");
   }
@@ -102859,6 +102921,9 @@ function siftArgs(invocation) {
   }
   if (invocation.changedJobGraph) {
     args.push("--changed-job-graph", invocation.changedJobGraph.path);
+  }
+  if (invocation.baselineJobGraph) {
+    args.push("--baseline-job-graph", invocation.baselineJobGraph.path);
   }
   if (invocation.failOn !== "none") {
     args.push("--fail-on", invocation.failOn);
@@ -102872,11 +102937,10 @@ function siftArgs(invocation) {
   return args;
 }
 async function runSift(invocation) {
-  if (invocation.changedJobGraph) {
-    await fs12.writeFile(
-      invocation.changedJobGraph.path,
-      JSON.stringify(invocation.changedJobGraph.jobs)
-    );
+  for (const graph of [invocation.changedJobGraph, invocation.baselineJobGraph]) {
+    if (graph) {
+      await fs12.writeFile(graph.path, JSON.stringify(graph.jobs));
+    }
   }
   const exitCode = await exec3.exec(invocation.siftBin, siftArgs(invocation), {
     ignoreReturnCode: true,
@@ -103160,6 +103224,13 @@ async function run() {
       workflow: executedWorkflowCoordinate(process.env),
       info
     });
+    const baselineRunId = Number(baseline.meta.run_id);
+    let baselineJobGraph = null;
+    if (baseline.meta.kind !== "path" && Number.isSafeInteger(baselineRunId) && baselineRunId > 0) {
+      baselineJobGraph = await resolveBaselineJobGraph({ octokit, owner, repo, baselineRunId, info });
+    } else {
+      info("Sift: no baseline job graph \u2014 the baseline names no run it was published by.");
+    }
     const result = await runSift({
       siftBin,
       baselineLog: baseline.logPath,
@@ -103175,7 +103246,8 @@ async function run() {
       changedLogProvenance,
       explain,
       explainModel,
-      changedJobGraph: changedJobGraph ? { path: path8.join(workDir, "changed-job-graph.json"), jobs: changedJobGraph } : void 0
+      changedJobGraph: changedJobGraph ? { path: path8.join(workDir, "changed-job-graph.json"), jobs: changedJobGraph } : void 0,
+      baselineJobGraph: baselineJobGraph ? { path: path8.join(workDir, "baseline-job-graph.json"), jobs: baselineJobGraph } : void 0
     });
     gateExit = result.exitCode;
     report = result.report;

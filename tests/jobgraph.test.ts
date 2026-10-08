@@ -13,6 +13,7 @@ import {
     executedWorkflowCoordinate,
     joinDeclaredJobs,
     parseWorkflowJobs,
+    resolveBaselineJobGraph,
     resolveChangedJobGraph,
     type DeclaredJobWire,
     type RenderedJob,
@@ -608,5 +609,92 @@ test('DN-140.D2: a listing row the wire cannot carry makes the graph ABSENT, nam
         assert.equal(graph, null, `${cell.what}: expected ABSENT, got ${JSON.stringify(graph)}`);
         assert.equal(lines.filter((line) => line.startsWith('Sift: no declared job graph')).length, 1, `${cell.what}: ${JSON.stringify(lines)}`);
         assert.match(lines[lines.length - 1] ?? '', cell.reason, `${cell.what}: ${JSON.stringify(lines)}`);
+    }
+});
+
+// ── resolveBaselineJobGraph — the BASELINE run's graph, read after the fact (DN-89.D34) ──────
+
+const BASELINE_RUN_SHA = 'c'.repeat(40);
+REWIRED_AT[BASELINE_RUN_SHA] = ['jobs:', '  build:', '    steps:', '      - run: git diff ${{ github.sha }}'].join('\n');
+
+// A stand-in for the three calls the baseline resolver makes: the run object, the workflow file at
+// a commit, and the listing at an attempt — each recorded with the coordinate it was asked for.
+function baselineStandIn(run: Record<string, unknown> | Error) {
+    const calls: string[] = [];
+    const octokit = {
+        rest: {
+            actions: {
+                getWorkflowRun: async (request: { run_id: number }) => {
+                    calls.push(`getWorkflowRun ${request.run_id}`);
+                    if (run instanceof Error) throw run;
+                    return { data: run };
+                },
+                listJobsForWorkflowRunAttempt: 'listJobsForWorkflowRunAttempt',
+            },
+            repos: {
+                getContent: async (request: { path: string; ref: string }) => {
+                    calls.push(`getContent ${request.path} @ ${request.ref}`);
+                    const yaml = REWIRED_AT[request.ref];
+                    if (yaml === undefined) throw new Error(`Not Found (${request.ref})`);
+                    return { data: yaml };
+                },
+            },
+        },
+        paginate: async (route: unknown, request: { run_id: number; attempt_number: number }) => {
+            calls.push(`paginate ${String(route)} run ${request.run_id} attempt ${request.attempt_number}`);
+            return listedRows([{ name: 'build', conclusion: 'success' }]);
+        },
+    };
+    return { octokit: octokit as unknown as ResolveJobGraphParams['octokit'], calls };
+}
+
+async function resolveBaselineAt(run: Record<string, unknown> | Error) {
+    const { octokit, calls } = baselineStandIn(run);
+    const lines: string[] = [];
+    const graph = await resolveBaselineJobGraph({ octokit, owner: 'octo', repo: 'demo', baselineRunId: 3131, info: (line) => lines.push(line) });
+    return { graph, calls, lines };
+}
+
+test('resolveBaselineJobGraph: a push run is read at its own head_sha, and its listing at its own attempt', async () => {
+    const { graph, calls, lines } = await resolveBaselineAt({ event: 'push', path: '.github/workflows/ci.yml', head_sha: BASELINE_RUN_SHA, run_attempt: 2 });
+    assert.deepEqual(
+        calls,
+        [
+            'getWorkflowRun 3131',
+            `getContent .github/workflows/ci.yml @ ${BASELINE_RUN_SHA}`,
+            'paginate listJobsForWorkflowRunAttempt run 3131 attempt 2',
+        ],
+        `calls: ${JSON.stringify(calls)}`,
+    );
+    assert.ok(graph, `no baseline graph; log: ${JSON.stringify(lines)}`);
+    assert.deepEqual(
+        (graph[0] as { declared_steps?: unknown }).declared_steps,
+        [{ run: 'git diff ${{ github.sha }}' }],
+        'the baseline declaration carries its own step texts, verbatim',
+    );
+    assert.ok(lines.some((line) => line.includes(`at ${BASELINE_RUN_SHA}`) && line.includes('attempt 2')), JSON.stringify(lines));
+});
+
+test('resolveBaselineJobGraph: a pull_request run names no executed commit — ABSENT, no file read, the event named', async () => {
+    for (const event of ['pull_request', 'pull_request_target', 'repository_dispatch']) {
+        const { graph, calls, lines } = await resolveBaselineAt({ event, path: '.github/workflows/ci.yml', head_sha: BASELINE_RUN_SHA, run_attempt: 1 });
+        assert.equal(graph, null, `${event}: expected ABSENT`);
+        assert.deepEqual(calls, ['getWorkflowRun 3131'], `${event}: no contents read and no listing; calls: ${JSON.stringify(calls)}`);
+        assert.equal(lines.length, 1, `${event}: ${JSON.stringify(lines)}`);
+        assert.match(lines[0]!, new RegExp(`^Sift: no baseline job graph — baseline run 3131 is a \`${event}\` run`));
+    }
+});
+
+test('resolveBaselineJobGraph: an unreadable run, a run naming no file or no attempt, and an unreadable file are each ABSENT with the reason', async () => {
+    const cells: ReadonlyArray<{ what: string; run: Record<string, unknown> | Error; reason: RegExp }> = [
+        { what: 'the run read fails', run: new Error('Resource not accessible'), reason: /baseline run 3131 could not be read \(Resource not accessible\)/ },
+        { what: 'no workflow file', run: { event: 'push', path: '', head_sha: BASELINE_RUN_SHA, run_attempt: 1 }, reason: /names no workflow file/ },
+        { what: 'no attempt', run: { event: 'push', path: '.github/workflows/ci.yml', head_sha: BASELINE_RUN_SHA }, reason: /states no attempt/ },
+        { what: 'the file is absent at the commit', run: { event: 'push', path: '.github/workflows/ci.yml', head_sha: 'd'.repeat(40), run_attempt: 1 }, reason: /could not read \.github\/workflows\/ci\.yml at d{40}/ },
+    ];
+    for (const cell of cells) {
+        const { graph, lines } = await resolveBaselineAt(cell.run);
+        assert.equal(graph, null, `${cell.what}: expected ABSENT`);
+        assert.match(lines.join('\n'), cell.reason, `${cell.what}: ${JSON.stringify(lines)}`);
     }
 });
