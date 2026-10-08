@@ -18,7 +18,26 @@ import {
     type SiftReport,
 } from './types.js';
 
-export type FailOn = 'none' | 'significant' | 'regression';
+// The gate values the PINNED engine parses (`sift --fail-on`, engine 1.10.6: none | significant |
+// regression). The Action forwards the value and reads the exit code; it never decides the gate.
+// DN-132.D2's single gate, `none | medium | high | critical` read on the row's one severity, is an
+// engine change that no published engine carries yet, so the Action cannot forward it before its pin
+// moves to one that does; the two move together.
+export const FAIL_ON_VALUES = ['none', 'significant', 'regression'] as const;
+export type FailOn = (typeof FAIL_ON_VALUES)[number];
+
+// The `fail-on` input, lower-cased; empty is `none`. Any other value FAILS the run as a config
+// error, as a malformed `baseline` does: mapping it to `none` silently disabled the gate of a
+// workflow that believed itself gated (DN-132.D2). No alias and no mapping hint — the message
+// names the values the pinned engine takes.
+export function parseFailOn(raw: string): FailOn {
+    const value = (raw || 'none').trim().toLowerCase();
+    const failOn = FAIL_ON_VALUES.find((known) => known === value);
+    if (failOn === undefined) {
+        throw new Error(`invalid \`fail-on\` input "${raw}" — expected ${FAIL_ON_VALUES.join(' | ')}`);
+    }
+    return failOn;
+}
 
 export interface SiftInvocation {
     siftBin: string;

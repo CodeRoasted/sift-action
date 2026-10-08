@@ -100,4 +100,4 @@ jobs:
           baseline-max-age: ''                       # deliberately UNBOUNDED: a per-PR baseline legitimately ages
                                                      # between pushes, so the 72h default would only manufacture noise
           comment-tag: vs-previous-run
-          pr-comment: significant                    # quiet unless something moved since the last push
+          pr-comment: drift                          # quiet unless something moved since the last push

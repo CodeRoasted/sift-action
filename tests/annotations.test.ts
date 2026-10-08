@@ -43,7 +43,7 @@ function report(rows: RankedChange[], significant = rows.length): SiftReport {
 // ── Mapping + verbatim content (§ B.3.2 / B.3.3) ─────────────────────────────
 
 test('regression fixture → ::error:: then ::notice:: (polarity drives severity)', () => {
-    const cmds = buildAnnotationCommands(load('regression.json'), 'significant');
+    const cmds = buildAnnotationCommands(load('regression.json'), 'drift');
     assert.equal(cmds.length, 2);
     assert.ok(cmds[0]!.startsWith('::error::'), cmds[0]); // polarity=regression
     assert.ok(cmds[1]!.startsWith('::notice::'), cmds[1]); // polarity=recovery
@@ -53,7 +53,7 @@ test('regression fixture → ::error:: then ::notice:: (polarity drives severity
 // badge — the §B.4 emoji are the comment surface only. A recovery is ::notice:: (positive,
 // not the orange ::warning::); the message stays the engine string verbatim (no glyph prefix).
 test('annotation message carries no emoji glyph — colour is the native level icon (§B.4)', () => {
-    const cmds = buildAnnotationCommands(load('regression.json'), 'significant');
+    const cmds = buildAnnotationCommands(load('regression.json'), 'drift');
     for (const cmd of cmds) {
         for (const glyph of ['🟢', '🟥', '🟧', '🟨', '🟦', '🟠', '🟡', '🔴', '⚪']) {
             assert.ok(!cmd.includes(glyph), `annotation must carry no '${glyph}' emoji: ${cmd}`);
@@ -62,7 +62,7 @@ test('annotation message carries no emoji glyph — colour is the native level i
 });
 
 test('drift fixture → ::warning:: for every (neutral-polarity) significant row', () => {
-    const cmds = buildAnnotationCommands(load('drift.json'), 'significant');
+    const cmds = buildAnnotationCommands(load('drift.json'), 'drift');
     assert.equal(cmds.length, 2);
     for (const cmd of cmds) {
         assert.ok(cmd.startsWith('::warning::'), cmd);
@@ -116,7 +116,7 @@ test('cold start (report null) emits nothing, even at always', () => {
 
 test('clean report emits nothing at significant OR always (no significant rows)', () => {
     const clean = load('clean_suppressed.json'); // significant_changes 0, no ranked rows
-    assert.deepEqual(buildAnnotationCommands(clean, 'significant'), []);
+    assert.deepEqual(buildAnnotationCommands(clean, 'drift'), []);
     assert.deepEqual(buildAnnotationCommands(clean, 'always'), []);
 });
 
@@ -125,7 +125,7 @@ test('the level ladder matches the comment surface exactly', () => {
     const regr = load('regression.json');
     assert.deepEqual(buildAnnotationCommands(drift, 'never'), []);
     assert.deepEqual(buildAnnotationCommands(drift, 'regression'), []); // drift is below the regression bar
-    assert.equal(buildAnnotationCommands(drift, 'significant').length, 2);
+    assert.equal(buildAnnotationCommands(drift, 'drift').length, 2);
     assert.equal(buildAnnotationCommands(regr, 'regression').length, 2); // regression clears it
 });
 

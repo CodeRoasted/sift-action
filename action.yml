@@ -45,7 +45,7 @@ inputs:
     required: false
     default: 'sift'
   fail-on:
-    description: 'Advisory gate: exit non-zero when the condition holds. One of none | significant | regression.'
+    description: 'Advisory gate: exit non-zero when the condition holds. One of none | significant | regression; any other value fails the run (config error).'
     required: false
     default: 'none'
   baseline:
@@ -129,27 +129,28 @@ inputs:
   pr-comment:
     description: >-
       PR runs: post the sticky comment when the verdict is at least this level —
-      never | regression (only a flagged regression) | significant (drift OR regression) |
+      never | regression (only a flagged regression) | drift (drift OR regression) |
       always (every state, incl. the green "no change" reassurance). Default `always`.
-      The job summary + outputs are written regardless.
+      Any other value fails the run (config error). The job summary + outputs are written regardless.
     required: false
     default: 'always'
   commit-comment:
     description: >-
       Push runs (no PR — e.g. trunk commits to main): ALSO post a comment on the pushed commit when
-      the verdict is at least this level — never (default; job summary only) | regression | significant
-      (drift OR regression) | always. NEVER fires below the level (a clean run stays quiet), upserts
-      per-commit (re-runs don't duplicate). Needs `contents: write`; degrades to a warning without it.
+      the verdict is at least this level — never (default; job summary only) | regression | drift
+      (drift OR regression) | always; any other value fails the run. NEVER fires below the level (a
+      clean run stays quiet), upserts per-commit (re-runs don't duplicate). Needs `contents: write`;
+      degrades to a warning without it.
     required: false
     default: 'never'
   annotations:
     description: >-
       Inline check-run annotations: emit a `::error|warning|notice::` workflow command for each
       significant row when the verdict is at least this level — never (default) | regression
-      (regressions only) | significant (drift OR regression) | always. OFF by default because the
-      PR comment and the job summary already render the same result, and an annotation competes
-      with the compiler's own in the gutter where a real build error must stay findable — opt in
-      with `annotations: significant` and the surface is whole. When on they surface in the Checks
+      (regressions only) | drift (drift OR regression) | always; any other value fails the run. OFF
+      by default because the PR comment and the job summary already render the same result, and an
+      annotation competes with the compiler's own in the gutter where a real build error must stay
+      findable — opt in with `annotations: drift` and the surface is whole. When on they surface in the Checks
       tab / PR checks strip, fire on a GREEN build (where GitHub's failure-explain is silent), and
       need NO write token, so a fork PR's unprivileged build (mode=render) annotates fork-safely.
       Polarity drives the level: regression → error, recovery → notice, other significant → warning.

@@ -45,7 +45,7 @@ test('annotations ship OFF: the manifest default is `never`', () => {
     // Three renderings of one result is two too many — the PR comment and the job
     // summary already carry it, and an annotation competes with the compiler's own in
     // the gutter where a real build error must stay findable. This is a DEFAULT change,
-    // not a capability removal: `annotations: significant` restores the whole surface,
+    // not a capability removal: `annotations: drift` restores the whole surface,
     // and the level ladder itself is covered in annotations.test.ts.
     assert.equal(
         defaultOf('annotations'),

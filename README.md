@@ -98,12 +98,12 @@ Every default is overridable — the annotated tour (all knobs optional):
     baseline-name: sift-baseline-main-ci       # the artifact name THIS run publishes its log under
     publish-baseline: auto                     # auto (PRs always; pushes/tags verdict-gated) | always | never
 
-    # ── Verdict surfaces (each its own level: never|regression|significant|always) ──
+    # ── Verdict surfaces (each its own level: never|regression|drift|always) ──
     fail-on: regression              # the advisory gate — exit code only (none | significant | regression)
     pr-comment: always               # sticky PR comment level
     commit-comment: never            # commit comment on push runs (needs contents: write)
     annotations: never               # inline ::error/::warning/::notice on the Checks tab (token-free);
-                                     # OFF by default — opt in with `significant`
+                                     # OFF by default — opt in with `drift`
     baseline-max-age: 7d             # staleness bound on the resolved baseline (default 72h; empty = off)
     comment-tag: vs-main             # namespace for a SECOND sticky comment in the same job
     changed-outcome: auto            # this run's NATIVE verdict token, forwarded verbatim to the engine
@@ -128,16 +128,17 @@ Sift works whether you use PRs or push straight to `main`. **The diff is always 
 job summary (`$GITHUB_STEP_SUMMARY`) and to step outputs** — that's the result, retrievable no matter
 how you configure comments. Comments are an optional overlay on top, each surface with its own level:
 
-- **PR runs** — `pr-comment` controls the sticky comment: `never` | `regression` | `significant`
+- **PR runs** — `pr-comment` controls the sticky comment: `never` | `regression` | `drift`
   (drift or regression) | **`always`** (default — keeps the green "✅ no change" reassurance).
 - **Push runs** (trunk commit to `main`, no PR) — `commit-comment` controls a comment on the pushed
-  commit: **`never`** (default — job summary only) | `regression` | `significant` | `always`. Needs
+  commit: **`never`** (default — job summary only) | `regression` | `drift` | `always`. Needs
   `contents: write`; upserts per-commit (re-runs don't duplicate). The baseline re-seed is
   **green-gated** (a red build still diffs against the prior green but never becomes the baseline).
 
 Each surface has its **own** level (no shared floor), so you can keep the reassuring PR comment while
 staying silent on routine pushes. `fail-on` is a separate axis — it gates the **build** (exit code),
-not the comment. The first run on a fresh branch is a cold start (seed only); every run after diffs.
+not the comment. A value outside a surface's list fails the run as a configuration error, rather than
+quietly switching the surface on or off. The first run on a fresh branch is a cold start (seed only); every run after diffs.
 
 **What Drift means on two green runs.** Sift compares exactly two runs and keeps no history. On two
 successful runs, Drift means the logs differ, not that this change caused the difference: a line that
@@ -211,7 +212,7 @@ Sift can also emit the significant rows as native **check-run annotations** (`::
 the run. **They are OFF by default** (`annotations: never`) — the PR comment and the job summary already
 render the same result, and an annotation competes with the compiler's own in the gutter where a real
 build error must stay findable. Opt in and the surface is whole: `annotations` takes `never` (default) |
-`regression` | `significant` (drift or regression) | `always`. Polarity drives the severity:
+`regression` | `drift` (drift or regression) | `always`. Polarity drives the severity:
 
 - a **regression** row → `::error::`
 - a **recovery** (the un-grep-able win) → `::notice::`
@@ -221,7 +222,7 @@ They **fire on a green build** too — exactly where GitHub's own "Explain error
 on a *red* check). The message is the engine's ranked `summary` + its first evidence line, **verbatim**;
 there is **no `file:line` anchor** — Sift diffs *logs*, not source, so it never guesses a source location
 (the full report stays in the PR comment + `<details>`). A clean run has no significant rows, so even
-`significant` stays quiet on a green, unchanged build.
+`drift` stays quiet on a green, unchanged build.
 
 **Annotations are fork-safe by construction.** They are GitHub *workflow commands* written to stdout —
 they need **no write token** — so the unprivileged `mode: render` build job (the `on: pull_request` job
@@ -343,7 +344,7 @@ By default (one workflow), a fork PR gets a **read-only** token, so the sticky c
 and baseline upload **can't write**. The Action does **not** silently no-op — it warns,
 the **advisory gate still applies** (the diff runs, `fail-on` gates), **and the [inline
 annotations](#inline-annotations) still surface if you turned them on** (they are token-free
-stdout workflow commands — off by default, `annotations: significant` arms them), so a fork PR
+stdout workflow commands — off by default, `annotations: drift` arms them), so a fork PR
 can keep a visible structural signal even without the two-workflow pattern. Safe default.
 
 To actually **post comments on fork PRs**, use the two-workflow pattern (the secure
@@ -413,9 +414,9 @@ a local shell.
 |---|---|---|---|
 | `target-job` | no | _(none)_ | Zero-plumbing sourcing: diff the log of this finished job (run Sift in a job that `needs:` it). Wins over `log`. See [Capturing the log](#capturing-the-log). |
 | `capture` | no | `auto` | With `target-job`: `auto` (SIFT_CAPTURE sections if any, else whole log) \| `off` \| `<name>` (that section only; absent ⇒ the run fails). |
-| `log` | unless `target-job` | — | Path to the captured current-run log to diff. The only source for which the Action passes the workflow's `needs:` graph (see [the required-check fold](#usage)). |
+| `log` | unless `target-job` | — | Path to the captured current-run log to diff. The only source on which the required-check fold can fire, when the file holds several jobs' logs (see [the required-check fold](#usage)). |
 | `sift-binary` | no | _(auto)_ | Override path to a `sift` binary. Default: download + sha256-verify the version-pinned `sift-linux-x64` release asset. |
-| `fail-on` | no | `none` | `none` \| `significant` \| `regression` — advisory gate (exit code only; the comment never says "blocked"). |
+| `fail-on` | no | `none` | `none` \| `significant` \| `regression` — advisory gate (exit code only; the comment never says "blocked"). Any other value fails the run. |
 | `explain` | no | `false` | `true` opts into an AI narrative header: the Action provisions a pinned, checksum-verified **local** model + server (no credential, fork-safe — nothing leaves the runner) and adds a short plain-English story. Advisory + fail-soft — never blocks or changes the gate, and provisioning is bounded at 15 minutes so it cannot stall your run. Adds a ~2.4 GB model download (cache it — see [Explain](#explain-opt-in-ai-narrative)) + a few seconds of CPU. |
 | `explain-model` | no | _(pinned)_ | Advanced: override the model name passed to `sift --explain`. Leave unset for the auto-provisioned default. |
 | `baseline` | no | `auto` | Baseline **selection**: `auto` \| `branch=<name>` \| `artifact=<name>` (named baseline, repo-wide) \| `path=<file>` \| `none`. Malformed values fail the run — never a silent fallback. See [Choosing the baseline](#choosing-the-baseline--you-are-king). |
@@ -424,9 +425,9 @@ a local shell.
 | `baseline-max-age` | no | `72h` | Staleness bound on the resolved baseline (`<n>h` \| `<n>d`; empty disables it). Exceeded ⇒ stale banner + warning annotation, **never a failed step** (still diffs, posts, seeds). Malformed values fail the run. See [Choosing the baseline](#choosing-the-baseline--you-are-king). |
 | `comment-tag` | no | _(none)_ | Namespaces the sticky comment (marker + title) so two sift invocations in one job keep separate comments. |
 | `changed-outcome` | no | `auto` | This run's **native** CI verdict token, forwarded verbatim to the engine (four-class-aware: UNSTABLE is never folded into FAILURE). `auto` = `target-job`'s own conclusion; set `${{ needs.<job>.result }}` when sourcing via `log:`, else the engine reads the log's console tail / no verdict. |
-| `pr-comment` | no | `always` | `never` \| `regression` \| `significant` \| `always` — sticky PR comment at/above this verdict. |
-| `commit-comment` | no | `never` | `never` \| `regression` \| `significant` \| `always` — commit comment on push at/above this verdict (needs `contents: write`). |
-| `annotations` | no | `never` | `never` \| `regression` \| `significant` \| `always` — inline check-run annotations (`::error`/`::warning`/`::notice`) at/above this verdict. **Off by default**; opt in with `significant`. Fork-safe (stdout workflow commands, no token); fires on green. See [Inline annotations](#inline-annotations). |
+| `pr-comment` | no | `always` | `never` \| `regression` \| `drift` \| `always` — sticky PR comment at/above this verdict. Any other value fails the run. |
+| `commit-comment` | no | `never` | `never` \| `regression` \| `drift` \| `always` — commit comment on push at/above this verdict (needs `contents: write`). Any other value fails the run. |
+| `annotations` | no | `never` | `never` \| `regression` \| `drift` \| `always` — inline check-run annotations (`::error`/`::warning`/`::notice`) at/above this verdict. **Off by default**; opt in with `drift`. Any other value fails the run. Fork-safe (stdout workflow commands, no token); fires on green. See [Inline annotations](#inline-annotations). |
 | `github-token` | no | `${{ github.token }}` | Runs/artifacts API + comment + artifact upload. |
 
 ## Outputs

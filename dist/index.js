@@ -62820,17 +62820,28 @@ function selectState(report) {
   }
   return "drift" /* Drift */;
 }
+var COMMENT_LEVELS = ["never", "regression", "drift", "always"];
 function shouldComment(state3, level) {
   switch (level) {
     case "never":
       return false;
     case "regression":
       return state3 === "regression" /* Regression */;
-    case "significant":
+    case "drift":
       return state3 === "drift" /* Drift */ || state3 === "regression" /* Regression */;
     case "always":
       return true;
   }
+}
+function parseCommentLevel(input, raw, fallback) {
+  const value = (raw || fallback).trim().toLowerCase();
+  const level = COMMENT_LEVELS.find((known) => known === value);
+  if (level === void 0) {
+    throw new Error(
+      `invalid \`${input}\` input "${raw}" \u2014 expected ${COMMENT_LEVELS.join(" | ")}`
+    );
+  }
+  return level;
 }
 
 // src/annotations.ts
@@ -102667,6 +102678,15 @@ async function resolveSift(override, workDir) {
 var exec3 = __toESM(require_exec(), 1);
 import { spawn } from "node:child_process";
 import { promises as fs12 } from "fs";
+var FAIL_ON_VALUES = ["none", "significant", "regression"];
+function parseFailOn(raw) {
+  const value = (raw || "none").trim().toLowerCase();
+  const failOn = FAIL_ON_VALUES.find((known) => known === value);
+  if (failOn === void 0) {
+    throw new Error(`invalid \`fail-on\` input "${raw}" \u2014 expected ${FAIL_ON_VALUES.join(" | ")}`);
+  }
+  return failOn;
+}
 var SIFT_EXIT = {
   SUCCESS: 0,
   USAGE_ERROR: 1,
@@ -103042,13 +103062,8 @@ function readMode() {
 function readChangedOutcome() {
   return (getInput("changed-outcome") || "auto").trim();
 }
-function readFailOn() {
-  const raw = (getInput("fail-on") || "none").toLowerCase();
-  return raw === "significant" || raw === "regression" ? raw : "none";
-}
 function readCommentLevel(input, fallback) {
-  const raw = (getInput(input) || fallback).toLowerCase();
-  return raw === "never" || raw === "regression" || raw === "significant" || raw === "always" ? raw : fallback;
+  return parseCommentLevel(input, getInput(input), fallback);
 }
 function readPublishMode() {
   const raw = (getInput("publish-baseline") || "auto").toLowerCase();
@@ -103116,10 +103131,11 @@ async function run() {
     );
     return;
   }
-  const failOn = readFailOn();
+  const failOn = parseFailOn(getInput("fail-on"));
   const rawChangedOutcome = readChangedOutcome();
   const prComment = readCommentLevel("pr-comment", "always");
   const commitComment = readCommentLevel("commit-comment", "never");
+  const annotationsLevel = readCommentLevel("annotations", "never");
   const token = getInput("github-token") || process.env.GITHUB_TOKEN || "";
   const octokit = getOctokit(token);
   const { owner, repo } = context2.repo;
@@ -103282,7 +103298,6 @@ async function run() {
     await fs13.copyFile(reportJsonPath, reportPathOut);
   }
   setOutput("report-path", reportPathOut);
-  const annotationsLevel = readCommentLevel("annotations", "never");
   for (const command of buildAnnotationCommands(report, annotationsLevel)) {
     process.stdout.write(`${command}
 `);

@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 import { renderComment, STICKY_MARKER, escapeInline } from '../src/frame.js';
 import { polarityGlyph, severityGlyph } from '../src/glyph.js';
-import { selectState, shouldComment, State } from '../src/verdict.js';
+import { parseCommentLevel, selectState, shouldComment, State } from '../src/verdict.js';
 import type { RankedChange, SiftCommentContext, SiftReport } from '../src/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -816,17 +816,33 @@ test('push context (no pr_number) renders identically — the frame never reads 
 
 // ── Comment threshold per surface — never|regression|significant|always (contract § 3) ──
 
+// DN-132.O2 (the Founder's ruling (a)): the ladder's middle value is `drift`, the word the headline
+// uses. Any other value — the retired `significant` included — fails the run as a config error
+// rather than leaving a surface on or off against the workflow's text. RED at sift-action 65ddebc,
+// whose `readCommentLevel` fell back to the surface's default without a word.
+test('parseCommentLevel: the four values parse, empty takes the default, anything else throws naming the input', () => {
+    assert.equal(parseCommentLevel('pr-comment', '', 'always'), 'always');
+    assert.equal(parseCommentLevel('annotations', 'Drift', 'never'), 'drift');
+    for (const raw of ['significant', 'notable', 'yes']) {
+        assert.throws(
+            () => parseCommentLevel('annotations', raw, 'never'),
+            (error: Error) => error.message === `invalid \`annotations\` input "${raw}" — expected never | regression | drift | always`,
+            `"${raw}" must fail the run`,
+        );
+    }
+});
+
 test('shouldComment honours each level; only `always` fires on clean / cold-start', () => {
     const all = [State.ColdStart, State.Clean, State.Drift, State.Regression];
     // never: off everywhere
     for (const s of all) assert.equal(shouldComment(s, 'never'), false, `never must not comment (${s})`);
     // always: every state — incl. the green "✅ no change" reassurance and cold start
     for (const s of all) assert.equal(shouldComment(s, 'always'), true, `always must comment (${s})`);
-    // significant: drift OR regression — never clean / cold-start
-    assert.equal(shouldComment(State.ColdStart, 'significant'), false);
-    assert.equal(shouldComment(State.Clean, 'significant'), false, 'clean is not "notable" — no noise');
-    assert.equal(shouldComment(State.Drift, 'significant'), true);
-    assert.equal(shouldComment(State.Regression, 'significant'), true);
+    // drift: drift OR regression — never clean / cold-start
+    assert.equal(shouldComment(State.ColdStart, 'drift'), false);
+    assert.equal(shouldComment(State.Clean, 'drift'), false, 'clean is not "notable" — no noise');
+    assert.equal(shouldComment(State.Drift, 'drift'), true);
+    assert.equal(shouldComment(State.Regression, 'drift'), true);
     // regression: only a flagged regression
     assert.equal(shouldComment(State.Clean, 'regression'), false);
     assert.equal(shouldComment(State.Drift, 'regression'), false, 'drift alone is below the regression bar');

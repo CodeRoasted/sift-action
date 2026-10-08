@@ -49,7 +49,7 @@ jobs:
           # THIS unprivileged job — they are stdout workflow commands (no write token), so they
           # appear on the fork PR's checks even though the sticky comment waits for the
           # privileged poster (2 of 2):
-          # annotations: significant
+          # annotations: drift
 
       # render mode writes the comment body + PR metadata under ${{ runner.temp }}/sift-comment/.
       - uses: actions/upload-artifact@v4

@@ -31,8 +31,8 @@ import { publishBaselineLog, publishReport, writeRenderedComment } from './artif
 import { renderComment } from './frame.js';
 import { runPoster } from './poster.js';
 import { resolveSift } from './resolve-sift.js';
-import { runSift, runExplainSetup, type FailOn } from './sift.js';
-import { selectState, shouldComment, State, type CommentLevel } from './verdict.js';
+import { parseFailOn, runSift, runExplainSetup } from './sift.js';
+import { parseCommentLevel, selectState, shouldComment, State, type CommentLevel } from './verdict.js';
 import {
     BASELINE_ARTIFACT_NAME,
     CONTEXT_VERSION,
@@ -73,19 +73,11 @@ function readChangedOutcome(): string {
     return (core.getInput('changed-outcome') || 'auto').trim();
 }
 
-function readFailOn(): FailOn {
-    const raw = (core.getInput('fail-on') || 'none').toLowerCase();
-    return raw === 'significant' || raw === 'regression' ? raw : 'none';
-}
-
 // Each comment surface carries its OWN level (no shared floor): pr-comment defaults to
-// `always` (the green "✅ no change" reassurance stays); commit-comment defaults to
-// `never` (quiet on push). Values: never | regression | significant | always.
+// `always` (the green "✅ no change" reassurance stays); commit-comment and annotations default to
+// `never`. Values: never | regression | drift | always; any other fails the run (parseCommentLevel).
 function readCommentLevel(input: string, fallback: CommentLevel): CommentLevel {
-    const raw = (core.getInput(input) || fallback).toLowerCase();
-    return raw === 'never' || raw === 'regression' || raw === 'significant' || raw === 'always'
-        ? (raw as CommentLevel)
-        : fallback;
+    return parseCommentLevel(input, core.getInput(input), fallback);
 }
 
 // When (whether) this run PUBLISHES its log as the next baseline (the
@@ -203,10 +195,15 @@ async function run(): Promise<void> {
         );
         return;
     }
-    const failOn = readFailOn();
+    // Every enumerated input is parsed BEFORE any API work: an invalid value is a config error
+    // that fails the run here, never a silent default taken after the diff has run.
+    const failOn = parseFailOn(core.getInput('fail-on'));
     const rawChangedOutcome = readChangedOutcome();
     const prComment = readCommentLevel('pr-comment', 'always');
     const commitComment = readCommentLevel('commit-comment', 'never');
+    // The shipped default lives in `action.yml`; this fallback only governs an invocation that
+    // bypasses the manifest.
+    const annotationsLevel = readCommentLevel('annotations', 'never');
     const token = core.getInput('github-token') || process.env.GITHUB_TOKEN || '';
     const octokit = github.getOctokit(token);
     const { owner, repo } = github.context.repo;
@@ -471,9 +468,7 @@ async function run(): Promise<void> {
     // boundary; nothing privileged happens here. Own axis, DEFAULT `never`: three renderings of
     // one result is two too many, and annotations compete with the compiler's own in the gutter
     // where a real build error must stay findable. The capability is whole and one input away
-    // (`annotations: significant`) — the shipped default lives in `action.yml`; this fallback
-    // only governs an invocation that bypasses the manifest.
-    const annotationsLevel = readCommentLevel('annotations', 'never');
+    // (`annotations: drift`).
     for (const command of buildAnnotationCommands(report, annotationsLevel)) {
         process.stdout.write(`${command}\n`);
     }

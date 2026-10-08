@@ -15,6 +15,7 @@ import {
     engineFailureMessage,
     measureUnreadableReport,
     runExplainSetup,
+    parseFailOn,
     runSift,
     siftArgs,
     SiftReportUnreadableError,
@@ -796,4 +797,29 @@ test('runSift: a conformant report is returned exactly as a lenient read parses 
     assert.ok(!(outcome instanceof Error), String(outcome));
     assert.deepEqual(outcome.report, JSON.parse(bytes.toString('utf8')));
     assert.equal(outcome.exitCode, 0);
+});
+
+// ── DN-132.D2: an unknown `fail-on` value is a config error, never a silent `none` ────────────
+//
+// The defect this erases: every value but `significant` and `regression` read as `none`, so
+// `fail-on: medium` (DN-132's coming spelling, which no published engine parses yet) or a typo
+// left a workflow ungated without a word. RED at sift-action 65ddebc, whose `readFailOn` mapped
+// both to `none` — mirrored here by the cells it would have accepted.
+
+test('parseFailOn: the pinned engine\'s values parse, case-blind, and empty is none', () => {
+    assert.equal(parseFailOn(''), 'none');
+    assert.equal(parseFailOn('none'), 'none');
+    assert.equal(parseFailOn('Significant'), 'significant');
+    assert.equal(parseFailOn(' regression '), 'regression');
+});
+
+test('parseFailOn: any other value throws, naming the input, the value and the accepted values — no alias', () => {
+    for (const raw of ['medium', 'high', 'critical', 'regresion', 'low', 'true']) {
+        assert.throws(
+            () => parseFailOn(raw),
+            (error: Error) =>
+                error.message === `invalid \`fail-on\` input "${raw}" — expected none | significant | regression`,
+            `"${raw}" must fail the run, not disable the gate`,
+        );
+    }
 });
