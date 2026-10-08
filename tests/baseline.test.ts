@@ -134,16 +134,26 @@ test('branch=<name>: the run resolver targets the EXPLICIT branch, not the conte
     assert.equal(asked, 'release');
 });
 
-// A named-baseline zip the artifact source can inflate. `outcomeToken` adds the
-// stamped provenance sidecar (ADR-17.D5); undefined = a sidecar-less artifact.
-function baselineZip(content: string, outcomeToken?: string): { data: ArrayBuffer } {
+// The stack a `target-job` run declares for the bytes it stores (DN-89.D38 §2), and therefore
+// what a sidecar published by such a run records.
+const JOB_LOG_STACK = ['utf8-bom-line-prefix', 'api-rfc3339-line-prefix'];
+
+// The sidecar the CURRENT Action publishes (DN-89.D38 §4): its context version, the publishing
+// run's native verdict token, and the ordered stack the stored bytes were declared under.
+function recordedSidecar(outcomeToken: string, transport: unknown = JOB_LOG_STACK): Record<string, unknown> {
+    return { context_version: '0.3.0', outcome_token: outcomeToken, transport };
+}
+
+// A named-baseline zip the artifact source can inflate: the log under `baseline.log` and, unless
+// `sidecar` is 'absent', the stamped provenance sidecar beside it.
+function baselineZip(
+    content: string | Buffer,
+    sidecar: Record<string, unknown> | 'absent' = recordedSidecar(''),
+): { data: ArrayBuffer } {
     const zip = new AdmZip();
-    zip.addFile('baseline.log', Buffer.from(content, 'utf8'));
-    if (outcomeToken !== undefined) {
-        zip.addFile(
-            'sift-baseline-meta.json',
-            Buffer.from(JSON.stringify({ context_version: '0.2.0', outcome_token: outcomeToken }), 'utf8'),
-        );
+    zip.addFile('baseline.log', typeof content === 'string' ? Buffer.from(content, 'utf8') : content);
+    if (sidecar !== 'absent') {
+        zip.addFile('sift-baseline-meta.json', Buffer.from(JSON.stringify(sidecar), 'utf8'));
     }
     // `Buffer.buffer` is `ArrayBufferLike`, so slicing it yields `ArrayBuffer | SharedArrayBuffer`
     // — adm-zip 0.6.0's own types surface that honestly where the 0.5.x DefinitelyTyped stub did
@@ -197,7 +207,7 @@ test('artifact=<name>: newest live artifact resolves repo-wide; expired + own-ru
     assert.equal(resolved.meta.label, 'sift-baseline-main-build');
     assert.equal(resolved.meta.sha, 'abc1234def');
     assert.equal(await fs.readFile(resolved.logPath, 'utf8'), 'hello baseline\n');
-    assert.equal(resolved.outcomeToken, '', 'a sidecar-less artifact resolves with NO token — the ladder falls to the console tail');
+    assert.equal(resolved.outcomeToken, '', 'a sidecar recording an empty token resolves with NO token — the ladder falls to the console tail');
 });
 
 test('the stamped sidecar rides back: outcome token verbatim, log entry selected past the sidecar', async () => {
@@ -221,7 +231,7 @@ test('the stamped sidecar rides back: outcome token verbatim, log entry selected
                         ],
                     },
                 }),
-                downloadArtifact: async () => baselineZip('stamped baseline\n', 'success'),
+                downloadArtifact: async () => baselineZip('stamped baseline\n', recordedSidecar('success')),
             },
         },
     };
@@ -267,6 +277,9 @@ test('path=<file>: local baseline resolves with path provenance; a MISSING file 
     assert.equal(resolved.meta.kind, 'path');
     assert.equal(resolved.meta.label, file);
     assert.equal(resolved.outcomeToken, '', 'a local file carries no provenance sidecar');
+    // DN-89.D38 §4: the Action does not know how a local file was delivered, so its side stays
+    // UNDECLARED and the engine deduces it — never `none`, which would be a declaration.
+    assert.equal(resolved.transport, undefined, 'a `path=` baseline must leave its transport undeclared');
     assert.equal(await fs.readFile(resolved.logPath, 'utf8'), 'local\n');
 
     await assert.rejects(
@@ -716,3 +729,157 @@ test('artifact=<name>: a SHORT page before total_count is reached is refused —
     const scan = await newestNamedArtifact(octokit, 'o', 'r', 'n', 1);
     assert.equal(scan.kind === 'refused' ? scan.reason : scan.kind, 'the listing of `n` ended after 60 of 150 artifacts (page 1 held 60), so the newest cannot be established');
 });
+
+// ── DN-89.D38 arm A6: the sidecar records the stack its stored bytes were declared under ──────
+//
+// A stored baseline is the wire bytes of the run that published it, so its sidecar must say how
+// those bytes are declared: `transport`, the ordered stack, an empty list for none, with the
+// context at 0.3.0. On extraction a recorded stack rides back verbatim and in order, to become
+// `--baseline-transport`. A sidecar that recorded no stack is NOT a baseline: the bytes it
+// describes were hand-stripped by the old Action, and diffing them against canon-peeled bytes
+// would rank the old defect's residue as change. So it is a cold start that names its reason,
+// and so is a stack that is not a list of catalogue names, with a reason of its own. Neither
+// throws: a refused baseline is reported, never a failed check.
+
+import { publishBaselineLog } from '../src/artifact.js';
+
+// Bytes a decode or a strip would not reproduce: a mark, a stamp, a CRLF and an ill-formed byte.
+const STORED_WIRE_BYTES = Buffer.concat([
+    Buffer.from([0xef, 0xbb, 0xbf]),
+    Buffer.from('2026-06-21T12:19:42.7928236Z Current runner version\r\n', 'utf8'),
+    Buffer.from('2026-06-21T12:19:42.7928236Z compiler said ', 'utf8'),
+    Buffer.from([0xff]),
+    Buffer.from('\n', 'utf8'),
+]);
+
+// Runs `run` while recording every `::warning::` the Action prints; everything written still
+// reaches the real stdout.
+async function warningsDuring<T>(run: () => Promise<T>): Promise<{ value: T; warnings: string[] }> {
+    const original = process.stdout.write;
+    const written: string[] = [];
+    process.stdout.write = ((chunk: string | Uint8Array, ...rest: unknown[]): boolean => {
+        written.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+        return (original as (...args: unknown[]) => boolean).call(process.stdout, chunk, ...rest);
+    }) as typeof process.stdout.write;
+    try {
+        const value = await run();
+        return { value, warnings: written.filter((line) => line.startsWith('::warning')) };
+    } finally {
+        process.stdout.write = original;
+    }
+}
+
+// One live named artifact whose download serves `zip`, and a record of every download.
+function oneArtifactOctokit(zip: () => { data: ArrayBuffer }) {
+    const downloads: number[] = [];
+    const octokit = {
+        rest: {
+            actions: {
+                getWorkflowRun: unreached,
+                listWorkflowRuns: unreached,
+                listWorkflowRunArtifacts: unreached,
+                listArtifactsForRepo: async () => ({
+                    data: { total_count: 1, artifacts: [named(21, '2026-10-01T08:00:00Z')] },
+                }),
+                downloadArtifact: async (args: { artifact_id: number }) => {
+                    downloads.push(args.artifact_id);
+                    return zip();
+                },
+            },
+        },
+    };
+    return { octokit: octokit as unknown as ResolveParams['octokit'], downloads };
+}
+
+test('A6: a published sidecar records context 0.3.0, the verdict token and the ordered stack', async () => {
+    for (const transport of [JOB_LOG_STACK, []]) {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-baseline-publish-'));
+        const logPath = path.join(dir, 'changed.log');
+        await fs.writeFile(logPath, STORED_WIRE_BYTES);
+        const uploads: { name: string; files: Record<string, Buffer> }[] = [];
+        const client = {
+            uploadArtifact: async (name: string, files: string[], root: string) => {
+                const read: Record<string, Buffer> = {};
+                for (const file of files) read[path.relative(root, file)] = await fs.readFile(file);
+                uploads.push({ name, files: read });
+                return { id: 1, size: 0 };
+            },
+        };
+        await publishBaselineLog(logPath, 'success', transport, 'sift-baseline-log', client);
+        assert.equal(uploads.length, 1, `uploads: ${uploads.length}`);
+        const files = uploads[0]?.files ?? {};
+        assert.ok(
+            files['changed.log']?.equals(STORED_WIRE_BYTES),
+            `the stored log must be the bytes the run diffed, byte for byte; got ${files['changed.log']?.toString('hex')}`,
+        );
+        const sidecar = files['sift-baseline-meta.json'];
+        assert.ok(sidecar, `no sidecar uploaded; files: ${Object.keys(files).join(', ')}`);
+        assert.deepEqual(JSON.parse(sidecar.toString('utf8')), {
+            context_version: '0.3.0',
+            outcome_token: 'success',
+            transport,
+        });
+    }
+});
+
+test('A6: a recorded stack rides back verbatim and in order, and the stored bytes untouched', async () => {
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    // Not the canonical order: a stack is ordered, and the Action must not sort or re-derive it.
+    const recorded = ['api-rfc3339-line-prefix', 'utf8-bom-line-prefix'];
+    const { octokit } = oneArtifactOctokit(() => baselineZip(STORED_WIRE_BYTES, recordedSidecar('success', recorded)));
+    const resolved = await resolveBaseline(params(octokit, { spec: namedSpec, workDir }));
+    assert.ok(resolved, 'a sidecar recording a stack must resolve');
+    assert.deepEqual(resolved.transport, recorded);
+    assert.equal(resolved.outcomeToken, 'success');
+    assert.ok((await fs.readFile(resolved.logPath)).equals(STORED_WIRE_BYTES), 'the stored bytes were rewritten on extraction');
+
+    const { octokit: none } = oneArtifactOctokit(() => baselineZip('plain\n', recordedSidecar('success', [])));
+    const declaredNone = await resolveBaseline(params(none, { spec: namedSpec, workDir }));
+    assert.ok(declaredNone, 'an empty stack is a declaration of none, and resolves');
+    assert.deepEqual(declaredNone.transport, [], 'an empty recorded stack is none, never undeclared');
+});
+
+const UNRECORDED = /recorded no transport/;
+
+const COLD_START_CELLS: ReadonlyArray<{
+    name: string;
+    sidecar: Record<string, unknown> | 'absent';
+    unrecorded: boolean;
+}> = [
+    {
+        name: 'a 0.2.0 sidecar, published before the stack was recorded',
+        sidecar: { context_version: '0.2.0', outcome_token: 'success' },
+        unrecorded: true,
+    },
+    { name: 'no sidecar at all', sidecar: 'absent', unrecorded: true },
+    { name: 'a transport that is not a list', sidecar: recordedSidecar('success', 'none'), unrecorded: false },
+    {
+        name: 'a list holding something other than a name',
+        sidecar: recordedSidecar('success', ['api-rfc3339-line-prefix', 7]),
+        unrecorded: false,
+    },
+    {
+        name: 'a list naming a row outside the catalogue',
+        sidecar: recordedSidecar('success', ['utf8-bom-line-prefix', 'gzip']),
+        unrecorded: false,
+    },
+];
+
+for (const cell of COLD_START_CELLS) {
+    test(`A6: ${cell.name} is a cold start with its reason, never a failed check`, async () => {
+        const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+        const { octokit, downloads } = oneArtifactOctokit(() => baselineZip('old baseline\n', cell.sidecar));
+        const { value, warnings } = await warningsDuring(() =>
+            resolveBaseline(params(octokit, { spec: namedSpec, workDir })),
+        );
+        assert.deepEqual(downloads, [21], 'precondition: the artifact must be downloaded, so the sidecar is what refuses');
+        assert.equal(value, null, `${cell.name} must not resolve as a baseline`);
+        const said = warnings.join('');
+        if (cell.unrecorded) {
+            assert.match(said, UNRECORDED, `the warning must name the missing stack; it said: ${said}`);
+        } else {
+            assert.match(said, /transport/, `the warning must name the malformed stack; it said: ${said}`);
+            assert.doesNotMatch(said, UNRECORDED, `a malformed stack has its own reason; it said: ${said}`);
+        }
+    });
+}

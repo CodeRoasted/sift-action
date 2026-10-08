@@ -28,7 +28,7 @@ import {
     BASELINE_META_FILE,
     MAX_BASELINE_ARTIFACT_BYTES,
     MAX_BASELINE_UNPACKED_BYTES,
-    type BaselineMeta,
+    TRANSPORT_CATALOGUE,
     type BaselineProvenance,
 } from './types.js';
 
@@ -107,6 +107,13 @@ export interface ResolvedBaseline {
      * sidecar existed): the engine's ladder then falls to the console tail → Unknown.
      */
     outcomeToken: string;
+    /**
+     * The stack the stored bytes were declared under, from the sidecar, verbatim and in order —
+     * forwarded as `--baseline-transport`; `[]` declares none. UNDEFINED only for a `path=`
+     * baseline, whose delivery the Action does not know: that side stays undeclared and the
+     * engine deduces it (DN-89.D38 §4).
+     */
+    transport?: readonly string[];
 }
 
 export interface ResolveParams {
@@ -442,10 +449,43 @@ export async function newestNamedArtifact(
     return newest ? { kind: 'found', artifact: newest.artifact } : { kind: 'none' };
 }
 
+// A stored baseline is the bytes its publishing run diffed, so it is comparable only beside the
+// stack those bytes were declared under. A sidecar recording none — absent, unreadable, or
+// written before 0.3.0 — describes bytes the old Action hand-stripped (one space removed, the
+// first line's mark and every CR dropped); diffing them against canon-peeled bytes would rank the
+// old defect's residue as change on every indented line. So it is NOT a baseline: one cold start
+// per lineage, said why, never a failed check (DN-89.D38 §4; reading the absence as `none` was
+// rejected there). A recorded stack that is not a list of catalogue names is refused the same
+// way, with its own reason.
+const UNRECORDED_TRANSPORT =
+    'it was stored by an Action that recorded no transport for its bytes, so it is not comparable ' +
+    'with this run (one cold start per baseline lineage; this run re-seeds it)';
+
+function recordedTransport(sidecar: unknown, artifactId: number): string[] {
+    const recorded =
+        typeof sidecar === 'object' && sidecar !== null && !Array.isArray(sidecar)
+            ? (sidecar as Record<string, unknown>)['transport']
+            : undefined;
+    if (recorded === undefined) {
+        throw new BaselineRefusal(`baseline artifact ${artifactId} is not used: ${UNRECORDED_TRANSPORT}`);
+    }
+    if (
+        !Array.isArray(recorded) ||
+        !recorded.every((row): row is string => typeof row === 'string' && TRANSPORT_CATALOGUE.includes(row))
+    ) {
+        throw new BaselineRefusal(
+            `baseline artifact ${artifactId} is not used: its ${BASELINE_META_FILE} records a transport ` +
+                `that is not a list of catalogue rows (${JSON.stringify(recorded)}; the catalogue is ` +
+                `${TRANSPORT_CATALOGUE.join(', ')})`,
+        );
+    }
+    return recorded;
+}
+
 // Extracts the baseline LOG plus the stamped provenance sidecar. The log entry is
 // "the one file that is not the sidecar" — the artifact carries exactly the log and
-// (since the sidecar was introduced) BASELINE_META_FILE. A sidecar-less artifact
-// resolves with an empty token: the engine ladder's honest absence rung.
+// BASELINE_META_FILE. The sidecar's transport is required (above); its verdict token may be
+// empty, the engine ladder's honest absence rung.
 async function extractBaseline(
     octokit: Octokit,
     owner: string,
@@ -453,7 +493,7 @@ async function extractBaseline(
     artifactId: number,
     workDir: string,
     artifactSize: number | undefined,
-): Promise<{ logPath: string; outcomeToken: string }> {
+): Promise<{ logPath: string; outcomeToken: string; transport: string[] }> {
     // BOUND 1 — pre-download, on the METADATA, so oversized bytes never transfer. Mirrors the
     // poster's pre-download gate rather than inventing a second shape.
     if (artifactSize !== undefined && artifactSize > MAX_BASELINE_ARTIFACT_BYTES) {
@@ -501,18 +541,19 @@ async function extractBaseline(
     const logPath = path.join(workDir, 'baseline.log');
     await fs.writeFile(logPath, logEntry.getData());
 
-    let outcomeToken = '';
     const metaEntry = files.find((candidate) => path.basename(candidate.entryName) === BASELINE_META_FILE);
+    let sidecar: unknown;
     if (metaEntry) {
         try {
-            const meta = JSON.parse(metaEntry.getData().toString('utf8')) as BaselineMeta;
-            outcomeToken = typeof meta.outcome_token === 'string' ? meta.outcome_token : '';
+            sidecar = JSON.parse(metaEntry.getData().toString('utf8'));
         } catch {
-            core.warning(
-                `Sift: baseline artifact ${artifactId} has an unreadable ${BASELINE_META_FILE} — ` +
-                    'proceeding without a baseline verdict (console tail / Unknown).',
+            throw new BaselineRefusal(
+                `baseline artifact ${artifactId} is not used: its ${BASELINE_META_FILE} is unreadable, so ` +
+                    UNRECORDED_TRANSPORT,
             );
         }
     }
-    return { logPath, outcomeToken };
+    const transport = recordedTransport(sidecar, artifactId);
+    const token = (sidecar as Record<string, unknown>)['outcome_token'];
+    return { logPath, outcomeToken: typeof token === 'string' ? token : '', transport };
 }

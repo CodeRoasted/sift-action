@@ -18178,8 +18178,8 @@ var require_eventsource_stream = __commonJS({
     var BOM = [239, 187, 191];
     var LF = 10;
     var CR = 13;
-    var COLON = 58;
-    var SPACE = 32;
+    var COLON2 = 58;
+    var SPACE2 = 32;
     var EventSourceStream = class extends Transform3 {
       /**
        * @type {eventSourceSettings}
@@ -18320,7 +18320,7 @@ var require_eventsource_stream = __commonJS({
         if (line.length === 0) {
           return;
         }
-        const colonPosition = line.indexOf(COLON);
+        const colonPosition = line.indexOf(COLON2);
         if (colonPosition === 0) {
           return;
         }
@@ -18329,7 +18329,7 @@ var require_eventsource_stream = __commonJS({
         if (colonPosition !== -1) {
           field = line.subarray(0, colonPosition).toString("utf8");
           let valueStart = colonPosition + 1;
-          if (line[valueStart] === SPACE) {
+          if (line[valueStart] === SPACE2) {
             ++valueStart;
           }
           value = line.subarray(valueStart).toString("utf8");
@@ -62870,9 +62870,14 @@ import { promises as fs3 } from "fs";
 import * as path from "path";
 
 // src/types.ts
-var CONTEXT_VERSION = "0.2.0";
+var CONTEXT_VERSION = "0.3.0";
 var BASELINE_ARTIFACT_NAME = "sift-baseline-log";
 var BASELINE_META_FILE = "sift-baseline-meta.json";
+var TRANSPORT_CATALOGUE = [
+  "api-rfc3339-line-prefix",
+  "bracket-rfc3339-line-prefix",
+  "utf8-bom-line-prefix"
+];
 var SIFT_REPORT_ARTIFACT_NAME = "sift-report";
 var SIFT_REPORT_JSON_FILE = "report.json";
 var SIFT_REPORT_MARKDOWN_FILE = "report.md";
@@ -63132,6 +63137,19 @@ async function newestNamedArtifact(octokit, owner, repo, name, runId) {
   }
   return newest ? { kind: "found", artifact: newest.artifact } : { kind: "none" };
 }
+var UNRECORDED_TRANSPORT = "it was stored by an Action that recorded no transport for its bytes, so it is not comparable with this run (one cold start per baseline lineage; this run re-seeds it)";
+function recordedTransport(sidecar, artifactId) {
+  const recorded = typeof sidecar === "object" && sidecar !== null && !Array.isArray(sidecar) ? sidecar["transport"] : void 0;
+  if (recorded === void 0) {
+    throw new BaselineRefusal(`baseline artifact ${artifactId} is not used: ${UNRECORDED_TRANSPORT}`);
+  }
+  if (!Array.isArray(recorded) || !recorded.every((row) => typeof row === "string" && TRANSPORT_CATALOGUE.includes(row))) {
+    throw new BaselineRefusal(
+      `baseline artifact ${artifactId} is not used: its ${BASELINE_META_FILE} records a transport that is not a list of catalogue rows (${JSON.stringify(recorded)}; the catalogue is ${TRANSPORT_CATALOGUE.join(", ")})`
+    );
+  }
+  return recorded;
+}
 async function extractBaseline(octokit, owner, repo, artifactId, workDir, artifactSize) {
   if (artifactSize !== void 0 && artifactSize > MAX_BASELINE_ARTIFACT_BYTES) {
     throw new Error(
@@ -63164,56 +63182,119 @@ async function extractBaseline(octokit, owner, repo, artifactId, workDir, artifa
   }
   const logPath = path.join(workDir, "baseline.log");
   await fs3.writeFile(logPath, logEntry.getData());
-  let outcomeToken = "";
   const metaEntry = files.find((candidate) => path.basename(candidate.entryName) === BASELINE_META_FILE);
+  let sidecar;
   if (metaEntry) {
     try {
-      const meta = JSON.parse(metaEntry.getData().toString("utf8"));
-      outcomeToken = typeof meta.outcome_token === "string" ? meta.outcome_token : "";
+      sidecar = JSON.parse(metaEntry.getData().toString("utf8"));
     } catch {
-      warning(
-        `Sift: baseline artifact ${artifactId} has an unreadable ${BASELINE_META_FILE} \u2014 proceeding without a baseline verdict (console tail / Unknown).`
+      throw new BaselineRefusal(
+        `baseline artifact ${artifactId} is not used: its ${BASELINE_META_FILE} is unreadable, so ` + UNRECORDED_TRANSPORT
       );
     }
   }
-  return { logPath, outcomeToken };
+  const transport = recordedTransport(sidecar, artifactId);
+  const token = sidecar["outcome_token"];
+  return { logPath, outcomeToken: typeof token === "string" ? token : "", transport };
 }
 
 // src/joblog.ts
-var TIMESTAMP_PREFIX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z /;
-function stripRunnerTimestamps(raw) {
-  return raw.split(/\r?\n/).map((line) => line.replace(TIMESTAMP_PREFIX, ""));
+var JOB_LOG_TRANSPORT = ["utf8-bom-line-prefix", "api-rfc3339-line-prefix"];
+var BYTE_ORDER_MARK = [239, 187, 191];
+var STAMP_WIDTH = 28;
+var STAMP_SHAPE = "dddd-dd-ddTdd:dd:dd";
+var LINE_FEED = 10;
+var CARRIAGE_RETURN = 13;
+var SPACE = 32;
+var TAB = 9;
+var DOT = 46;
+var PLUS = 43;
+var MINUS = 45;
+var COLON = 58;
+var ZULU = 90;
+function isDigit(bytes, at) {
+  const byte = bytes[at];
+  return byte !== void 0 && byte >= 48 && byte <= 57;
 }
+function zoneLength(bytes, at) {
+  const head = bytes[at];
+  if (head === void 0) return 0;
+  if (head === ZULU) return 1;
+  if (head !== PLUS && head !== MINUS) return 0;
+  let cursor = at + 1;
+  if (!isDigit(bytes, cursor) || !isDigit(bytes, cursor + 1)) return null;
+  cursor += 2;
+  if (bytes[cursor] === COLON) cursor += 1;
+  if (!isDigit(bytes, cursor) || !isDigit(bytes, cursor + 1)) return null;
+  return cursor + 2 - at;
+}
+function datetimeLength(bytes, start) {
+  let at = start;
+  if (at + STAMP_SHAPE.length > bytes.length) return 0;
+  for (const shape of STAMP_SHAPE) {
+    if (shape === "d" ? !isDigit(bytes, at) : bytes[at] !== shape.charCodeAt(0)) return 0;
+    at += 1;
+  }
+  if (bytes[at] === DOT) {
+    const fraction = at + 1;
+    let end = fraction;
+    while (isDigit(bytes, end)) end += 1;
+    if (end === fraction) return 0;
+    at = end;
+  }
+  const zone = zoneLength(bytes, at);
+  return zone === null ? 0 : at + zone - start;
+}
+function payloadOffset(line) {
+  let at = 0;
+  if (BYTE_ORDER_MARK.every((byte, index) => line[index] === byte)) at = BYTE_ORDER_MARK.length;
+  if (datetimeLength(line, at) === STAMP_WIDTH) {
+    at += STAMP_WIDTH;
+    while (line[at] === SPACE || line[at] === TAB) at += 1;
+  }
+  return at;
+}
+function splitLines(bytes) {
+  const lines = [];
+  let start = 0;
+  while (start < bytes.length) {
+    const feed = bytes.indexOf(LINE_FEED, start);
+    const end = feed < 0 ? bytes.length : feed + 1;
+    const line = bytes.subarray(start, end);
+    let contentEnd = feed < 0 ? line.length : line.length - 1;
+    if (contentEnd > 0 && line[contentEnd - 1] === CARRIAGE_RETURN) contentEnd -= 1;
+    const payload = Buffer.from(line.subarray(payloadOffset(line), Math.max(contentEnd, 0))).toString("utf8");
+    lines.push({ bytes: line, payload });
+    start = end;
+  }
+  return lines;
+}
+var MARKER_OPEN = "SIFT_CAPTURE";
+var MARKER_CLOSE = "SIFT_CAPTURE_END";
 function extractCaptureSections(lines) {
   const sections = [];
   let open2 = null;
   for (const line of lines) {
-    if (line === "SIFT_CAPTURE" || line.startsWith("SIFT_CAPTURE ")) {
-      open2 = { name: line.slice("SIFT_CAPTURE".length).trim(), lines: [] };
+    if (line.payload === MARKER_OPEN || line.payload.startsWith(`${MARKER_OPEN} `)) {
+      open2 = { name: line.payload.slice(MARKER_OPEN.length).trim(), lines: [] };
       continue;
     }
-    if (line === "SIFT_CAPTURE_END") {
+    if (line.payload === MARKER_CLOSE) {
       if (open2) sections.push(open2);
       open2 = null;
       continue;
     }
-    if (open2) open2.lines.push(line);
+    if (open2) open2.lines.push(line.bytes);
   }
   if (open2) sections.push(open2);
   return sections;
 }
-function sliceJobLog(raw, capture) {
-  const lines = stripRunnerTimestamps(raw);
+function selectCapture(served, capture) {
   const mode = capture || "auto";
-  if (mode === "off") {
-    return lines.join("\n");
-  }
-  const sections = extractCaptureSections(lines);
+  if (mode === "off") return served;
+  const sections = extractCaptureSections(splitLines(served));
   if (mode === "auto") {
-    if (sections.length === 0) {
-      return lines.join("\n");
-    }
-    return sections.map((section) => section.lines.join("\n")).join("\n");
+    return sections.length === 0 ? served : Buffer.concat(sections.flatMap((section) => section.lines));
   }
   const named = sections.filter((section) => section.name === mode);
   if (named.length === 0) {
@@ -63222,7 +63303,7 @@ function sliceJobLog(raw, capture) {
       `capture section "${mode}" not found in the target job's log (sections seen: ${seen.length ? seen.join(", ") : "none"}). Emit it with \`echo "SIFT_CAPTURE ${mode}"\` \u2026 \`echo "SIFT_CAPTURE_END"\`.`
     );
   }
-  return named.map((section) => section.lines.join("\n")).join("\n");
+  return Buffer.concat(named.flatMap((section) => section.lines));
 }
 function acquiredGrainLine(grain) {
   if (grain.kind === "file") {
@@ -63263,21 +63344,48 @@ async function fetchTargetJobLog(params) {
   const download2 = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
     owner,
     repo,
-    job_id: job.id
+    job_id: job.id,
+    request: { parseSuccessResponseBody: false }
   });
-  const rawBytes = typeof download2.data === "string" ? Buffer.byteLength(download2.data, "utf8") : download2.data.byteLength;
-  if (rawBytes > MAX_CHANGED_LOG_BYTES) {
-    throw new Error(
-      `the log of job "${job.name}" is ${rawBytes} bytes, over the ${MAX_CHANGED_LOG_BYTES} byte per-input ceiling Sift declares. Bound what you compare with the SIFT_CAPTURE / SIFT_CAPTURE_END markers and set the \`capture\` input \u2014 a marked section is diffed on its own, and is usually the part you actually care about.`
-    );
-  }
-  const raw = typeof download2.data === "string" ? download2.data : Buffer.from(download2.data).toString("utf8");
+  const served = await readServedBytes(download2.data, job.name);
   return {
-    text: sliceJobLog(raw, capture),
+    bytes: selectCapture(served, capture),
+    transport: JOB_LOG_TRANSPORT,
     conclusion: job.conclusion ?? null,
     jobName: job.name,
     runJobCount: jobs.length
   };
+}
+function overCeiling(jobName, bytes) {
+  return new Error(
+    `the log of job "${jobName}" is ${bytes} bytes, over the ${MAX_CHANGED_LOG_BYTES} byte per-input ceiling Sift declares. Bound what you compare with the SIFT_CAPTURE / SIFT_CAPTURE_END markers and set the \`capture\` input \u2014 a marked section is diffed on its own, and is usually the part you actually care about.`
+  );
+}
+async function readServedBytes(body3, jobName) {
+  if (body3 instanceof ArrayBuffer || ArrayBuffer.isView(body3)) {
+    const bytes = body3 instanceof ArrayBuffer ? new Uint8Array(body3) : new Uint8Array(body3.buffer, body3.byteOffset, body3.byteLength);
+    if (bytes.byteLength > MAX_CHANGED_LOG_BYTES) throw overCeiling(jobName, bytes.byteLength);
+    return bytes;
+  }
+  if (!(body3 instanceof ReadableStream)) {
+    throw new Error(
+      `the log of job "${jobName}" arrived as ${typeof body3 === "string" ? "decoded text" : typeof body3}, not as bytes: the request for its unparsed body was not honoured, and a decoded log is not the bytes its transport declaration describes`
+    );
+  }
+  const reader = body3.getReader();
+  const chunks = [];
+  let total = 0;
+  for (; ; ) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_CHANGED_LOG_BYTES) {
+      await reader.cancel();
+      throw overCeiling(jobName, total);
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
 }
 
 // node_modules/js-yaml/dist/js-yaml.mjs
@@ -102257,11 +102365,14 @@ var client = new DefaultArtifactClient();
 import { promises as fs9 } from "fs";
 import * as path5 from "path";
 var RETENTION_DAYS = 90;
-async function publishBaselineLog(logPath, outcomeToken, name = BASELINE_ARTIFACT_NAME) {
-  const meta = { context_version: CONTEXT_VERSION, outcome_token: outcomeToken };
+async function publishBaselineLog(logPath, outcomeToken, transport, name = BASELINE_ARTIFACT_NAME, client2 = new DefaultArtifactClient()) {
+  const meta = {
+    context_version: CONTEXT_VERSION,
+    outcome_token: outcomeToken,
+    transport: [...transport]
+  };
   const metaPath = path5.join(path5.dirname(logPath), BASELINE_META_FILE);
   await fs9.writeFile(metaPath, JSON.stringify(meta), "utf8");
-  const client2 = new DefaultArtifactClient();
   await client2.uploadArtifact(name, [logPath, metaPath], path5.dirname(logPath), {
     retentionDays: RETENTION_DAYS
   });
@@ -102681,6 +102792,9 @@ function engineEnv() {
   }
   return env;
 }
+function transportToken(stack) {
+  return stack.length === 0 ? "none" : stack.join(",");
+}
 function siftArgs(invocation) {
   const args = [
     invocation.baselineLog,
@@ -102707,26 +102821,22 @@ function siftArgs(invocation) {
     // form this line declares.
     "--channel",
     "annotated",
-    // ADR-14.D9 — the transport is DECLARED, symmetrically, and `none` is the honest answer
-    // for this stream: ADR-22.D10 established that what this Action diffs is `build.log`, raw
-    // build output with no delivery prefix to unwind.
-    //
-    // `--transport` sets BOTH sides from one token, which is the point: deduction is
-    // content-sensitive, and content is exactly what a diff varies, so a per-side deduction
-    // disagrees precisely when the two sides differ most. Measured on this Action's own
-    // invocation before this line existed: `baseline api-rfc3339-line-prefix (deduced),
-    // changed none (deduced)` on a homologous pair — same API, same repo, same workflow.
-    // The cost was not the verdict (identical either way) but the UNIT: 1 of 16 rows kept a
-    // real unit under the asymmetry against 12 of 12 when both sides agreed, which starves
-    // the ADR-20.D11 roll-up of the attribution it acts on.
-    //
-    // Declaring it here makes asymmetry impossible by construction rather than refusable
-    // after the fact — there is nothing to refuse when the answer is known. Unconditional and
-    // not an input, for the same reason as `--channel` above: it is a fact about what this
-    // Action acquires, not a knob a workflow author could know better.
-    "--transport",
-    "none"
+    // DN-89.D38 — each side's transport is DECLARED from how that side was acquired, never
+    // deduced where the Action knows it. Deduction is content-sensitive, and content is
+    // exactly what a diff varies, so a per-side deduction disagrees precisely when the two
+    // sides differ most (measured on this Action's own invocation before declarations
+    // existed: `baseline api-rfc3339-line-prefix (deduced), changed none (deduced)` on a
+    // homologous pair, where 1 of 16 rows kept a real unit against 12 of 12 when both sides
+    // agreed). The one-token `--transport`,
+    // which set both sides from one fact, is gone: it is false as soon as the two sides were
+    // acquired differently, and a declared asymmetry is accepted by the engine by design.
+    // An empty stack is a declaration of `none`, never an absence.
+    "--changed-transport",
+    transportToken(invocation.changedTransport)
   ];
+  if (invocation.baselineTransport !== void 0) {
+    args.push("--baseline-transport", transportToken(invocation.baselineTransport));
+  }
   const graphDeclaresConclusion = invocation.changedJobGraph ? statesAJobConclusion(invocation.changedJobGraph.jobs) || statesAListedStepConclusion(invocation.changedJobGraph.jobs) : false;
   if (invocation.baselineOutcome || invocation.changedOutcome || graphDeclaresConclusion) {
     args.push("--outcome-vocabulary", "github");
@@ -102943,6 +103053,7 @@ async function run() {
   const changedLog = path8.join(workDir, "changed.log");
   let changedOutcome = rawChangedOutcome === "auto" ? "" : rawChangedOutcome;
   let grain;
+  let changedTransport;
   if (targetJob) {
     const capture = getInput("capture") || "auto";
     const jobLog = await fetchTargetJobLog({
@@ -102953,7 +103064,8 @@ async function run() {
       jobName: targetJob,
       capture
     });
-    await fs13.writeFile(changedLog, jobLog.text);
+    await fs13.writeFile(changedLog, jobLog.bytes);
+    changedTransport = jobLog.transport;
     if (rawChangedOutcome === "auto") {
       changedOutcome = jobLog.conclusion ?? "";
     }
@@ -102970,6 +103082,7 @@ async function run() {
       return;
     }
     await fs13.copyFile(logInput, changedLog);
+    changedTransport = [];
     grain = { kind: "file", path: logInput };
   }
   info(acquiredGrainLine(grain));
@@ -103050,6 +103163,8 @@ async function run() {
       changedOutcome,
       failOn,
       outputPath: reportJsonPath,
+      changedTransport,
+      baselineTransport: baseline.transport,
       explain,
       explainModel,
       changedJobGraph: changedJobGraph ? { path: path8.join(workDir, "changed-job-graph.json"), jobs: changedJobGraph } : void 0
@@ -103105,7 +103220,7 @@ async function run() {
     if (shouldSeed) {
       await tryWrite(
         "publish the baseline artifact",
-        () => publishBaselineLog(changedLog, changedOutcome, baselineName)
+        () => publishBaselineLog(changedLog, changedOutcome, changedTransport, baselineName)
       );
     } else {
       info(`Sift: publish-baseline=${publishMode}${runOutcomeBad ? " (run verdict not SUCCESS)" : ""} \u2014 did not re-seed \`${baselineName}\`.`);
@@ -103133,7 +103248,7 @@ async function run() {
   if (shouldSeed) {
     await tryWrite(
       "publish the baseline artifact",
-      () => publishBaselineLog(changedLog, changedOutcome, baselineName)
+      () => publishBaselineLog(changedLog, changedOutcome, changedTransport, baselineName)
     );
   } else {
     info(`Sift: publish-baseline=${publishMode}${runOutcomeBad ? " (run verdict not SUCCESS)" : ""} \u2014 kept the previous \`${baselineName}\` baseline (did not re-seed).`);

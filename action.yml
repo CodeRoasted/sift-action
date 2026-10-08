@@ -11,8 +11,9 @@ inputs:
       Zero-plumbing log sourcing: the NAME of a finished job in this run whose log Sift diffs — no
       tee/capture shell needed in the build job. Run Sift in a separate job that `needs:` the target
       (the API serves logs for completed jobs only; the target's own conclusion then also gives you
-      `changed-outcome` for free). The runner's per-line timestamps are stripped; `capture` selects
-      marked sections. Mutually exclusive with `log` (target-job wins). Passes no `needs:` job graph:
+      `changed-outcome` for free). The log is diffed as the bytes GitHub serves, its byte-order mark
+      and per-line timestamps declared to the engine, which peels them; `capture` selects marked
+      sections, whole lines byte for byte. Mutually exclusive with `log` (target-job wins). Passes no `needs:` job graph:
       the required-check fold needs rows from two jobs, and this source diffs one.
     required: false
     default: ''

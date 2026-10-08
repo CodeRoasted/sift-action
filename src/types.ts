@@ -123,7 +123,9 @@ export interface SiftCommentContext {
 // 0.2.0: the render-side `build_status` binary is RETIRED (ADR-17.D5) — the run verdict
 // now flows THROUGH the engine (`--changed-outcome`) and the frame reads the four-class
 // pair off `ReportSummary`, never a CI envelope flag.
-export const CONTEXT_VERSION = '0.2.0';
+// 0.3.0: the baseline sidecar records the transport stack its stored bytes were declared under
+// (DN-89.D38 §4), a REQUIRED member; a sidecar without it is not a baseline.
+export const CONTEXT_VERSION = '0.3.0';
 
 // The self-published baseline store (contract § 3): every run uploads its ingested
 // log under this name; a PR resolves its baseline by pulling the same-named
@@ -140,7 +142,23 @@ export interface BaselineMeta {
     context_version: string;
     /** The publishing run's native CI verdict token, verbatim (e.g. "success"). */
     outcome_token: string;
+    /**
+     * The ordered stack, outermost first, the publishing run declared for the bytes it stored —
+     * `[]` for none (DN-89.D38 §4). REQUIRED since 0.3.0: the next run forwards it verbatim as
+     * `--baseline-transport`.
+     */
+    transport: string[];
 }
+
+// The rows canon's transport catalogue declares (insight-canon `core/api/canon.transport.cppm`,
+// `kTransportCatalogRows`). A recorded stack naming anything else is not a declaration the engine
+// can resolve, so its baseline is refused before the engine sees it. preflight drives each name
+// through the pinned engine, so a name the engine does not know reds there.
+export const TRANSPORT_CATALOGUE: readonly string[] = [
+    'api-rfc3339-line-prefix',
+    'bracket-rfc3339-line-prefix',
+    'utf8-bom-line-prefix',
+];
 
 // The full report, uploaded on every run that has one (report.json as the engine wrote it, and
 // its markdown as report.md). The comment is a bounded projection of it; this artifact is where

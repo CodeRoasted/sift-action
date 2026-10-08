@@ -35,8 +35,12 @@
 // THE BOUNDARY THAT REMAINS, stated so the next reader does not re-derive the wrong lesson: the
 // widenings cover TWO coordinates — the verdict pair (four cells) and the `--changed-job-graph`
 // declaration (three cells, section A′ — the FOURTH instance of this class, named by ADR-22.D13
-// before it could become the fifth discovery). Every other conditional in `siftArgs` is still
-// exercised in a single combination, and a mutation aimed at one of those would still green here.
+// before it could become the fifth discovery). The per-side transport (DN-89.D38) is driven in
+// four shapes: `none` on both sides (sections A to C), a job-log stack against an undeclared
+// `path=` baseline and `none` against a stored job-log stack (section C′, with every catalogue row
+// a stored sidecar may record), and the job-log stack on both sides of a pair the real
+// acquisition produced (section D). Every other conditional in `siftArgs` is still exercised in a
+// single combination, and a mutation aimed at one of those would still green here.
 // This file's sentence is *"the pinned engine ACCEPTS what the Action emits"*;
 // `tests/sift.test.ts`'s is *"the Action emits a PAIRED vector in every cell"*. **Neither subsumes
 // the other, and a property provable without the engine belongs in the unit arm, where it is total
@@ -56,6 +60,8 @@ import {
     SiftReportUnreadableError,
     type SiftInvocation,
 } from '../src/sift.js';
+import { fetchTargetJobLog, JOB_LOG_TRANSPORT, type FetchJobLogParams } from '../src/joblog.js';
+import { TRANSPORT_CATALOGUE } from '../src/types.js';
 import { resolveSift } from '../src/resolve-sift.js';
 import { SIFT_VERSION } from '../src/sift-version.js';
 
@@ -157,6 +163,71 @@ const HOSTILE_CELLS: ReadonlyArray<{ name: string; changed: Buffer; shows: strin
     },
 ];
 
+// The stack a `log:` file is declared under: none. The prefix-free fixtures above are such files.
+const LOG_FILE_TRANSPORT: readonly string[] = [];
+
+// ── DN-89.D38 arm A7: the declared job-log stack really peels, on the PINNED engine ─────────
+//
+// A stamped job-log pair goes through the REAL acquisition — `fetchTargetJobLog` against a stub
+// client serving the bytes the API serves, unparsed — so the bytes written and the stack
+// declared are the Action's own, never restated here. The pinned engine must then confront the
+// changed side's declaration with its probe and print that the probe AGREES: the anti-vacuity
+// half of the ruling, because a declared stack the bytes do not carry peels nothing and says so
+// in that same line. A stamp left in a ranked row is the second witness that nothing peeled.
+const STAMP = '2026-06-21T12:19:42.7928236Z ';
+const STAMP_DATE = '2026-06-21T12:19:42';
+
+function stampedJobLog(failing: boolean): Buffer {
+    const lines: Buffer[] = [
+        Buffer.concat([bytes(0xef, 0xbb, 0xbf), utf8(`${STAMP}Current runner version: '2.335.1'`)]),
+        utf8(`${STAMP}##[group]Run make test`),
+        utf8(`${STAMP}##[endgroup]`),
+        utf8(`${STAMP}building target`),
+        utf8(failing ? `${STAMP}FAILED: 1 of 12` : `${STAMP}ok: 12 passed`),
+        utf8(`${STAMP}done`),
+    ];
+    return logOf(lines);
+}
+
+// The client the Action talks to, reduced to the two calls `fetchTargetJobLog` makes: one
+// completed job, and its log served as a byte stream when the body is requested unparsed —
+// otherwise decoded as text, the way the real client hands back a `text/plain` body.
+function servingClient(served: Buffer): FetchJobLogParams['octokit'] {
+    const job = { id: 1, name: 'build', status: 'completed', conclusion: 'success' };
+    const client = {
+        paginate: async () => [job],
+        rest: {
+            actions: {
+                listJobsForWorkflowRun: async () => ({ data: { jobs: [job] } }),
+                downloadJobLogsForWorkflowRun: async (args: { request?: { parseSuccessResponseBody?: boolean } }) => ({
+                    data:
+                        args.request?.parseSuccessResponseBody === false
+                            ? new ReadableStream<Uint8Array>({
+                                  start(controller) {
+                                      controller.enqueue(new Uint8Array(served));
+                                      controller.close();
+                                  },
+                              })
+                            : new TextDecoder('utf-8').decode(served),
+                }),
+            },
+        },
+    };
+    return client as unknown as FetchJobLogParams['octokit'];
+}
+
+async function acquireStamped(failing: boolean): Promise<{ bytes: Uint8Array; transport: readonly string[] }> {
+    const out = await fetchTargetJobLog({
+        octokit: servingClient(stampedJobLog(failing)),
+        owner: 'preflight',
+        repo: 'preflight',
+        runId: 1,
+        jobName: 'build',
+        capture: 'auto',
+    });
+    return { bytes: out.bytes, transport: out.transport };
+}
+
 interface RunResult {
     exitCode: number;
     stderr: string;
@@ -226,6 +297,8 @@ async function main(): Promise<void> {
             changedOutcome: cell.changedOutcome,
             failOn: 'significant',
             outputPath,
+            changedTransport: LOG_FILE_TRANSPORT,
+            baselineTransport: LOG_FILE_TRANSPORT,
         };
         const args = siftArgs(invocation);
         if (cell.baselineOutcome && cell.changedOutcome) {
@@ -362,6 +435,8 @@ async function main(): Promise<void> {
             changedOutcome: cell.changedOutcome,
             failOn: 'significant',
             outputPath,
+            changedTransport: LOG_FILE_TRANSPORT,
+            baselineTransport: LOG_FILE_TRANSPORT,
             changedJobGraph: { path: graphPath, jobs },
         };
         const args = siftArgs(invocation);
@@ -439,6 +514,8 @@ async function main(): Promise<void> {
             changedOutcome: 'failure',
             failOn: 'none',
             outputPath,
+            changedTransport: LOG_FILE_TRANSPORT,
+            baselineTransport: LOG_FILE_TRANSPORT,
         };
         const r = await runVector(siftBin, siftArgs(invocation), outputPath);
         let verdict = '';
@@ -476,6 +553,110 @@ async function main(): Promise<void> {
         }
     }
 
+    // ── C′) the per-side transport coordinate in its asymmetric ship shapes, and the catalogue ─
+    // Every cell above declares both sides alike. The Action also sends: a `target-job` run
+    // against a `path=` baseline (the baseline side UNDECLARED, the engine deduces it), a `log:`
+    // run against a baseline a `target-job` run stored (a declared asymmetry, accepted by design),
+    // and, through a stored sidecar, any row of the catalogue the Action accepts on extraction. A
+    // name the pinned engine does not know is a FATAL abort there, so each is driven here.
+    const TRANSPORT_CELLS: ReadonlyArray<{ name: string; changed: readonly string[]; baseline?: readonly string[] }> = [
+        { name: 'job-log stack against an undeclared path= baseline', changed: JOB_LOG_TRANSPORT },
+        { name: 'none against a stored job-log stack', changed: LOG_FILE_TRANSPORT, baseline: JOB_LOG_TRANSPORT },
+        ...TRANSPORT_CATALOGUE.map((row) => ({
+            name: `catalogue row ${row} recorded by a baseline`,
+            changed: LOG_FILE_TRANSPORT,
+            baseline: [row],
+        })),
+    ];
+    for (const [index, cell] of TRANSPORT_CELLS.entries()) {
+        const outputPath = join(work, `report-transport-${index}.json`);
+        const invocation: SiftInvocation = {
+            siftBin,
+            baselineLog,
+            changedLog,
+            baselineLabel: 'preflight-baseline',
+            changedLabel: 'preflight-changed',
+            baselineOutcome: 'success',
+            changedOutcome: 'failure',
+            failOn: 'none',
+            outputPath,
+            changedTransport: cell.changed,
+            ...(cell.baseline !== undefined ? { baselineTransport: cell.baseline } : {}),
+        };
+        const args = siftArgs(invocation);
+        const r = await runVector(siftBin, args, outputPath);
+        const ok = !r.rejected && r.ranClean && r.wroteReport;
+        process.stdout.write(
+            `preflight transport cell ${index + 1}/${TRANSPORT_CELLS.length} [${cell.name}]: exit ${r.exitCode} — ` +
+                `${ok ? 'accepted' : 'REJECTED'}\n`,
+        );
+        if (!ok) {
+            if (r.stderr.trim()) {
+                process.stdout.write(`--- engine stderr ---\n${r.stderr.trimEnd()}\n---------------------\n`);
+            }
+            failures.push(
+                `  transport cell [${cell.name}]: exit ${r.exitCode}` +
+                    `${r.exitCode === 134 ? ' (ABORTED — died on a signal)' : ''}` +
+                    `, report.json ${r.wroteReport ? 'written' : 'ABSENT'}, rejected=${r.rejected}\n` +
+                    `      vector: ${args.join(' ')}`,
+            );
+        }
+    }
+
+    // ── D) DN-89.D38 A7 — a target-job pair, declared under the job-log stack, really peels ────
+    {
+        const baseline = await acquireStamped(false);
+        const changed = await acquireStamped(true);
+        const stampedBaseline = join(work, 'stamped-baseline.log');
+        const stampedChanged = join(work, 'stamped-changed.log');
+        const outputPath = join(work, 'report-stamped.json');
+        await writeFile(stampedBaseline, baseline.bytes);
+        await writeFile(stampedChanged, changed.bytes);
+        const invocation: SiftInvocation = {
+            siftBin,
+            baselineLog: stampedBaseline,
+            changedLog: stampedChanged,
+            baselineLabel: 'preflight-baseline',
+            changedLabel: 'preflight-changed',
+            baselineOutcome: 'success',
+            changedOutcome: 'failure',
+            failOn: 'none',
+            outputPath,
+            changedTransport: changed.transport,
+            // A baseline stored by a target-job run carries the same stack in its sidecar.
+            baselineTransport: baseline.transport,
+        };
+        const args = siftArgs(invocation);
+        const r = await runVector(siftBin, args, outputPath);
+        const agrees = `transport: preflight-changed ${changed.transport.join(',')} (declared) — the probe on these bytes agrees`;
+        let verdict = '';
+        if (r.rejected || !r.ranClean || !r.wroteReport) {
+            verdict = `the engine did not write a report (exit ${r.exitCode}${r.exitCode === 134 ? ', ABORTED' : ''})`;
+        } else if (!r.stderr.includes(agrees)) {
+            verdict = `the changed side's confrontation does not read "${agrees}"`;
+        } else {
+            const report = readReport(await readFile(outputPath), outputPath, r.exitCode);
+            const stamped = report.ranked_changes
+                .flatMap((row) => [row.summary, ...(row.evidence ?? [])])
+                .filter((textLine) => textLine.includes(STAMP_DATE));
+            if (report.ranked_changes.length === 0) {
+                verdict = 'the stamped pair ranked nothing, so it no longer shows whether the stack peeled';
+            } else if (stamped.length > 0) {
+                verdict = `a ranked row still carries a stamp, so the declared stack did not peel: "${stamped[0]}"`;
+            }
+        }
+        process.stdout.write(
+            `preflight stack cell [target-job pair, ${changed.transport.join(',')}]: ` +
+                `exit ${r.exitCode} — ${verdict === '' ? 'peeled, probe agrees' : 'BROKEN'}\n`,
+        );
+        if (verdict !== '') {
+            if (r.stderr.trim()) {
+                process.stdout.write(`--- engine stderr ---\n${r.stderr.trimEnd()}\n---------------------\n`);
+            }
+            failures.push(`  stack cell [target-job pair]: ${verdict}.\n      vector: ${args.join(' ')}`);
+        }
+    }
+
     if (failures.length > 0) {
         process.stderr.write(
             `\nPREFLIGHT FAILED — engine ${siftBin} (SIFT_VERSION ${SIFT_VERSION})\n` +
@@ -489,9 +670,10 @@ async function main(): Promise<void> {
     }
 
     process.stdout.write(
-        `preflight OK — the pinned engine accepted all ${VERDICT_CELLS.length} verdict cells and ` +
-            `all ${GRAPH_CELLS.length} graph cells, kept the output contract on all ` +
-            `${HOSTILE_CELLS.length} hostile pairs, and its half-pair behaviour is still ` +
+        `preflight OK — the pinned engine accepted all ${VERDICT_CELLS.length} verdict cells, ` +
+            `all ${GRAPH_CELLS.length} graph cells and all ${TRANSPORT_CELLS.length} transport cells, kept ` +
+            `the output contract on all ${HOSTILE_CELLS.length} hostile pairs, peeled the target-job ` +
+            'stack with its probe agreeing, and its half-pair behaviour is still ' +
             `'${PINNED_ENGINE_HALF_PAIR}'.\n`,
     );
 }

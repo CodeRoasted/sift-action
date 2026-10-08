@@ -223,8 +223,11 @@ or break an annotation (`src/annotations.ts`).
 ## Capturing the log
 
 **The default (`target-job`) needs no capture at all** — Sift downloads the finished
-job's log from the GitHub API, timestamps stripped. For precision, bracket the
-region(s) you want diffed with capture markers — plain echoed lines in any step:
+job's log from the GitHub API as the bytes GitHub serves, and declares to the engine the
+two delivery layers those bytes carry (a byte-order mark at the head of the job's log, and
+the timestamp the API stamps on every line); the engine peels them, so no byte of a line is
+rewritten on the way in. For precision, bracket the region(s) you want diffed with capture
+markers — plain echoed lines in any step:
 
 ```yaml
 - run: |
@@ -236,7 +239,13 @@ region(s) you want diffed with capture markers — plain echoed lines in any ste
 `capture:` selects `auto` (marked sections if any, else the whole log) | `off` | a
 section name — several named sections (`SIFT_CAPTURE ci`, `SIFT_CAPTURE release`) give
 independent diffs/lineages from one job, one Sift step each, each with its own
-`baseline-name` (+ `comment-tag`).
+`baseline-name` (+ `comment-tag`). A marker is recognised behind the line's timestamp; the
+lines a section selects reach the engine byte for byte, and the marker lines themselves do not.
+
+Each stored baseline records how its bytes were delivered, and the next run declares it for the
+baseline side. A baseline stored by an Action release before this record existed is not compared
+against: that run is a cold start whose warning says so, and it re-seeds the lineage — one cold
+start per baseline lineage, once.
 
 **The in-job way** (`log:`) — a file holding the output you want diffed, captured
 however fits your job; Sift then runs as a step of the build job itself. Always with
@@ -447,7 +456,7 @@ root — never re-authored here.
 - `src/annotations.ts` — the pure check-run annotation builder + the workflow-command encoder (the stdout-surface trust boundary, the `escapeInline` analogue).
 - `src/verdict.ts` — the four-state machine (cold-start / clean / drift / regression).
 - `src/baseline.ts` — baseline source selection (auto / branch= / artifact= / path= / none) via the GitHub API.
-- `src/joblog.ts` — `target-job` log sourcing: job lookup, timestamp strip, SIFT_CAPTURE slicing, the native-conclusion token for `changed-outcome: auto`.
+- `src/joblog.ts` — `target-job` log sourcing: job lookup, the job log as served bytes and their declared delivery stack, SIFT_CAPTURE selection of whole lines, the native-conclusion token for `changed-outcome: auto`.
 - `src/jobgraph.ts` — the workflow's declared `needs:` graph, read at the commit the runner names as executed (`GITHUB_WORKFLOW_SHA`), for a `log:` file only.
 - `src/sift.ts` — engine invocation (`--format both`, `--fail-on`).
 - `src/comment.ts` — sticky-comment upsert. `src/artifact.ts` — baseline publish, the `sift-report` upload, and the fork render/post transport.

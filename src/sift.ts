@@ -34,6 +34,13 @@ export interface SiftInvocation {
     changedOutcome: string;
     failOn: FailOn;
     outputPath: string;
+    // Each side's delivery stack, outermost first, declared from how THAT side was acquired
+    // (DN-89.D38 §4): the API job-log stack for a `target-job` log, the empty stack (`none`) for
+    // a `log:` file, a stored baseline's own recorded stack. `baselineTransport` undefined leaves
+    // the baseline side UNDECLARED — a `path=` file, whose delivery the Action does not know, so
+    // the engine deduces it and reports what it read (ADR-14.D9's carve-out).
+    changedTransport: readonly string[];
+    baselineTransport?: readonly string[];
     // Opt-in AI narrative (ADR-13.D5). The pinned local model + server are provisioned by
     // runExplainSetup() before this runs; `sift --explain` then auto-spawns the bundled server,
     // narrates additively, and tears it down. Fail-soft: a missing/unreachable model leaves the
@@ -449,6 +456,11 @@ export function engineEnv(): Record<string, string> {
     return env;
 }
 
+// A stack as the engine spells it: its rows outermost first, comma-separated, or `none` alone.
+function transportToken(stack: readonly string[]): string {
+    return stack.length === 0 ? 'none' : stack.join(',');
+}
+
 // Pure: the exact `sift` argv for an invocation (exported so it is unit-testable without spawning).
 export function siftArgs(invocation: SiftInvocation): string[] {
     const args = [
@@ -476,26 +488,22 @@ export function siftArgs(invocation: SiftInvocation): string[] {
         // form this line declares.
         '--channel',
         'annotated',
-        // ADR-14.D9 — the transport is DECLARED, symmetrically, and `none` is the honest answer
-        // for this stream: ADR-22.D10 established that what this Action diffs is `build.log`, raw
-        // build output with no delivery prefix to unwind.
-        //
-        // `--transport` sets BOTH sides from one token, which is the point: deduction is
-        // content-sensitive, and content is exactly what a diff varies, so a per-side deduction
-        // disagrees precisely when the two sides differ most. Measured on this Action's own
-        // invocation before this line existed: `baseline api-rfc3339-line-prefix (deduced),
-        // changed none (deduced)` on a homologous pair — same API, same repo, same workflow.
-        // The cost was not the verdict (identical either way) but the UNIT: 1 of 16 rows kept a
-        // real unit under the asymmetry against 12 of 12 when both sides agreed, which starves
-        // the ADR-20.D11 roll-up of the attribution it acts on.
-        //
-        // Declaring it here makes asymmetry impossible by construction rather than refusable
-        // after the fact — there is nothing to refuse when the answer is known. Unconditional and
-        // not an input, for the same reason as `--channel` above: it is a fact about what this
-        // Action acquires, not a knob a workflow author could know better.
-        '--transport',
-        'none',
+        // DN-89.D38 — each side's transport is DECLARED from how that side was acquired, never
+        // deduced where the Action knows it. Deduction is content-sensitive, and content is
+        // exactly what a diff varies, so a per-side deduction disagrees precisely when the two
+        // sides differ most (measured on this Action's own invocation before declarations
+        // existed: `baseline api-rfc3339-line-prefix (deduced), changed none (deduced)` on a
+        // homologous pair, where 1 of 16 rows kept a real unit against 12 of 12 when both sides
+        // agreed). The one-token `--transport`,
+        // which set both sides from one fact, is gone: it is false as soon as the two sides were
+        // acquired differently, and a declared asymmetry is accepted by the engine by design.
+        // An empty stack is a declaration of `none`, never an absence.
+        '--changed-transport',
+        transportToken(invocation.changedTransport),
     ];
+    if (invocation.baselineTransport !== undefined) {
+        args.push('--baseline-transport', transportToken(invocation.baselineTransport));
+    }
     // ADR-22.D10 — a caller-declared verdict is a PAIR: the native token AND the vocabulary that
     // interprets it. Unconditional and not an input, for the same reason as `--channel` above: it
     // is a fact about WHO SUPPLIES the verdict — this Action runs on GitHub Actions and forwards

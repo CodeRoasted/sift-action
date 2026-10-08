@@ -219,10 +219,14 @@ async function run(): Promise<void> {
     // The grain this step acquired (ADR-14.D8). One value decides both the grain line below and
     // whether the declared job graph is read (DN-118.D4).
     let grain: AcquiredGrain;
+    // The delivery stack of the bytes in changed.log, declared from how they were acquired
+    // (DN-89.D38): the API job-log stack for `target-job`, none for a `log:` file. It is also what
+    // the published baseline records, since the baseline IS these bytes.
+    let changedTransport: readonly string[];
     if (targetJob) {
-        // Zero-plumbing sourcing: pull the finished build job's log off the API
-        // (run Sift in a job that `needs:` it), timestamps stripped, capture
-        // sections applied. Load-bearing — a failure here fails the step (the
+        // Zero-plumbing sourcing: pull the finished build job's log off the API as
+        // BYTES (run Sift in a job that `needs:` it), its delivery stack declared,
+        // capture sections selected. Load-bearing — a failure here fails the step (the
         // caller's continue-on-error keeps the advisory guarantee).
         const capture = core.getInput('capture') || 'auto';
         const jobLog = await fetchTargetJobLog({
@@ -233,7 +237,8 @@ async function run(): Promise<void> {
             jobName: targetJob,
             capture,
         });
-        await fs.writeFile(changedLog, jobLog.text);
+        await fs.writeFile(changedLog, jobLog.bytes);
+        changedTransport = jobLog.transport;
         if (rawChangedOutcome === 'auto') {
             changedOutcome = jobLog.conclusion ?? ''; // GitHub's native token, verbatim
         }
@@ -259,6 +264,8 @@ async function run(): Promise<void> {
             return;
         }
         await fs.copyFile(logInput, changedLog); // the captured current-run log = changed.log
+        // A file the workflow wrote carries no delivery layer (ADR-14.D9): declared none.
+        changedTransport = [];
         grain = { kind: 'file', path: logInput };
     }
     core.info(acquiredGrainLine(grain));
@@ -387,6 +394,8 @@ async function run(): Promise<void> {
             changedOutcome,
             failOn,
             outputPath: reportJsonPath,
+            changedTransport,
+            baselineTransport: baseline.transport,
             explain,
             explainModel,
             changedJobGraph: changedJobGraph
@@ -490,7 +499,7 @@ async function run(): Promise<void> {
         core.info(`Sift: render mode — wrote the comment body (pr-comment=${prComment} ⇒ post=${shouldPost}); the workflow uploads it.`);
         if (shouldSeed) {
             await tryWrite('publish the baseline artifact', () =>
-                publishBaselineLog(changedLog, changedOutcome, baselineName),
+                publishBaselineLog(changedLog, changedOutcome, changedTransport, baselineName),
             );
         } else {
             core.info(`Sift: publish-baseline=${publishMode}${runOutcomeBad ? ' (run verdict not SUCCESS)' : ''} — did not re-seed \`${baselineName}\`.`);
@@ -520,7 +529,7 @@ async function run(): Promise<void> {
     // Seed the next baseline under `baseline-name` (rule computed above).
     if (shouldSeed) {
         await tryWrite('publish the baseline artifact', () =>
-            publishBaselineLog(changedLog, changedOutcome, baselineName),
+            publishBaselineLog(changedLog, changedOutcome, changedTransport, baselineName),
         );
     } else {
         core.info(`Sift: publish-baseline=${publishMode}${runOutcomeBad ? ' (run verdict not SUCCESS)' : ''} — kept the previous \`${baselineName}\` baseline (did not re-seed).`);

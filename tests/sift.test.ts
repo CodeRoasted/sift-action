@@ -33,6 +33,7 @@ const baseInvocation: SiftInvocation = {
     changedOutcome: '',
     failOn: 'none',
     outputPath: 'report.json',
+    changedTransport: [],
 };
 
 // ── The native-verdict side-inputs (ADR-17.D5) ──────────────────────────────
@@ -212,20 +213,66 @@ test('siftArgs: a graph whose every conclusion is withheld declares no verdict �
     );
 });
 
-test('siftArgs: --transport=none is ALWAYS declared — deduction is suppressed, never relied on', () => {
-    // ADR-14.D9. Deduction is content-sensitive and content is exactly what a diff varies, so
-    // per-side deduction disagrees precisely when the two sides differ most — measured on this
-    // Action's own invocation: `baseline api-rfc3339-line-prefix (deduced), changed none (deduced)`
-    // on a homologous pair, costing the UNIT (1 of 16 rows kept a real unit). `none` is the honest
-    // declaration: both acquisition paths feed prefix-free bytes (ADR-22.D10 build.log; joblog.ts
-    // strips runner timestamps before sift sees a byte). One token sets BOTH sides, so asymmetry
-    // cannot arise. The engine-side acceptance is the peek reading `none (declared)` — a
-    // `(deduced)` that happens to say none is the defect wearing the fix's clothes; THIS arm pins
-    // the emitter half: the declaration always rides.
-    const args = siftArgs(baseInvocation);
-    const idx = args.indexOf('--transport');
-    assert.ok(idx >= 0, '--transport must always be declared (deduction suppressed by construction)');
-    assert.equal(args[idx + 1], 'none', 'both acquisition paths are prefix-free — none is the honest token');
+// ── DN-89.D38 arm A1: each side declares its OWN transport stack ─────────────
+//
+// The changed side is declared from how this run acquired it: the API job-log stack for a
+// `target-job` log (joblog.test.ts asserts the acquisition hands back exactly that list), and
+// the empty stack, `none`, for a `log:` file. The baseline side is declared from what its
+// sidecar recorded, verbatim and in order, and left UNDECLARED for a `path=` baseline, whose
+// delivery the Action does not know. The one-token `--transport` is gone: it set both sides from
+// one fact, which is false as soon as the two sides were acquired differently.
+
+const JOB_LOG_STACK = ['utf8-bom-line-prefix', 'api-rfc3339-line-prefix'];
+
+function flagValue(args: readonly string[], flag: string): string | undefined {
+    const at = args.indexOf(flag);
+    return at < 0 ? undefined : args[at + 1];
+}
+
+test('A1: a target-job changed side declares the API job-log stack, outermost first', () => {
+    const args = siftArgs({ ...baseInvocation, changedTransport: JOB_LOG_STACK });
+    assert.equal(
+        flagValue(args, '--changed-transport'),
+        'utf8-bom-line-prefix,api-rfc3339-line-prefix',
+        `argv: ${args.join(' ')}`,
+    );
+});
+
+test('A1: a `log:` changed side declares none — an empty stack is a declaration, never an absence', () => {
+    const args = siftArgs({ ...baseInvocation, changedTransport: [] });
+    assert.equal(flagValue(args, '--changed-transport'), 'none', `argv: ${args.join(' ')}`);
+});
+
+test("A1: the baseline side forwards its sidecar's stack verbatim and in order; an empty one as none", () => {
+    // Deliberately NOT the canonical order: a stack is ordered, so an Action that sorted or
+    // re-derived it would pass on the canonical list and fail here.
+    const recorded = ['api-rfc3339-line-prefix', 'utf8-bom-line-prefix'];
+    const args = siftArgs({ ...baseInvocation, baselineTransport: recorded });
+    assert.equal(
+        flagValue(args, '--baseline-transport'),
+        'api-rfc3339-line-prefix,utf8-bom-line-prefix',
+        `argv: ${args.join(' ')}`,
+    );
+    const none = siftArgs({ ...baseInvocation, baselineTransport: [] });
+    assert.equal(flagValue(none, '--baseline-transport'), 'none', `argv: ${none.join(' ')}`);
+});
+
+test('A1: a `path=` baseline is left undeclared — no baseline transport flag at all', () => {
+    const args = siftArgs({ ...baseInvocation, baselineTransport: undefined });
+    assert.ok(!args.includes('--baseline-transport'), `argv: ${args.join(' ')}`);
+});
+
+test('A1: no argv carries the one-token --transport', () => {
+    const cells: Array<Partial<SiftInvocation>> = [
+        { changedTransport: JOB_LOG_STACK, baselineTransport: JOB_LOG_STACK },
+        { changedTransport: JOB_LOG_STACK, baselineTransport: [] },
+        { changedTransport: [], baselineTransport: undefined },
+        { changedTransport: [], baselineTransport: JOB_LOG_STACK },
+    ];
+    for (const cell of cells) {
+        const args = siftArgs({ ...baseInvocation, ...cell });
+        assert.ok(!args.includes('--transport'), `argv: ${args.join(' ')}`);
+    }
 });
 
 test('siftArgs: --explain is absent by default (opt-in)', () => {

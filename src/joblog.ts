@@ -1,19 +1,30 @@
 // Job-log sourcing — the zero-plumbing way to feed Sift (`target-job` input).
 // Instead of tee-ing a build step into a file, a later job (`needs: <build>`)
 // points Sift at the finished job by NAME; the action downloads that job's log
-// from the GitHub API, strips the runner's per-line timestamps, and (optionally)
-// slices the user-marked capture sections. No shell plumbing in the build job.
+// from the GitHub API AS BYTES, declares the delivery stack those bytes carry,
+// and (optionally) selects the user-marked capture sections. No shell plumbing in
+// the build job, and no byte of any line rewritten (DN-89.D38).
+//
+// THE ACTION NEVER PEELS A DELIVERY LAYER. The API stamps every line with an RFC
+// 3339 time and opens each job segment with a byte-order mark; those are the
+// declared stack `utf8-bom-line-prefix,api-rfc3339-line-prefix`, and the ENGINE
+// peels them under that declaration (ADR-23.D8). The hand-rolled strip this file
+// once carried removed one space after a stamp, dropped every CR and the first
+// line's mark, and was invisible to the engine (DN-89.D38).
 //
 // Capture markers — plain lines the build steps emit (`echo`):
 //   SIFT_CAPTURE            open an anonymous section
 //   SIFT_CAPTURE <name>     open a named section (independent baseline lineages
 //                           from one job: ci vs release, etc.)
 //   SIFT_CAPTURE_END        close the open section
-// Matching is EXACT on the whole (timestamp-stripped) line, so the runner's
-// script-echo of `echo "SIFT_CAPTURE ci"` in the ##[group] header can never
-// false-match. The `capture` input selects: `auto` (default — if any sections
-// exist use them all, else the whole log), `off` (whole log always), or a
-// section name (only that section's parts; absent ⇒ config error, fail loud).
+// A line is a marker when its PAYLOAD is exactly one of those, the payload being
+// what is left behind the delivery head (`markerPayload`). Matching is exact on the
+// whole payload, so the runner's script-echo of `echo "SIFT_CAPTURE ci"` in the
+// ##[group] header can never false-match. The `capture` input selects: `auto`
+// (default — if any sections exist use them all, else the whole log), `off` (whole
+// log always), or a section name (only that section's parts; absent ⇒ config
+// error, fail loud). A selection forwards whole lines, byte for byte, each with its
+// own terminator; marker lines are not forwarded.
 //
 // The target job must be COMPLETED (the API serves logs for finished jobs), so
 // the Sift invocation lives in a job that `needs:` it — which is also what makes
@@ -24,32 +35,136 @@ import { MAX_CHANGED_LOG_BYTES } from './types.js';
 
 type Octokit = ReturnType<typeof getOctokit>;
 
-// The runner prefixes every log line with an ISO-8601 timestamp + one space.
-const TIMESTAMP_PREFIX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z /;
+// The stack an API-served job log carries, outermost first (DN-89.D36, DN-89.D38 §2). Both rows
+// work line by line and the mark row declines on a line with no mark, so the declaration is
+// true whether or not a mark arrived, on every job segment.
+export const JOB_LOG_TRANSPORT: readonly string[] = ['utf8-bom-line-prefix', 'api-rfc3339-line-prefix'];
 
-export function stripRunnerTimestamps(raw: string): string[] {
-    return raw.split(/\r?\n/).map((line) => line.replace(TIMESTAMP_PREFIX, ''));
+// ── The repeated acceptors (DN-89.D38 §3, arm A5) ──────────────────────────────────────────
+//
+// The head reader repeats canon's two rows in TypeScript, to find a marker's payload behind the
+// head; it never removes the head. Its obligation runs ONE way: it must accept every head the
+// rows accept, because a refused head is a missed marker and, under `auto`, the whole log diffed
+// with no message. Accepting a head the rows refuse costs nothing — a marker never reaches the
+// engine. The rows, at insight-canon `core/api/canon.transport.cppm` and the grammar's one owner
+// `rfc3339_datetime_length` (`core/api/canon.api.cppm`):
+//   utf8-bom-line-prefix     exactly one EF BB BF at the head, nothing stripped after it;
+//   api-rfc3339-line-prefix  a full RFC 3339 datetime exactly 28 bytes long at the head, then every
+//                            space and tab after it.
+const BYTE_ORDER_MARK = [0xef, 0xbb, 0xbf] as const;
+const STAMP_WIDTH = 28;
+const STAMP_SHAPE = 'dddd-dd-ddTdd:dd:dd';
+const LINE_FEED = 0x0a;
+const CARRIAGE_RETURN = 0x0d;
+const SPACE = 0x20;
+const TAB = 0x09;
+const DOT = 0x2e;
+const PLUS = 0x2b;
+const MINUS = 0x2d;
+const COLON = 0x3a;
+const ZULU = 0x5a;
+
+function isDigit(bytes: Uint8Array, at: number): boolean {
+    const byte = bytes[at];
+    return byte !== undefined && byte >= 0x30 && byte <= 0x39;
 }
+
+// The zone's byte length at `at`: 1 for `Z`, a signed `hh:mm` or `hhmm` offset's own, 0 when no
+// zone starts there, and null when a signed offset is malformed.
+function zoneLength(bytes: Uint8Array, at: number): number | null {
+    const head = bytes[at];
+    if (head === undefined) return 0;
+    if (head === ZULU) return 1;
+    if (head !== PLUS && head !== MINUS) return 0;
+    let cursor = at + 1;
+    if (!isDigit(bytes, cursor) || !isDigit(bytes, cursor + 1)) return null;
+    cursor += 2;
+    if (bytes[cursor] === COLON) cursor += 1;
+    if (!isDigit(bytes, cursor) || !isDigit(bytes, cursor + 1)) return null;
+    return cursor + 2 - at;
+}
+
+// The byte length of a complete RFC 3339 datetime starting at `start`, or 0 when none does.
+function datetimeLength(bytes: Uint8Array, start: number): number {
+    let at = start;
+    if (at + STAMP_SHAPE.length > bytes.length) return 0;
+    for (const shape of STAMP_SHAPE) {
+        if (shape === 'd' ? !isDigit(bytes, at) : bytes[at] !== shape.charCodeAt(0)) return 0;
+        at += 1;
+    }
+    if (bytes[at] === DOT) {
+        const fraction = at + 1;
+        let end = fraction;
+        while (isDigit(bytes, end)) end += 1;
+        if (end === fraction) return 0;
+        at = end;
+    }
+    const zone = zoneLength(bytes, at);
+    return zone === null ? 0 : at + zone - start;
+}
+
+// Where a line's PAYLOAD starts: past at most one byte-order mark, then, when the stamp row
+// accepts the head, past the stamp and the spaces and tabs after it.
+export function payloadOffset(line: Uint8Array): number {
+    let at = 0;
+    if (BYTE_ORDER_MARK.every((byte, index) => line[index] === byte)) at = BYTE_ORDER_MARK.length;
+    if (datetimeLength(line, at) === STAMP_WIDTH) {
+        at += STAMP_WIDTH;
+        while (line[at] === SPACE || line[at] === TAB) at += 1;
+    }
+    return at;
+}
+
+// ── Lines, markers and selection ────────────────────────────────────────────────────────────
+
+// One line of the served bytes: an LF-delimited range (getline semantics, ADR-14.D7) WITH its
+// terminator, and the payload the marker test reads — the head and a trailing CR set aside.
+interface ServedLine {
+    bytes: Uint8Array;
+    payload: string;
+}
+
+function splitLines(bytes: Uint8Array): ServedLine[] {
+    const lines: ServedLine[] = [];
+    let start = 0;
+    while (start < bytes.length) {
+        const feed = bytes.indexOf(LINE_FEED, start);
+        const end = feed < 0 ? bytes.length : feed + 1;
+        const line = bytes.subarray(start, end);
+        let contentEnd = feed < 0 ? line.length : line.length - 1;
+        if (contentEnd > 0 && line[contentEnd - 1] === CARRIAGE_RETURN) contentEnd -= 1;
+        // The payload is decoded only to be COMPARED with the ASCII marker words; a decode that
+        // replaces an ill-formed byte cannot make a marker of a non-marker, and the forwarded
+        // bytes are the slice above, never this text.
+        const payload = Buffer.from(line.subarray(payloadOffset(line), Math.max(contentEnd, 0))).toString('utf8');
+        lines.push({ bytes: line, payload });
+        start = end;
+    }
+    return lines;
+}
+
+const MARKER_OPEN = 'SIFT_CAPTURE';
+const MARKER_CLOSE = 'SIFT_CAPTURE_END';
 
 interface CaptureSection {
     name: string; // '' for an anonymous section
-    lines: string[];
+    lines: Uint8Array[];
 }
 
-export function extractCaptureSections(lines: string[]): CaptureSection[] {
+function extractCaptureSections(lines: ServedLine[]): CaptureSection[] {
     const sections: CaptureSection[] = [];
     let open: CaptureSection | null = null;
     for (const line of lines) {
-        if (line === 'SIFT_CAPTURE' || line.startsWith('SIFT_CAPTURE ')) {
-            open = { name: line.slice('SIFT_CAPTURE'.length).trim(), lines: [] };
+        if (line.payload === MARKER_OPEN || line.payload.startsWith(`${MARKER_OPEN} `)) {
+            open = { name: line.payload.slice(MARKER_OPEN.length).trim(), lines: [] };
             continue;
         }
-        if (line === 'SIFT_CAPTURE_END') {
+        if (line.payload === MARKER_CLOSE) {
             if (open) sections.push(open);
             open = null;
             continue;
         }
-        if (open) open.lines.push(line);
+        if (open) open.lines.push(line.bytes);
     }
     // An unterminated section still counts — the job may have died mid-capture,
     // and that tail is exactly what a red-build diff needs to see.
@@ -57,19 +172,14 @@ export function extractCaptureSections(lines: string[]): CaptureSection[] {
     return sections;
 }
 
-// `capture`: 'auto' | 'off' | <section name>. Returns the log text to diff.
-export function sliceJobLog(raw: string, capture: string): string {
-    const lines = stripRunnerTimestamps(raw);
+// `capture`: 'auto' | 'off' | <section name>. Returns the bytes to diff: the served bytes
+// unchanged and unsplit when nothing is selected, else the selected lines byte for byte.
+export function selectCapture(served: Uint8Array, capture: string): Uint8Array {
     const mode = capture || 'auto';
-    if (mode === 'off') {
-        return lines.join('\n');
-    }
-    const sections = extractCaptureSections(lines);
+    if (mode === 'off') return served;
+    const sections = extractCaptureSections(splitLines(served));
     if (mode === 'auto') {
-        if (sections.length === 0) {
-            return lines.join('\n');
-        }
-        return sections.map((section) => section.lines.join('\n')).join('\n');
+        return sections.length === 0 ? served : Buffer.concat(sections.flatMap((section) => section.lines));
     }
     const named = sections.filter((section) => section.name === mode);
     if (named.length === 0) {
@@ -80,7 +190,7 @@ export function sliceJobLog(raw: string, capture: string): string {
                 `Emit it with \`echo "SIFT_CAPTURE ${mode}"\` … \`echo "SIFT_CAPTURE_END"\`.`,
         );
     }
-    return named.map((section) => section.lines.join('\n')).join('\n');
+    return Buffer.concat(named.flatMap((section) => section.lines));
 }
 
 export interface FetchJobLogParams {
@@ -93,7 +203,13 @@ export interface FetchJobLogParams {
 }
 
 export interface TargetJobLog {
-    text: string;
+    /**
+     * The bytes the engine diffs: the served body unchanged, or the capture's selected lines byte
+     * for byte. Never decoded, never re-terminated (DN-89.D38 §1, §3).
+     */
+    bytes: Uint8Array;
+    /** The delivery stack these bytes carry, outermost first — `--changed-transport` (DN-89.D38 §2). */
+    transport: readonly string[];
     /**
      * The target job's conclusion ('success' | 'failure' | 'cancelled' | …) — GitHub's
      * NATIVE verdict token. `changed-outcome: auto` forwards it verbatim to the engine
@@ -168,36 +284,66 @@ export async function fetchTargetJobLog(params: FetchJobLogParams): Promise<Targ
         );
     }
 
+    // The body is requested UNPARSED, whatever content type GitHub serves: the log redirect is
+    // served `text/plain`, which makes the client decode it, and a decode drops the first line's
+    // mark and replaces every ill-formed byte (measured at DN-89.D38's gate G1, coderoast-corpora
+    // `f7149a2`: 741 383 bytes as a string against 741 386 on the wire). A declaration describes
+    // BYTES, so the bytes are what the engine receives.
     const download = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
         owner,
         repo,
         job_id: job.id,
+        request: { parseSuccessResponseBody: false },
     });
-    // Bounded BEFORE sliceJobLog, which splits the whole log into a line array — the allocation
-    // that actually hurts, and several times the size of the bytes that came down the wire. The
-    // download itself is not bounded here because the API hands us a completed body, not a
-    // stream: by the time this line runs the bytes have already arrived. What this prevents is
-    // multiplying them.
-    const rawBytes =
-        typeof download.data === 'string'
-            ? Buffer.byteLength(download.data, 'utf8')
-            : (download.data as ArrayBuffer).byteLength;
-    if (rawBytes > MAX_CHANGED_LOG_BYTES) {
-        throw new Error(
-            `the log of job "${job.name}" is ${rawBytes} bytes, over the ${MAX_CHANGED_LOG_BYTES} ` +
-                'byte per-input ceiling Sift declares. Bound what you compare with the ' +
-                'SIFT_CAPTURE / SIFT_CAPTURE_END markers and set the `capture` input — a marked ' +
-                'section is diffed on its own, and is usually the part you actually care about.',
-        );
-    }
-    const raw =
-        typeof download.data === 'string'
-            ? download.data
-            : Buffer.from(download.data as ArrayBuffer).toString('utf8');
+    const served = await readServedBytes(download.data, job.name);
     return {
-        text: sliceJobLog(raw, capture),
+        bytes: selectCapture(served, capture),
+        transport: JOB_LOG_TRANSPORT,
         conclusion: job.conclusion ?? null,
         jobName: job.name,
         runJobCount: jobs.length,
     };
+}
+
+function overCeiling(jobName: string, bytes: number): Error {
+    return new Error(
+        `the log of job "${jobName}" is ${bytes} bytes, over the ${MAX_CHANGED_LOG_BYTES} ` +
+            'byte per-input ceiling Sift declares. Bound what you compare with the ' +
+            'SIFT_CAPTURE / SIFT_CAPTURE_END markers and set the `capture` input — a marked ' +
+            'section is diffed on its own, and is usually the part you actually care about.',
+    );
+}
+
+// The unparsed body as bytes, bounded WHILE it arrives: the stream is read chunk by chunk and
+// cancelled the moment the count passes the per-input ceiling, so an oversized log is refused
+// before it is held whole, not after. A body the client already decoded to text is refused: its
+// bytes are gone, and the declaration would describe bytes the engine never receives.
+async function readServedBytes(body: unknown, jobName: string): Promise<Uint8Array> {
+    if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) {
+        const bytes =
+            body instanceof ArrayBuffer ? new Uint8Array(body) : new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+        if (bytes.byteLength > MAX_CHANGED_LOG_BYTES) throw overCeiling(jobName, bytes.byteLength);
+        return bytes;
+    }
+    if (!(body instanceof ReadableStream)) {
+        throw new Error(
+            `the log of job "${jobName}" arrived as ${typeof body === 'string' ? 'decoded text' : typeof body}, ` +
+                'not as bytes: the request for its unparsed body was not honoured, and a decoded log ' +
+                'is not the bytes its transport declaration describes',
+        );
+    }
+    const reader = (body as ReadableStream<Uint8Array>).getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_CHANGED_LOG_BYTES) {
+            await reader.cancel();
+            throw overCeiling(jobName, total);
+        }
+        chunks.push(value);
+    }
+    return Buffer.concat(chunks);
 }
