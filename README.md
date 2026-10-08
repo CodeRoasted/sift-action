@@ -10,7 +10,7 @@ The whole integration:
 
 ```yaml
 - name: Sift Log Diff
-  uses: CodeRoasted/sift-action@v1
+  uses: CodeRoasted/sift-action@v2
   with:
     target-job: build
 ```
@@ -41,7 +41,7 @@ jobs:
       pull-requests: write    # post/update the sticky comment
     steps:
       - name: Sift Log Diff
-        uses: CodeRoasted/sift-action@v1
+        uses: CodeRoasted/sift-action@v2
         with:
           target-job: build
 ```
@@ -86,7 +86,7 @@ the same rows. The whole-run mode is planned.
 Every default is overridable — the annotated tour (all knobs optional):
 
 ```yaml
-- uses: CodeRoasted/sift-action@v1
+- uses: CodeRoasted/sift-action@v2
   with:
     # ── Log sourcing ─────────────────────────────────────────────────────
     target-job: build                # diff a finished job's log (run Sift in a job that `needs:` it)
@@ -310,7 +310,7 @@ standard step — the engine caches under `~/.cache/coderoast`:
         with:
           path: ~/.cache/coderoast          # the pinned model + server (~2.4 GB)
           key: sift-explain-${{ runner.os }}-v<ENGINE_VERSION>   # bump with the Sift engine version
-      - uses: CodeRoasted/sift-action@v1
+      - uses: CodeRoasted/sift-action@v2
         with:
           log: build.log
           explain: true

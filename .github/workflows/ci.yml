@@ -270,7 +270,7 @@ jobs:
     # and fails EVERY consumer at `uses:`, which the TS suite can never catch. Force GitHub to
     # LOAD the manifest by self-using the action. A manifest that won't load fails this job at
     # the `uses:` step. (PRs are covered by the push:main run after merge, before the floating
-    # @v1 is re-pointed at the new commit.)
+    # @v2 is re-pointed at the new commit.)
     #
     # WHAT IT ACTUALLY EXERCISES — corrected 2026-08-10 after the description cost us a red.
     # This comment used to say the job was "seed-only ... no engine, no binary, no comment".

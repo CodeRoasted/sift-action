@@ -33,7 +33,7 @@ jobs:
       # NOTE: deliberately NO actions/checkout of the PR head and NO build step (see
       # the FORBIDDEN block above). The action's `post` mode downloads the `sift-comment`
       # artifact from the triggering run and upserts the sticky comment — nothing else.
-      - uses: CodeRoasted/sift-action@v1
+      - uses: CodeRoasted/sift-action@v2
         with:
           mode: post
           run-id: ${{ github.event.workflow_run.id }}

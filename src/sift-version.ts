@@ -11,7 +11,7 @@
 // the asset on every push, tag and PR, so the Action can never silently ship
 // pointing at a stale or absent binary release.
 //
-// The Action's CONSUMER version (package.json + the floating @v1 / @vX tag that
+// The Action's CONSUMER version (package.json + the floating @vX tag (today @v2) that
 // `uses: CodeRoasted/sift-action@…` resolves) is a SEPARATE, independent SemVer
 // line that debuts at 1.0.0 — do NOT conflate the two numbers. Bump THIS to the
 // latest published engine when cutting an Action release; bump package.json on the

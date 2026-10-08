@@ -19,7 +19,7 @@
 # construction beats asserted after the fact — and it is strictly stronger, because `<=`
 # still permitted a pin that was below the baseline yet ahead of anything actually published.
 #
-# The Action's OWN version (package.json + the @v1 consumer tag) is a separate line and is
+# The Action's OWN version (package.json + the @v2 consumer tag) is a separate line and is
 # untouched here; its lockfile coherence remains pin_coherence INV-9.
 #
 # USAGE
@@ -27,7 +27,7 @@
 #   ./bump.sh 1.8.5        # pin to a specific published engine
 #
 # Cadence: run it after an engine cut publishes engine-v<X.Y.Z>, then cut an Action release
-# and re-point @v1. Until it is run the Action LAGS the newest engine — which is the intended
+# and re-point @v2. Until it is run the Action LAGS the newest engine — which is the intended
 # posture (a consumer must never fetch an engine that is not published), not a defect.
 
 set -euo pipefail
@@ -151,4 +151,4 @@ grep -q 'SiftPinnedVersion' "$install_ps1" \
     || err "install.ps1 lost its baked pin — it would default to 'latest' again."
 
 echo "✓ sift-action pinned to published engine v$ver (src + jenkins example + install.sh + install.ps1 + dist bundle)"
-echo "  next: commit, cut an Action release, and re-point @v1 at it."
+echo "  next: commit, cut an Action release, and re-point @v2 at it."

@@ -32,6 +32,6 @@ jobs:
       pull-requests: write    # post/update the sticky comment
     steps:
       - name: Sift Log Diff
-        uses: CodeRoasted/sift-action@v1
+        uses: CodeRoasted/sift-action@v2
         with:
           target-job: build

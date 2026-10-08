@@ -40,7 +40,7 @@ jobs:
                                                      # or changed-outcome below is always (wrongly) success
           ./ci/build.sh 2>&1 | tee build.log         # your build; produces the log to diff
 
-      - uses: CodeRoasted/sift-action@v1
+      - uses: CodeRoasted/sift-action@v2
         with:
           log: build.log
           mode: render                               # compute the body to an artifact dir; never post

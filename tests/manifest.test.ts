@@ -50,7 +50,7 @@ test('annotations ship OFF: the manifest default is `never`', () => {
     assert.equal(
         defaultOf('annotations'),
         'never',
-        'inline annotations came back on by default — every consumer of @v1 gets a third ' +
+        'inline annotations came back on by default — every consumer of @v2 gets a third ' +
             'rendering of the same result, in the gutter reserved for build errors',
     );
 });

@@ -67,7 +67,7 @@ jobs:
       # ── main push / tag: diff vs the named main baseline, then re-seed it ──
       - name: Sift — vs main baseline (and re-seed it)
         if: ${{ github.event_name == 'push' }}
-        uses: CodeRoasted/sift-action@v1
+        uses: CodeRoasted/sift-action@v2
         with:
           target-job: build
           baseline: artifact=sift-baseline-main-ci
@@ -81,7 +81,7 @@ jobs:
       # ── PR: ① this build vs main (the headline sticky comment) ──
       - name: Sift — vs main baseline
         if: ${{ github.event_name == 'pull_request' }}
-        uses: CodeRoasted/sift-action@v1
+        uses: CodeRoasted/sift-action@v2
         with:
           target-job: build
           baseline: artifact=sift-baseline-main-ci
@@ -92,7 +92,7 @@ jobs:
       #        then seed the per-PR baseline for the next push ──
       - name: Sift — vs previous run of this PR
         if: ${{ github.event_name == 'pull_request' }}
-        uses: CodeRoasted/sift-action@v1
+        uses: CodeRoasted/sift-action@v2
         with:
           target-job: build
           baseline: artifact=sift-baseline-ci-pr-${{ github.event.number }}
