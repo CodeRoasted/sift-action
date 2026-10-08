@@ -11,225 +11,45 @@ permissions:
   contents: read
 
 jobs:
+  # malf-toolchain's one Node CI workflow (ROADMAP N357): checkout, Node with the npm cache,
+  # `npm ci`, each logged command under `pipefail` appended to build.log, then the dogfood. This
+  # job names only the commands. PUBLIC repository: the workflow's hosted default, `runs-on`
+  # never passed.
+  #
+  # `node-version` MUST equal action.yml's `runs: using: nodeNN` — GitHub launches dist/index.js
+  # on THAT runtime, so anything proven on a different major proves nothing about the artifact.
+  # This line read '20' against a node24 manifest for ~7 weeks: every step was green about a
+  # bundle that had never executed on its own runtime. It moves together with action.yml,
+  # esbuild.config.mjs `target` and package.json `engines.node`; the runtime-coherence check
+  # below holds them, BEFORE typecheck and test, because those are what the skew invalidates.
+  #
+  # `checks`: the runtime we prove on IS the runtime we ship on (`--selftest` proves the
+  # extractors have teeth; `npm run runtime-coherence` is the same entry point a developer uses
+  # pre-push). `logged`: what Sift diffs. `post-checks`: dist/ in sync with src/, the engine pin
+  # PUBLISHED, and the preflight — the vector we BUILD runs on the engine we PIN (the pin can be
+  # published and still reject a token we forward: measured three times, every other gate green).
+  # `sift: local` dogfoods THIS checkout's action, with the advisory SIFT-WALLTIME record (input
+  # bytes, wall time, change counts; never a gate — CI wall time on a shared runner is noise).
   build:
-    runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write   # Sift dogfood: comment on same-repo PRs + seed on push; fork PRs skipped (read-only token anyway)
       actions: write         # Sift dogfood: upload the baseline-log artifact (+ read for last-green resolution)
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          # MUST equal action.yml's `runs: using: nodeNN` — GitHub launches dist/index.js on
-          # THAT runtime, so anything proven here on a different major proves nothing about
-          # the artifact. This line read '20' against a node24 manifest for ~7 weeks: every
-          # step below was green about a bundle that had never executed on its own runtime.
-          # Moves together with action.yml, esbuild.config.mjs `target` and package.json
-          # `engines.node`; the workspace node-runtime-coherence gate holds the four.
-          node-version: '24'
-          cache: 'npm'
-
-      - name: Install
-        run: npm ci
-
-      - name: The runtime we prove on IS the runtime we ship on
-        # Six declarations of one fact — action.yml `runs.using`, this workflow's
-        # `node-version`, esbuild's `target` and its header prose, `engines.node`, and
-        # `@types/node`. They drifted apart for ~7 weeks (manifest node24 / everything else
-        # node20) because nothing compared them, and the cost was not theoretical: the suite
-        # below had never executed on node24, so when it finally did it died on contact.
-        #
-        # It runs BEFORE typecheck and test deliberately. Those two steps are what the skew
-        # invalidates, and a green from a suite running on the wrong major is worse than no
-        # green at all — it is a claim about an artifact nobody measured.
-        #
-        # `npm run runtime-coherence` is the same entry point a developer uses pre-push, for
-        # the reason preflight is: one definition, so local and CI cannot drift into checking
-        # different things. `--selftest` proves the extractors have teeth.
-        run: |
-          set -euo pipefail
-          python3 tools/node_runtime_coherence.py --selftest
-          npm run runtime-coherence
-
-      - name: Start build-log capture (typecheck/test below append; Sift diffs it)
-        run: truncate --size 0 "$GITHUB_WORKSPACE/build.log"
-
-      # `shell: bash` on both steps below is load-bearing, not style. The default runner
-      # shell is `bash -e {0}`, and `-e` reads the exit status of a PIPELINE's LAST command
-      # — here `tee`, which always succeeds. So `npm test 2>&1 | tee …` reported success no
-      # matter what the suite did: these two steps were structurally incapable of failing.
-      # `shell: bash` selects `bash --noprofile --norc -eo pipefail {0}`; `pipefail` is the
-      # word that matters. Measured 2026-08-22: the node24 move made `npm test` crash before
-      # a single assertion ran (0 pass / 1 fail) and this job still reported SUCCESS — the
-      # bug was found by reading the log, which is not a control we can rely on.
-      - name: Typecheck
-        shell: bash
-        run: npm run typecheck 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
-
-      - name: Test
-        shell: bash
-        run: npm test 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
-
-      - name: dist/ is in sync with src/ (the committed bundle is what runs)
-        # `runs: main: dist/index.js` — GitHub executes the COMMITTED bundle, not
-        # src/. A stale dist silently ships old behaviour, so re-bundle and fail if
-        # the committed dist differs. The #1 JS-action footgun; this gate kills it.
-        #
-        # THERE IS NO EXEMPT CLASS OF src/ EDIT, AND "comments only" IS THE ONE THAT
-        # LOOKS EXEMPT. esbuild drops comments everywhere EXCEPT in array/object-literal
-        # element position, which it preserves verbatim into the bundle. Measured
-        # 2026-08-12: a citation rewrite in the argument array built by `siftArgs()`
-        # (src/sift.ts) reached dist/index.js and held main red for five consecutive
-        # pushes over three days, because a comment-only diff was read as owing no
-        # repackage. Regenerate and look; never reason about whether a change "counts".
-        run: |
-          npm run package
-          if ! git diff --quiet --exit-code dist/; then
-            echo "::error::dist/ is stale — run 'npm run package' and commit dist/."
-            git --no-pager diff --stat dist/
-            exit 1
-          fi
-
-      - name: Engine pin is PUBLISHED (the pin's binary + sha256 must both be live)
-        # The Action downloads engine-v<SIFT_VERSION>/sift-linux-x64 at runtime, so a pin
-        # naming an unpublished release 404s every consumer — and does it silently, because
-        # the download sits behind continue-on-error (that is how the live @v1 came to pin a
-        # long-dead engine-v1.4.2 while every run looked green).
-        #
-        # This property used to live on the workspace pin-coherence gate as INV-8, which
-        # asserted `pin <= dev baseline` — a proxy, not the property, and one that still
-        # admitted a pin ahead of anything actually published. It is checked here instead,
-        # against the release list, and on this repo's own push/tag/PR trigger rather than a
-        # workspace gate the Action's own changes never fire. bump.sh cannot write an
-        # unpublished pin; this is the standing guard against the release being deleted or
-        # the pin being hand-edited.
-        run: |
-          set -euo pipefail
-          # scripts/engine_pin.sh is the ONE parse of the pin, shared with wall-time.yml —
-          # which measures the engine a user receives, and would silently measure a
-          # different binary than this gate probes if it re-rolled its own regex.
-          ver="$(scripts/engine_pin.sh)"
-          echo "engine pin: $ver"
-          base="https://github.com/CodeRoasted/sift-action/releases/download/engine-v$ver"
-          rc=0
-          for suffix in "" ".sha256"; do
-            code="$(curl -sSL -o /dev/null -w '%{http_code}' "$base/sift-linux-x64$suffix" || echo 000)"
-            if [ "$code" = "200" ]; then
-              echo "  ✓ sift-linux-x64$suffix → $code"
-            else
-              echo "::error::engine-v$ver/sift-linux-x64$suffix is NOT published (HTTP $code) — consumers would 404 at download. Run ./bump.sh to re-pin to a published engine."
-              rc=1
-            fi
-          done
-          # The Jenkins example is a recipe users copy verbatim; a stale one installs an old
-          # engine. bump.sh moves both together (this is what INV-8b used to assert).
-          if [ -f examples/jenkins/Jenkinsfile ]; then
-            jver="$(grep -oE "SIFT_VERSION\s*=\s*['\"][0-9.]+['\"]" examples/jenkins/Jenkinsfile \
-                    | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
-            if [ "$jver" != "$ver" ]; then
-              echo "::error::examples/jenkins/Jenkinsfile pins $jver but the Action pins $ver — run ./bump.sh, which rewrites both."
-              rc=1
-            else
-              echo "  ✓ jenkins example agrees ($jver)"
-            fi
-          fi
-          exit $rc
-
-      - name: Preflight — the vector we BUILD runs on the engine we PIN
-        # The step above proves the pinned binary EXISTS. This proves it ACCEPTS what we send it.
-        # Distinct properties: a published pin still 134s if the Action forwards a token that
-        # release predates. Measured three times — `--outcome-vocabulary`, then `--transport none`
-        # twice — and every gate above this line went green on all three, because they answer
-        # "did it ship" and never "will it run". The unit suite structurally cannot catch it: it
-        # asserts the vector's content, and the content was always what we intended.
-        #
-        # Same script a developer runs pre-push (`npm run preflight`), deliberately: one
-        # definition, so local and CI cannot drift into checking different things. It imports the
-        # real siftArgs / resolveSift / engineEnv rather than restating them — see tools/preflight.ts
-        # for why a hand-rebuilt vector would defeat the purpose.
-        run: npm run preflight
-
-      # The three steps below bracket the dogfood run to record what it COST and what it was
-      # measured ON. GitHub already times every step; the half that was missing is the INPUT
-      # SIZE, and a duration without its input size cannot support — or refute — a public
-      # speed claim. With both, every push writes one parseable record into the run log, so
-      # the claim is re-derivable from history at any time instead of being re-measured by
-      # hand. (Measured 2026-08-30 over 152 runs: the step's own duration was already
-      # recoverable from the API, but no run in the history carried its input size.)
-      #
-      # ADVISORY, and structurally so: all three carry continue-on-error, they assert
-      # nothing, and they have no failure branch. This must never become a gate — CI wall
-      # time on a shared runner is noisy (measured p50 2.7 s / p90 3.8 s / max 22 s over 113
-      # instrumented runs), and a threshold over that noise would fail builds for reasons
-      # that have nothing to do with the change under test.
-      - name: Sift dogfood — record the input size (the half GitHub's own timing lacks)
-        id: sift-input
-        if: ${{ always() && github.event.pull_request.head.repo.fork != true }}
-        continue-on-error: true
-        run: |
-          set -uo pipefail
-          log="$GITHUB_WORKSPACE/build.log"
-          bytes=0; lines=0
-          if [ -f "$log" ]; then
-            bytes=$(stat -c%s "$log" || echo 0)
-            lines=$(wc -l < "$log" || echo 0)
-          fi
-          {
-            echo "bytes=$bytes"
-            echo "lines=$lines"
-            echo "started=$(date +%s.%N)"
-          } >> "$GITHUB_OUTPUT"
-          echo "sift-dogfood: input build.log = $bytes bytes, $lines lines"
-
-      - name: Sift — structural diff of this run's typecheck/test log (advisory, dogfoods THIS code)
-        id: sift
-        if: ${{ always() && github.event.pull_request.head.repo.fork != true }}
-        continue-on-error: true    # advisory: a Sift error must NEVER fail this build
-        uses: ./    # the local action (dist/ was just rebuilt above), NOT @v1 — so the PR's own code eats its dog food
-        with:
-          log: build.log
-          fail-on: none
-          commit-comment: regression
-          changed-outcome: ${{ job.status }}   # the NATIVE token — the engine maps it four-class (ADR-17.D5)
-
-      - name: Sift dogfood — emit the wall-time record (advisory; never gates)
-        if: ${{ always() && github.event.pull_request.head.repo.fork != true }}
-        continue-on-error: true
-        env:
-          IN_BYTES: ${{ steps.sift-input.outputs.bytes }}
-          IN_LINES: ${{ steps.sift-input.outputs.lines }}
-          STARTED: ${{ steps.sift-input.outputs.started }}
-          TOTAL_CHANGES: ${{ steps.sift.outputs.total-changes }}
-          SIG_CHANGES: ${{ steps.sift.outputs.significant-changes }}
-          STATE: ${{ steps.sift.outputs.state }}
-        run: |
-          set -uo pipefail
-          elapsed=""
-          if [ -n "${STARTED:-}" ]; then
-            elapsed=$(echo "$(date +%s.%N) - $STARTED" | bc || echo "")
-          fi
-          # ONE line, fixed `SIFT-WALLTIME` prefix and `k=v` fields, on stdout: the run log is
-          # the durable surface that already spans the whole history, and a fixed prefix makes
-          # the whole history parseable in one sweep without a database to keep in sync.
-          # `significant=0` is recorded rather than hidden BECAUSE it disqualifies the row as a
-          # sample of the product's path: nothing was ranked or rendered. It is NOT a claim that
-          # such a row is faster — measured on the desk ladder 2026-08-30, a 0-significant pair
-          # ran within 1.08x of a 176-significant one at the same byte count, because wall time
-          # here tracks BYTES, not change counts. A reader must be able to EXCLUDE those rows,
-          # which requires seeing them.
-          echo "SIFT-WALLTIME runner=ubuntu-latest bytes=${IN_BYTES:-} lines=${IN_LINES:-} elapsed_s=${elapsed:-} total_changes=${TOTAL_CHANGES:-} significant=${SIG_CHANGES:-} state=${STATE:-}"
-          {
-            echo "### Sift dogfood — wall time (advisory)"
-            echo ""
-            echo "| input bytes | input lines | step wall time | total changes | significant | state |"
-            echo "|---:|---:|---:|---:|---:|:--|"
-            echo "| ${IN_BYTES:-?} | ${IN_LINES:-?} | ${elapsed:-?} s | ${TOTAL_CHANGES:-?} | ${SIG_CHANGES:-?} | ${STATE:-?} |"
-            echo ""
-            echo "_Advisory only. \`significant=0\` disqualifies the row as a throughput sample:"
-            echo "the ranking/rendering path is never entered, so the time is not comparable._"
-          } >> "$GITHUB_STEP_SUMMARY"
+    uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-node-ci.yml@0286321e46929467f836bbe6259e551155955ccc
+    with:
+      node-version: '24'
+      checks: |
+        python3 tools/node_runtime_coherence.py --selftest
+        npm run runtime-coherence
+      logged: |
+        npm run typecheck
+        npm test
+      post-checks: |
+        bash scripts/dist_in_sync.sh
+        bash scripts/engine_pin_published.sh
+        npm run preflight
+      sift: local
+      walltime-record: true
 
   actionlint:
     runs-on: ubuntu-latest
