@@ -52,90 +52,15 @@ permissions:
   contents: read
 
 jobs:
+  # The body is malf's `coderoast-sift-showcase.yml` (ROADMAP N357): this file keeps the triggers and
+  # resolves them into its three inputs. A dispatch or call names a version or none (the pin); the
+  # `release` event names its tag, which the workflow both attaches to and, for an engine-v<X> tag,
+  # installs. `contents: write` is the attach; a called workflow cannot raise it.
   showcase:
-    runs-on: ubuntu-latest
     permissions:
-      contents: write        # attach the bundle to the Release (only when a tag is passed)
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 — sift-action itself — install.sh + scripts/samples_showcase.sh
-
-      - name: Fetch the PUBLIC samples from coderoast-hub (public, anonymous)
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: CodeRoasted/coderoast-hub
-          path: hub
-          ref: ${{ inputs.samples_ref || 'main' }}
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Install the public sift engine (download + sha256-verify — the honest client path)
-        env:
-          # dispatch/call → the input when named; release → derived from the tag; otherwise the pin.
-          SIFT_VERSION_INPUT: ${{ inputs.sift_version }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          set -euo pipefail
-          # Resolve the engine version: an explicit input wins; else an engine-v<X> release installs
-          # THAT engine; else the PIN — read from src/sift-version.ts, never written here.
-          #
-          # That last arm used to be the literal '1.7.5', with a comment calling it "the current
-          # cut". It was, once. The pin moved to 1.9.6 and this line did not, so every dispatch and
-          # every workflow_call that omitted a version rendered the PUBLIC showcase — the artifact a
-          # prospective user is invited to inspect, headed "the exact binary a user gets from
-          # install.sh" — on an engine two releases behind the one we ship. Three literals said
-          # 1.7.5 (both input defaults and this line) and nothing compared any of them to anything.
-          #
-          # Deriving removes the drift rather than checking for it: src/sift-version.ts is written
-          # ONLY by bump.sh, which pins to a PUBLISHED engine, so this arm cannot name a version
-          # that does not exist and cannot fall behind the pin. There is no literal left to rot,
-          # which is why no new gate is owed here.
-          VER="$SIFT_VERSION_INPUT"
-          if [ -z "$VER" ]; then
-            case "$RELEASE_TAG" in
-              engine-v*) VER="${RELEASE_TAG#engine-v}" ;;
-              *) VER="$(grep -oE "SIFT_VERSION[[:space:]]*=[[:space:]]*['\"][^'\"]+['\"]" src/sift-version.ts \
-                        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)" ;;
-            esac
-          fi
-          # An unparseable pin is a broken instrument, never a reason to install something else:
-          # a silent fallback here is exactly how the stale literal survived unnoticed.
-          [ -n "$VER" ] || { echo "::error::could not resolve a sift engine version — no input, no engine-v* release tag, and src/sift-version.ts did not parse. Refusing to render a showcase on a guessed engine."; exit 1; }
-          echo "sift engine version: $VER"
-          # install.sh falls back to ~/.local/bin unless SIFT_INSTALL_DIR already EXISTS + is writable —
-          # so create it first, else the binary lands elsewhere than where we look for it.
-          mkdir -p "$PWD/bin"
-          SIFT_INSTALL_DIR="$PWD/bin" sh install.sh "$VER"
-          echo "SIFT=$PWD/bin/sift" >> "$GITHUB_ENV"
-          # `--version` here was a no-op with a `|| true` on it: sift has no version flag, so this
-          # line printed a usage error and swallowed it. install.sh now proves liveness itself
-          # (fatally), so this step no longer needs a probe of its own — and a probe that cannot
-          # fail is worse than none.
-
-      - name: Render the Sift-over-Jenkins showcase
-        run: bash scripts/samples_showcase.sh "$SIFT" hub/samples showcase
-
-      - name: Bundle + step summary
-        run: |
-          set -euo pipefail
-          tar --sort=name --mtime='2026-01-01 00:00:00Z' --owner=0 --group=0 --numeric-owner \
-              -C showcase -czf sift-samples-showcase.tar.gz .
-          {
-            echo "## Sift over our public Jenkins samples"
-            echo
-            cat showcase/README.md
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: sift-samples-showcase
-          path: showcase
-          if-no-files-found: error
-
-      # Release path (workflow_call with a tag, or the `release` event): attach the bundle to the Release.
-      - name: Attach the showcase bundle to the Release
-        if: ${{ inputs.tag || github.event.release.tag_name }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          TAG: ${{ inputs.tag || github.event.release.tag_name }}
-        run: gh release upload "$TAG" sift-samples-showcase.tar.gz --clobber
+      contents: write
+    uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-sift-showcase.yml@3924e57362e8f40c91fe90bb63a4943de59babd7
+    with:
+      sift-version: ${{ inputs.sift_version }}
+      samples-ref: ${{ inputs.samples_ref || 'main' }}
+      release-tag: ${{ inputs.tag || github.event.release.tag_name }}

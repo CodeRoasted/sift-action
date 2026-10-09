@@ -35,7 +35,7 @@ jobs:
       contents: write
       pull-requests: write   # Sift dogfood: comment on same-repo PRs + seed on push; fork PRs skipped (read-only token anyway)
       actions: write         # Sift dogfood: upload the baseline-log artifact (+ read for last-green resolution)
-    uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-node-ci.yml@c6a2a8eaa8630a9604749ab9790278ecd38d1aa2
+    uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-node-ci.yml@3924e57362e8f40c91fe90bb63a4943de59babd7
     with:
       node-version: '24'
       checks: |
@@ -51,164 +51,34 @@ jobs:
       sift: local
       walltime-record: true
 
+  # actionlint over this repository's workflows: malf's `coderoast-lint.yml` with every C++ gate off
+  # (this repository has no C++). The seat stays HERE although step 0 and the commit gate run
+  # actionlint too: this repository is PUBLIC, so a fork's pull request is judged only by its own
+  # CI — step 0 and the commit gate never see it, and without this job external PRs go unlinted.
   actionlint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: actionlint (PINNED release asset — no remote script is executed)
-        env:
-          ACTIONLINT_VERSION: '1.7.12'
-        run: |
-          # TWO defects were fixed here, and only the first is about this repo's own gate.
-          #
-          # 1. SUPPLY CHAIN. This used to be
-          #    `curl -sSfL .../actionlint/main/scripts/download-actionlint.bash | bash` — arbitrary
-          #    code from a MUTABLE upstream ref, executed on the runner every run. `main` is not a
-          #    version: whatever that branch holds at the moment CI fires is what runs. The blast
-          #    radius is bounded (this job inherits `contents: read`), but "bounded" is not
-          #    "absent", and nothing here needs a remote script at all. Pinning the RELEASE ASSET
-          #    removes the execution surface rather than narrowing it, and matches the pattern the
-          #    superproject's lint.yml already uses — one shape for actionlint everywhere.
-          #
-          # 2. Swallowed status, the sibling arm of the Typecheck/Test fix above. Under the
-          #    default `bash -e {0}` the pipeline's status was BASH's, and bash fed an EMPTY stdin
-          #    exits 0 — measured, `curl -fsSL <404> | bash` → rc=0. A dead download reported a
-          #    successful install; the failure surfaced one line later as `./actionlint: No such
-          #    file or directory`, a true failure wearing the wrong cause, and only because a
-          #    later line happened to touch the artifact. `set -euo pipefail` makes curl's own
-          #    status the verdict.
-          set -euo pipefail
-          curl -sSfL -o /tmp/al.tgz \
-            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          tar -xzf /tmp/al.tgz -C /tmp actionlint
-          /tmp/actionlint --version
-          /tmp/actionlint
+    uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-lint.yml@3924e57362e8f40c91fe90bb63a4943de59babd7
+    with:
+      actionlint: true
+      module-conformance: false
+      format-check: false
+      dead-symbol-check: false
+      lint: false
 
+  # The manifest LOADED the way a consumer's runner loads it (`uses: ./`), end to end on a smoke log:
+  # malf's `coderoast-sift-manifest-load.yml`, whose header says what it proves beyond the load and
+  # why it pairs with the build's `preflight`. Post-push by nature: a pull request is covered by the
+  # push:main run after merge, before the floating @v2 is re-pointed.
   manifest-load:
-    # actionlint lints WORKFLOWS, not action.yml — so a broken manifest (a ${{ }} expression
-    # using a context invalid in action metadata, e.g. `needs` / `github.event`) ships silently
-    # and fails EVERY consumer at `uses:`, which the TS suite can never catch. Force GitHub to
-    # LOAD the manifest by self-using the action. A manifest that won't load fails this job at
-    # the `uses:` step. (PRs are covered by the push:main run after merge, before the floating
-    # @v2 is re-pointed at the new commit.)
-    #
-    # WHAT IT ACTUALLY EXERCISES — corrected 2026-08-10 after the description cost us a red.
-    # This comment used to say the job was "seed-only ... no engine, no binary, no comment".
-    # That was true when written and stopped being true when baseline storage landed: with a
-    # stored baseline this job downloads the pinned engine and runs a REAL comparison. It is
-    # the job that caught `--transport none` — while its own description said it could not.
-    #
-    # That is the expensive kind of stale comment: it does not merely misinform, it argues
-    # against consulting the instrument you already have. It is why the bad commit was pushed
-    # without anyone running this check first. A comment stating INTENTION rots when the plan
-    # moves; a comment stating STATE rots when the SYSTEM moves, silently, and nothing
-    # type-checks it.
-    #
-    # THE PAIR, and why both exist. `preflight` (in `build`, above) and this job guarantee
-    # different things, and neither subsumes the other:
-    #
-    #   preflight     — the argument vector we BUILD runs on the engine we PIN. Runs the real
-    #                   siftArgs against the real resolved pin. Runs LOCALLY too, pre-push,
-    #                   which is the whole point: it is the only one of the two a developer can
-    #                   consult before the mistake is public.
-    #   manifest-load — action.yml LOADS at `uses:`, which ONLY GitHub can prove, plus main.ts's
-    #                   real orchestration end to end. Post-push by nature.
-    #
-    # Together: preflight fails fast and early on a vector the pin rejects; this job is the
-    # backstop for everything preflight cannot reach — manifest validity, input plumbing, and
-    # the `--explain` pair preflight declares out of scope.
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: echo "manifest-load smoke" > smoke.log   # a real file for the required `log` input
-      - uses: ./
-        with:
-          log: smoke.log
+    uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-sift-manifest-load.yml@3924e57362e8f40c91fe90bb63a4943de59babd7
 
+  # `OPS-7.S112` cell 1 — the publicly documented Windows install path (`install.ps1`), executed the
+  # way a user runs it, with a negative arm first: malf's `coderoast-sift-windows-install.yml`. This
+  # repository is PUBLIC, so the leg stays on the workflow's hosted default and `runs-on` is never
+  # passed (the Founder's ruling: a public repository's Windows leg is hosted; both self-hosted groups
+  # refuse public repositories).
   windows-install:
-    # `OPS-7.S112` cell 1 — THE PUBLICLY DOCUMENTED WINDOWS INSTALL PATH, EXECUTED BY NOTHING.
-    #
-    # README.md tells a Windows user to run `irm .../install.ps1 | iex`, and resolve-sift.ts
-    # tells them the same thing in the error it prints when the Action meets a non-linux
-    # runner. That script downloads a published asset, sha256-verifies it fatally, and
-    # installs it — and until this job it had never once run. Its Linux twin `install.sh`
-    # DOES run (samples-showcase.yml installs the engine with it on every showcase), so the
-    # asymmetry was not a policy, just a gap: two sweeps found `install.ps1` referenced only
-    # from prose and from bump.sh, which REWRITES it rather than executing it.
-    #
-    # WINDOWS-LATEST IS FREE HERE and that is why this is affordable. The runner-budget rule
-    # is that the self-hosted fleet is ONE box and hosted minutes are scarce — but this repo
-    # is PUBLIC (verified 2026-08-24), and GitHub-hosted minutes are not metered on public
-    # repos. The same fact is why sift-action must never touch the fleet: a public repo takes
-    # fork PRs.
-    #
-    # THE NEGATIVE ARM IS FIRST, deliberately. A green installer job proves nothing unless the
-    # job can go red, and "the download worked" is the easiest can't-FAIL in this file: point
-    # it at an engine that will never exist and the script MUST refuse. `0.0.0` is chosen
-    # because it is unpublishable by construction (bump.sh derives every pin from the released
-    # set), so this control cannot rot into a true positive the way a real-but-old version
-    # would. It exercises the exact `Fail` path a broken asset name or a moved release takes.
-    runs-on: windows-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Arm the installer (it MUST refuse an engine that cannot exist)
-        shell: pwsh
-        run: |
-          # TWO refusal shapes, and catching only one would make this control a coin flip.
-          # install.ps1 sets `$ErrorActionPreference = 'Stop'` in its own scope, so its `Fail`
-          # helper's `Write-Error` THROWS before ever reaching the `exit 1` beside it — the
-          # script normally leaves by exception, not by exit code. Both are a refusal here.
-          $ErrorActionPreference = 'Continue'
-          $global:LASTEXITCODE = 0
-          $refused = $false
-          try { & ./install.ps1 -Version 0.0.0 *> $null; if ($LASTEXITCODE -ne 0) { $refused = $true } }
-          catch { $refused = $true }
-          if (-not $refused) {
-            Write-Host "::error::install.ps1 returned SUCCESS for engine-v0.0.0, which is not published and never can be (bump.sh derives every pin from the released set). The installer cannot fail, so its green below would mean nothing."
-            exit 1
-          }
-          Write-Host "armed: install.ps1 refused engine-v0.0.0"
-          # The pwsh shell GitHub generates appends `exit $LASTEXITCODE`. A refusal that took the
-          # `exit 1` branch would therefore red THIS step — the arm passing would read as the arm
-          # failing. Clear it now that the verdict is recorded.
-          $global:LASTEXITCODE = 0
-
-      - name: Install the published Windows engine the way a user does (GATING)
-        shell: pwsh
-        env:
-          # An explicit dir, not the default per-user Programs path: the assertion below has to
-          # open the file the installer wrote, and `$env:LOCALAPPDATA\Programs\sift` is a path
-          # this job would be restating rather than reading. No -Version — the baked pin IS the
-          # thing under test (bump.sh owns that line, and `install.sh`/`src/sift-version.ts`
-          # carry the same one).
-          SIFT_INSTALL_DIR: ${{ github.workspace }}\sift-bin
-        run: ./install.ps1
-
-      - name: The installed binary must BE sift and must DIFF
-        # Not `Test-Path`: a zero-byte file passes that. And not a meta-flag probe either — the
-        # first draft of this step ran `--version`, which is how the missing-version-flag defect
-        # was found: sift has NO version flag, so that probe reds on a perfectly good binary
-        # while the three installer/showcase sites calling it swallowed the same error and
-        # reported success. The lesson is in the choice made here: assert the PRODUCT ACT, not a
-        # flag. Two logs in, a report out, exit 0 — what a user does one minute after installing.
-        #
-        # `--fail-on none` is explicit rather than relied upon: the default is `none`, but this
-        # step must red on a broken engine and never on a significant diff, and writing it down
-        # is what keeps a future default change from silently converting this into a flake.
-        shell: pwsh
-        run: |
-          $exe = "${{ github.workspace }}\sift-bin\sift.exe"
-          if (-not (Test-Path $exe)) { Write-Host "::error::install.ps1 reported success but wrote no $exe"; exit 1 }
-          Set-Content -Path baseline.log -Value @('build start', 'compiling a.cpp', 'ok', 'build ok')
-          Set-Content -Path changed.log  -Value @('build start', 'compiling a.cpp', 'error: a.cpp:3 undefined symbol', 'build failed')
-          $out = & $exe baseline.log changed.log --format md --fail-on none 2>&1 | Out-String
-          if ($LASTEXITCODE -ne 0) { Write-Host "::error::the installed sift.exe exits $LASTEXITCODE on a plain two-log diff"; Write-Host $out; exit 1 }
-          if ([string]::IsNullOrWhiteSpace($out)) { Write-Host "::error::the installed sift.exe produced an EMPTY report on a two-log diff"; exit 1 }
-          Write-Host "the installed engine diffed two logs and wrote $($out.Length) chars of report"
+    uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-sift-windows-install.yml@3924e57362e8f40c91fe90bb63a4943de59babd7
 
   release:
     # THE MARKETPLACE MECHANISM. A Marketplace listing can only be republished from a
