@@ -38,7 +38,7 @@ jobs:
   # The body is malf's `coderoast-sift-wall-time.yml` (ROADMAP N357); this file keeps the dispatch
   # and its defaults.
   wall-time:
-    uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-sift-wall-time.yml@f8d7419618012dd0baae4fd7423735b5d3da0124
+    uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-sift-wall-time.yml@4fbfa2e6c0bffce2f6b43abb7b9296b04f72563e
     with:
       rungs: ${{ inputs.rungs }}
       reps: ${{ inputs.reps }}
