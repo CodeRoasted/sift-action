@@ -31,7 +31,7 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: 'Release tag to attach the showcase bundle to'
+        description: 'An engine-v<X.Y.Z> Release tag: the showcase installs that engine (nothing is attached to it)'
         type: string
         required: false
       sift_version:
@@ -44,7 +44,9 @@ on:
         default: main
   # "or release" — fires however a release is published (the engine-v* ceremony is external to this
   # repo, so the `release` event is the robust hook; a git-tag `push` trigger would miss a gh-created
-  # release). On an engine-v<X> release the showcase installs THAT engine; the bundle attaches to it.
+  # release). On an engine-v<X> release the showcase installs THAT engine through the public install
+  # path. The bundle is NOT attached to the Release (the Founder, 2026-10-14, DN-142.D25 (4) B): the
+  # engine Release has one owner, insight-eidos's store publish, read back exact both ways.
   release:
     types: [published]
 
@@ -54,11 +56,11 @@ permissions:
 jobs:
   # The body is malf's `coderoast-sift-showcase.yml` (ROADMAP N357): this file keeps the triggers and
   # resolves them into its three inputs. A dispatch or call names a version or none (the pin); the
-  # `release` event names its tag, which the workflow both attaches to and, for an engine-v<X> tag,
-  # installs. `contents: write` is the attach; a called workflow cannot raise it.
+  # `release` event names its tag, whose engine-v<X> version the workflow installs. It writes
+  # nothing to this repository, so it reads only.
   showcase:
     permissions:
-      contents: write
+      contents: read
     uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-sift-showcase.yml@17b343aa2ae9ef85d0884b9ca3784bdcda810e0c
     with:
       sift-version: ${{ inputs.sift_version }}

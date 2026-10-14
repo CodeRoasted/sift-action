@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# The engine pin is PUBLISHED: the pinned engine's binary and its sha256 must both be live.
+# The engine pin is PUBLISHED: each pinned engine binary and its sha256 must be live — the Linux
+# one the Action and install.sh download, and the Windows one install.ps1 downloads (its sha256
+# check is fatal by design, so a Windows engine published without it breaks every Windows install;
+# until 2026-10-14 nothing here probed it, so the first to notice would have been a user).
 #
 # The Action downloads engine-v<SIFT_VERSION>/sift-linux-x64 at runtime, so a pin naming an
 # unpublished release 404s every consumer — and does it silently, because the download sits
@@ -20,14 +23,16 @@ ver="$(scripts/engine_pin.sh)"
 echo "engine pin: $ver"
 base="https://github.com/CodeRoasted/sift-action/releases/download/engine-v$ver"
 rc=0
-for suffix in "" ".sha256"; do
-  code="$(curl -sSL -o /dev/null -w '%{http_code}' "$base/sift-linux-x64$suffix" || echo 000)"
-  if [ "$code" = "200" ]; then
-    echo "  ✓ sift-linux-x64$suffix → $code"
-  else
-    echo "::error::engine-v$ver/sift-linux-x64$suffix is NOT published (HTTP $code) — consumers would 404 at download. Run ./bump.sh to re-pin to a published engine."
-    rc=1
-  fi
+for asset in sift-linux-x64 sift-windows-x64.exe; do
+  for suffix in "" ".sha256"; do
+    code="$(curl -sSL -o /dev/null -w '%{http_code}' "$base/$asset$suffix" || echo 000)"
+    if [ "$code" = "200" ]; then
+      echo "  ✓ $asset$suffix → $code"
+    else
+      echo "::error::engine-v$ver/$asset$suffix is NOT published (HTTP $code) — consumers would 404 at download. Run ./bump.sh to re-pin to a published engine."
+      rc=1
+    fi
+  done
 done
 # The Jenkins example is a recipe users copy verbatim; a stale one installs an old engine.
 # bump.sh moves both together (this is what INV-8b used to assert).

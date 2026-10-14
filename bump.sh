@@ -33,7 +33,9 @@
 set -euo pipefail
 
 REPO="CodeRoasted/sift-action"
-ASSET="sift-linux-x64"
+# Every engine binary an installer downloads: install.sh and the Action the Linux one, install.ps1
+# the Windows one.
+ASSETS="sift-linux-x64 sift-windows-x64.exe"
 here="$(cd "$(dirname "$0")" && pwd)"
 
 err() { echo "bump: $*" >&2; exit 1; }
@@ -58,12 +60,14 @@ fi
 # and its checksum must be there: install.sh treats a missing .sha256 as fatal, so a release
 # carrying the binary alone would still break every installer.
 base="https://github.com/$REPO/releases/download/engine-v$ver"
-for suffix in "" ".sha256"; do
-    code="$(curl -sSL -o /dev/null -w '%{http_code}' "$base/$ASSET$suffix" || echo 000)"
-    case "$code" in
-        200) echo "bump: ✓ $ASSET$suffix published (HTTP $code)" ;;
-        *)   err "engine-v$ver/$ASSET$suffix is NOT published (HTTP $code) — refusing to pin an engine consumers cannot download." ;;
-    esac
+for asset in $ASSETS; do
+    for suffix in "" ".sha256"; do
+        code="$(curl -sSL -o /dev/null -w '%{http_code}' "$base/$asset$suffix" || echo 000)"
+        case "$code" in
+            200) echo "bump: ✓ $asset$suffix published (HTTP $code)" ;;
+            *)   err "engine-v$ver/$asset$suffix is NOT published (HTTP $code) — refusing to pin an engine consumers cannot download." ;;
+        esac
+    done
 done
 
 # ── 3. Rewrite the FOUR source pins ─────────────────────────────────────────────────────
