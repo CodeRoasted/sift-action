@@ -61,7 +61,7 @@ jobs:
   showcase:
     permissions:
       contents: read
-    uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-sift-showcase.yml@17b343aa2ae9ef85d0884b9ca3784bdcda810e0c
+    uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-sift-showcase.yml@a33bd9fda4db0da3e610697e7715843237082f5f
     with:
       sift-version: ${{ inputs.sift_version }}
       samples-ref: ${{ inputs.samples_ref || 'main' }}
