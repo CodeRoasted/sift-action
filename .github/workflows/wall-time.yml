@@ -5,7 +5,7 @@
 # per-push trigger would spend runner time forever to re-answer a question whose answer only
 # moves when the engine does.
 #
-# ubuntu-latest, never the self-hosted fleet: this repo is PUBLIC, so a fork's dispatch must
+# ubuntu-24.04, never the self-hosted fleet: this repo is PUBLIC, so a fork's dispatch must
 # never reach our box, and the number we want is the one a stranger's CI produces — our
 # fleet's hardware is not what a claim about "your CI" may be measured on.
 #
@@ -38,7 +38,7 @@ jobs:
   # The body is malf's `coderoast-sift-wall-time.yml` (ROADMAP N357); this file keeps the dispatch
   # and its defaults.
   wall-time:
-    uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-sift-wall-time.yml@d9827c46a6cfbccd10d7ff5ffa4d66c377a35bfc
+    uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-sift-wall-time.yml@11b01ac01c85b6a7719d3daec68b07dd7e6c77fa
     with:
       rungs: ${{ inputs.rungs }}
       reps: ${{ inputs.reps }}
