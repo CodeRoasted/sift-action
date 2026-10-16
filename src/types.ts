@@ -33,6 +33,9 @@ export interface RankedChange {
     evidence?: string[];
     baseline_line_refs?: number[];
     changed_line_refs?: number[];
+    // DN-89.D48: on a FAILING unit row only, the refs `changed_line_refs` leads with, each
+    // labelled by how its error level was established; an inferred line is never a declared one.
+    cause_lines?: { ref: number; established: 'declared' | 'inferred' }[];
 }
 
 // The run verdicts (ADR-17.D5 — the diff-layer home of the four classes). Uppercase
