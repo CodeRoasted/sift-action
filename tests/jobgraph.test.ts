@@ -487,7 +487,7 @@ test('DN-89.D26: each keyed and keyless conclusion takes the state the join deci
     assert.ok(!wire.includes('listing_not_read'), `the Action reads the listing or declares no graph: ${wire}`);
 });
 
-// ── DN-140.D2 and D3: the listing row's identity and the steps it RAN, on the keyless entry ──
+// ── DN-140.D2 and DN-140.D3: the listing row's identity and the steps it RAN, on the keyless entry ──
 
 const STEPPED_ROW: RenderedJob = {
     id: 81441945730,

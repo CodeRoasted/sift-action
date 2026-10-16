@@ -744,7 +744,7 @@ async function main(): Promise<void> {
         if (verdict !== '') failures.push(`  frame cell: ${verdict}.\n      vector: ${framed.args.join(' ')}`);
     }
 
-    // ── F) DN-140.D4 and D5 — a failed target job's row names the step its listing declares failed ─
+    // ── F) DN-140.D4 and DN-140.D5 — a failed target job's row names the step its listing declares failed ─
     // End to end through the Action's own halves: the log acquired by `fetchTargetJobLog` from a
     // listing row (its id and attempt returned beside the bytes), the graph joined from that same
     // row by the producer, the vector built by `siftArgs` with the provenance declared. The pinned
