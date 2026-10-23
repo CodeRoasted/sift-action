@@ -130,9 +130,10 @@ export function engineFailureMessage(exitCode: number): string | null {
             return null;
         case SIFT_EXIT.USAGE_ERROR:
             return (
-                'Sift could not read one of the logs, or was called with bad arguments ' +
-                '(engine exit 1). Check the `log:` path, or the `target-job` name if you use ' +
-                "zero-plumbing sourcing — the engine's own message is in the step log above."
+                'Sift could not read one of the logs, could not write its report, or was called ' +
+                'with bad arguments (engine exit 1). Check the `log:` path, the runner\'s free ' +
+                'disk space, or the `target-job` name if you use zero-plumbing sourcing — the ' +
+                "engine's own message is in the step log above."
             );
         case SIFT_EXIT.INPUT_TOO_LARGE:
             return (

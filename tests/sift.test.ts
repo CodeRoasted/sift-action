@@ -438,6 +438,16 @@ test('engineFailureMessage: every non-report code is actionable, and none is sil
     }
 });
 
+test('engineFailureMessage: exit 1 names an unwritable report beside an unreadable log', () => {
+    // The engine exits 1 when the report's destination refuses the write (a full runner disk
+    // under `-o`), so a message naming only the inputs sends the user to the wrong file.
+    const message = engineFailureMessage(1);
+    assert.ok(message !== null);
+    assert.match(message, /could not read one of the logs/);
+    assert.match(message, /could not write its report/, 'must name the output side');
+    assert.match(message, /free disk space/, 'must give the check for the output side');
+});
+
 test('engineFailureMessage: exit 3 names the ceiling, the check, and the way out', () => {
     const message = engineFailureMessage(3);
     assert.ok(message !== null);

@@ -102728,7 +102728,7 @@ function engineFailureMessage(exitCode) {
     case SIFT_EXIT.GATE_TRIPPED:
       return null;
     case SIFT_EXIT.USAGE_ERROR:
-      return "Sift could not read one of the logs, or was called with bad arguments (engine exit 1). Check the `log:` path, or the `target-job` name if you use zero-plumbing sourcing \u2014 the engine's own message is in the step log above.";
+      return "Sift could not read one of the logs, could not write its report, or was called with bad arguments (engine exit 1). Check the `log:` path, the runner's free disk space, or the `target-job` name if you use zero-plumbing sourcing \u2014 the engine's own message is in the step log above.";
     case SIFT_EXIT.INPUT_TOO_LARGE:
       return `Sift refused this run: one of the logs is over the engine ceiling of ${MAX_CHANGED_LOG_BYTES} bytes / 1000000 lines per input, or has a line over ${MAX_ENGINE_LINE_BYTES} bytes per line, or the two logs need more than ${MAX_ENGINE_ALIGNMENT_CELLS} step-alignment cells (baseline steps x changed steps, summed over every job they share) (engine exit 3). Check with \`wc -lc\` on the log, and find long lines with \`LC_ALL=C awk 'length($0) > ${MAX_ENGINE_LINE_BYTES}' <log>\`; the engine's own message in the step log above names the bound it hit. This is a declared limit, not a crash \u2014 the engine will not diff a truncated window, because that answers a different question without saying so. Narrow what you compare with the SIFT_CAPTURE markers (see the \`capture\` input) and Sift will run on the sections you mark.`;
     case SIFT_EXIT.INTERNAL_ERROR:
