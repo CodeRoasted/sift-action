@@ -604,7 +604,7 @@ test('the inline cap stays GLOBAL: the remainder notice sits outside every secti
 
 // ── Determinism (contract § 4) ──────────────────────────────────────────────
 
-test('the comment body is deterministic: same (report, context) ⇒ same string', () => {
+test('the comment body is in-process stable: same (report, context) ⇒ same string', () => {
     const report = withOutcomes(load('regression.json'), { changed_outcome: 'SUCCESS' });
     const c = ctx();
     assert.equal(renderComment(report, c), renderComment(report, c));
