@@ -64,6 +64,7 @@ jobs:
       actionlint: true
       module-conformance: false
       format-check: false
+      determinism-check: false
       dead-symbol-check: false
       lint: false
 
