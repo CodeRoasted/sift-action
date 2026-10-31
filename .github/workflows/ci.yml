@@ -52,9 +52,9 @@ jobs:
       walltime-record: true
 
   # actionlint over this repository's workflows: malf's `coderoast-lint.yml` with every C++ gate off
-  # (this repository has no C++). The seat stays HERE although step 0 and the commit gate run
+  # (this repository has no C++). The seat stays HERE although the cut and the commit gate run
   # actionlint too: this repository is PUBLIC, so a fork's pull request is judged only by its own
-  # CI — step 0 and the commit gate never see it, and without this job external PRs go unlinted.
+  # CI — the cut and the commit gate never see it, and without this job external PRs go unlinted.
   actionlint:
     uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-lint.yml@528dd9c53525636dd3dbe01ea07d7168a040b9b9
     permissions:
