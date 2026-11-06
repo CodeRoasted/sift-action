@@ -809,26 +809,37 @@ test('runSift: a conformant report is returned exactly as a lenient read parses 
     assert.equal(outcome.exitCode, 0);
 });
 
+test('siftArgs: each gate value forwards verbatim as `--fail-on <value>`; `none` forwards no flag', () => {
+    assert.ok(!siftArgs(baseInvocation).includes('--fail-on'), 'none must not reach argv');
+    for (const failOn of ['medium', 'high', 'critical'] as const) {
+        const args = siftArgs({ ...baseInvocation, failOn });
+        const at = args.indexOf('--fail-on');
+        assert.ok(at >= 0, `--fail-on absent for ${failOn}: ${args.join(' ')}`);
+        assert.equal(args[at + 1], failOn, `--fail-on ${failOn} forwarded as ${args[at + 1]}: ${args.join(' ')}`);
+    }
+});
+
 // ── DN-132.D2: an unknown `fail-on` value is a config error, never a silent `none` ────────────
 //
-// The defect this erases: every value but `significant` and `regression` read as `none`, so
-// `fail-on: medium` (DN-132's coming spelling, which no published engine parses yet) or a typo
-// left a workflow ungated without a word. RED at sift-action 65ddebc, whose `readFailOn` mapped
-// both to `none` — mirrored here by the cells it would have accepted.
+// The defect this erases: an unrecognized value read as `none`, so a typo left a workflow ungated
+// without a word. RED at sift-action 65ddebc, whose `readFailOn` mapped every unknown value to
+// `none`. The retired values `significant` and `regression` (engine ≤ 1.10.7) are among the
+// rejected cells: the pinned engine refuses them, so the Action must fail before forwarding them.
 
 test('parseFailOn: the pinned engine\'s values parse, case-blind, and empty is none', () => {
     assert.equal(parseFailOn(''), 'none');
     assert.equal(parseFailOn('none'), 'none');
-    assert.equal(parseFailOn('Significant'), 'significant');
-    assert.equal(parseFailOn(' regression '), 'regression');
+    assert.equal(parseFailOn('Medium'), 'medium');
+    assert.equal(parseFailOn(' high '), 'high');
+    assert.equal(parseFailOn('CRITICAL'), 'critical');
 });
 
 test('parseFailOn: any other value throws, naming the input, the value and the accepted values — no alias', () => {
-    for (const raw of ['medium', 'high', 'critical', 'regresion', 'low', 'true']) {
+    for (const raw of ['significant', 'regression', 'low', 'hgih', 'true']) {
         assert.throws(
             () => parseFailOn(raw),
             (error: Error) =>
-                error.message === `invalid \`fail-on\` input "${raw}" — expected none | significant | regression`,
+                error.message === `invalid \`fail-on\` input "${raw}" — expected none | medium | high | critical`,
             `"${raw}" must fail the run, not disable the gate`,
         );
     }

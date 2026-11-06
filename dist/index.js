@@ -102699,7 +102699,7 @@ async function resolveSift(override, workDir) {
 var exec3 = __toESM(require_exec(), 1);
 import { spawn } from "node:child_process";
 import { promises as fs12 } from "fs";
-var FAIL_ON_VALUES = ["none", "significant", "regression"];
+var FAIL_ON_VALUES = ["none", "medium", "high", "critical"];
 function parseFailOn(raw) {
   const value = (raw || "none").trim().toLowerCase();
   const failOn = FAIL_ON_VALUES.find((known) => known === value);

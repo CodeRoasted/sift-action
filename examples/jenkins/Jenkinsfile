@@ -5,7 +5,9 @@
 // (`sift-linux-x64` + `.sha256`) on CodeRoasted/sift-action. Jenkins — or any CI
 // with `curl` + `sha256sum` — is just another client of that asset. This pipeline
 // reproduces the Action's advisory-first posture WITHOUT any new code or infra:
-//   • `--fail-on regression` is the gate (advisory: it sets the build result);
+//   • `--fail-on medium` is the gate (advisory: it sets the build result) — it trips
+//     when the build's declared verdict got worse (SUCCESS → UNSTABLE counts) or a
+//     change got worse at medium severity or above;
 //   • the archived `sift-report.json` + build status are the surface (a PR comment
 //     is GitHub-only until a Tier-1 SCM-plugin adapter wires it — § 9.4);
 //   • the baseline is USER-wired here (last green build's archived log via the Copy
@@ -68,7 +70,7 @@ pipeline {
             --format both -o sift-report.json \
             --changed-outcome "${currentBuild.currentResult}" \
             \$baseline_outcome_flag \
-            --fail-on regression                            # advisory gate
+            --fail-on medium                                # advisory gate
         else
           echo "Sift: no prior green build to diff against — cold start, skipping."
         fi

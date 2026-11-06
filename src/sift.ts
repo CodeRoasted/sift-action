@@ -18,12 +18,11 @@ import {
     type SiftReport,
 } from './types.js';
 
-// The gate values the PINNED engine parses (`sift --fail-on`, engine 1.10.6: none | significant |
-// regression). The Action forwards the value and reads the exit code; it never decides the gate.
-// DN-132.D2's single gate, `none | medium | high | critical` read on the row's one severity, is an
-// engine change that no published engine carries yet, so the Action cannot forward it before its pin
-// moves to one that does; the two move together.
-export const FAIL_ON_VALUES = ['none', 'significant', 'regression'] as const;
+// The gate values the PINNED engine parses (`sift --fail-on`, DN-132.D2's single gate since engine
+// 1.10.8: none | medium | high | critical). It trips on the run's declared verdict getting worse, or on
+// a listed row that got worse (polarity Regression) at that severity or above. The Action forwards
+// the value and reads the exit code; it never decides the gate.
+export const FAIL_ON_VALUES = ['none', 'medium', 'high', 'critical'] as const;
 export type FailOn = (typeof FAIL_ON_VALUES)[number];
 
 // The `fail-on` input, lower-cased; empty is `none`. Any other value FAILS the run as a config

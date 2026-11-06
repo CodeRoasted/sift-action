@@ -45,7 +45,7 @@ inputs:
     required: false
     default: 'sift'
   fail-on:
-    description: 'Advisory gate: exit non-zero when the condition holds. One of none | significant | regression; any other value fails the run (config error).'
+    description: 'Fail this step when Sift reports a change that got worse at this severity or above: none (default, never fails) | medium | high | critical. Any other value fails the run (config error).'
     required: false
     default: 'none'
   baseline:

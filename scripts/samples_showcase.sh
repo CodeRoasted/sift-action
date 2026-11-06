@@ -61,12 +61,13 @@ PY
 }
 
 # run_diff <corpus-out-dir> <name> <baseline-log> <baseline-label> <changed-log> <changed-label>
-# --format both: JSON report to -o, human render to stdout. --fail-on significant makes the exit a REAL
-# verdict signal (0 = nothing significant, non-zero = fires) — never a script error; capture, don't abort.
+# --format both: JSON report to -o, human render to stdout. --fail-on medium makes the exit a REAL
+# verdict signal (0 = nothing got worse at medium or above, 2 = something did) — never a script error;
+# capture, don't abort.
 run_diff() {
     local dir="$1" name="$2" blog="$3" blabel="$4" clog="$5" clabel="$6" rc=0
     "$SIFT" "$blog" "$clog" --format both -o "$dir/$name.report.json" \
-        --baseline-label "$blabel" --changed-label "$clabel" --fail-on significant \
+        --baseline-label "$blabel" --changed-label "$clabel" --fail-on medium \
         > "$dir/$name.render.txt" 2>&1 || rc=$?
     echo "$rc" > "$dir/$name.exit"
     grep -oE '[0-9]+ changes?, [0-9]+ significant' "$dir/$name.render.txt" | tail -1 > "$dir/$name.verdict" || true
@@ -142,7 +143,7 @@ done
   echo "[coderoast-hub](https://github.com/CodeRoasted/coderoast-hub) under \`samples/\`."
   echo
   echo "It is an **honest showcase, not a gate**. For each CI dialect with a green-vs-red outcome, two"
-  echo "runs tell the whole story (each uses \`--fail-on significant\`, so the exit corroborates the"
+  echo "runs tell the whole story (each uses \`--fail-on medium\`, so the exit corroborates the"
   echo "verdict): **silent-on-green** (a passing build vs itself → nothing) and **regression-catch** (a"
   echo "passing build vs a failing one → the structural regression). LogHub-style system logs are not"
   echo "shown — they have no green/red CI baseline to diff."

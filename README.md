@@ -99,7 +99,7 @@ Every default is overridable — the annotated tour (all knobs optional):
     publish-baseline: auto                     # auto (PRs always; pushes/tags verdict-gated) | always | never
 
     # ── Verdict surfaces (each its own level: never|regression|drift|always) ──
-    fail-on: regression              # the advisory gate — exit code only (none | significant | regression)
+    fail-on: high                    # the advisory gate — exit code only (none | medium | high | critical)
     pr-comment: always               # sticky PR comment level
     commit-comment: never            # commit comment on push runs (needs contents: write)
     annotations: never               # inline ::error/::warning/::notice on the Checks tab (token-free);
@@ -404,7 +404,7 @@ https://github.com/CodeRoasted/sift-action/releases/download/engine-v<VERSION>/s
 ```
 
 **Jenkins** has a ready, **doc-only** Tier-0 recipe: [`examples/jenkins/Jenkinsfile`](examples/jenkins/Jenkinsfile).
-It reproduces the Action's advisory-first posture with zero new code — `--fail-on regression` is the
+It reproduces the Action's advisory-first posture with zero new code — `--fail-on medium` is the
 gate; the archived `sift-report.json` + build status are the surface. The baseline is **user-wired**
 (last green build's archived log via the Copy Artifact plugin, or a committed known-good log);
 base-branch-aware "last green" resolution and a native PR/MR comment are platform-specific Tier-1 work
@@ -419,7 +419,7 @@ a local shell.
 | `capture` | no | `auto` | With `target-job`: `auto` (SIFT_CAPTURE sections if any, else whole log) \| `off` \| `<name>` (that section only; absent ⇒ the run fails). |
 | `log` | unless `target-job` | — | Path to the captured current-run log to diff. The only source on which the required-check fold can fire, when the file holds several jobs' logs (see [the required-check fold](#usage)). |
 | `sift-binary` | no | _(auto)_ | Override path to a `sift` binary. Default: download + sha256-verify the version-pinned `sift-linux-x64` release asset. |
-| `fail-on` | no | `none` | `none` \| `significant` \| `regression` — advisory gate (exit code only; the comment never says "blocked"). Any other value fails the run. |
+| `fail-on` | no | `none` | `none` \| `medium` \| `high` \| `critical` — fail this step when Sift reports a change that got worse at this severity or above (a listed row with polarity regression), or when the run's declared verdict got worse (read as critical, so it trips at every value). `none` never fails. Advisory: exit code only; the comment never says "blocked". Any other value fails the run. |
 | `explain` | no | `false` | `true` opts into an AI narrative header: the Action provisions a pinned, checksum-verified **local** model + server (no credential, fork-safe — nothing leaves the runner) and adds a short plain-English story. Advisory + fail-soft — never blocks or changes the gate, and provisioning is bounded at 15 minutes so it cannot stall your run. Adds a ~2.4 GB model download (cache it — see [Explain](#explain-opt-in-ai-narrative)) + a few seconds of CPU. |
 | `explain-model` | no | _(pinned)_ | Advanced: override the model name passed to `sift --explain`. Leave unset for the auto-provisioned default. |
 | `baseline` | no | `auto` | Baseline **selection**: `auto` \| `branch=<name>` \| `artifact=<name>` (named baseline, repo-wide) \| `path=<file>` \| `none`. Malformed values fail the run — never a silent fallback. See [Choosing the baseline](#choosing-the-baseline--you-are-king). |
