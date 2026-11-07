@@ -62949,6 +62949,18 @@ function baselineAgeHours(createdAt, nowMs) {
   if (deltaMs < 0) return 0;
   return Math.floor(deltaMs / (60 * 60 * 1e3));
 }
+function staleBaselineWarning(meta, ageHours, bound, baselineName) {
+  const head = `Sift: STALE baseline \u2014 ${ageHours}h old, past the ${bound} bound.`;
+  const tail = "This diff compares against that aged snapshot and shrinks in meaning as the gap grows.";
+  switch (meta.kind) {
+    case "run":
+      return `${head} It is the \`${baselineName}\` stored by run ${meta.run_id}, the newest green run of this workflow on \`${meta.branch}\`. This resolver reads that branch's runs only: a \`${baselineName}\` stored since by a run on any other ref (a tag, another branch) is not considered \u2014 \`baseline: artifact=${baselineName}\` reads the newest one repo-wide. ${tail}`;
+    case "artifact":
+      return `${head} It is the newest live \`${meta.label ?? ""}\` artifact in the repository, stored by run ${meta.run_id}: no run has stored a newer one inside the bound (under \`publish-baseline: auto\` a run whose target job is red never seeds). ` + tail;
+    case "path":
+      return `${head} It is the local file \`${meta.label ?? ""}\`. ${tail}`;
+  }
+}
 async function resolveBaseline(params) {
   if (params.spec.kind === "none") {
     info("Sift: baseline=none \u2014 forced cold start (seed-only run).");
@@ -63044,7 +63056,10 @@ async function resolveRemoteStrict(params) {
     run_id: String(baseRun.id),
     run_url: baseRun.html_url,
     branch,
-    created_at: baseRun.created_at
+    // The age stamp is the STORED snapshot's, as on the named-artifact path: a run keeps its
+    // `created_at` across re-runs, so the run's stamp would age a re-run's fresh bytes by the
+    // gap between attempts. The run's stamp orders runs (newerFirst); it does not date bytes.
+    created_at: artifact.created_at ?? ""
   };
   return {
     ...await extractBaseline(octokit, owner, repo, artifact.id, workDir, artifact.size_in_bytes),
@@ -67162,7 +67177,18 @@ function body(report, context5, state3, details) {
 }
 function staleBanner(context5) {
   const age = context5.baseline_age_hours != null ? formatAge(context5.baseline_age_hours) : "unknown age";
-  return `> \u26A0\uFE0F **Stale baseline \u2014 ${age} old, past the ${context5.baseline_age_bound ?? ""} bound.** No green run has re-seeded it since; this diff compares against that aged snapshot and loses meaning as the streak grows.`;
+  const head = `> \u26A0\uFE0F **Stale baseline \u2014 ${age} old, past the ${context5.baseline_age_bound ?? ""} bound.** `;
+  const tail = "This diff compares against that aged snapshot and loses meaning as the gap grows.";
+  const baseline = context5.baseline;
+  if (!baseline) return head + tail;
+  switch (baseline.kind) {
+    case "run":
+      return head + `It is the newest green run of this workflow on \`${escapeInline(baseline.branch)}\`; runs on other refs (a tag, another branch) are not read, so a newer baseline they stored is not this one. ${tail}`;
+    case "artifact":
+      return head + `It is the newest live \`${escapeInline(baseline.label ?? "")}\` artifact: no run has stored a newer one since. ${tail}`;
+    case "path":
+      return `${head}It is the local file \`${escapeInline(baseline.label ?? "")}\`. ${tail}`;
+  }
 }
 function reportStatements(report, state3, details) {
   const parts = [];
@@ -103221,11 +103247,9 @@ async function run() {
     workDir
   });
   const ageHours = baseline ? baselineAgeHours(baseline.meta.created_at, Date.now()) : null;
-  const baselineStale = maxAgeHours != null && ageHours != null && ageHours > maxAgeHours;
+  const baselineStale = baseline != null && maxAgeHours != null && ageHours != null && ageHours > maxAgeHours;
   if (baselineStale) {
-    warning(
-      `Sift: STALE baseline \u2014 ${ageHours}h old, past the ${maxAgeRaw} bound. No run inside the bound has re-seeded \`${baselineName}\` (a red streak never seeds); this diff compares against that aged snapshot and shrinks in meaning as the streak grows.`
-    );
+    warning(staleBaselineWarning(baseline.meta, ageHours, maxAgeRaw, baselineName));
   } else if (maxAgeHours != null && baseline && ageHours == null) {
     warning(
       `Sift: baseline-max-age=${maxAgeRaw} is set but the resolved baseline carries no created_at stamp (a \`path=\` baseline or a pre-sidecar artifact) \u2014 the bound cannot be checked. The age is UNKNOWN, not fresh.`

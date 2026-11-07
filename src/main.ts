@@ -17,6 +17,7 @@ import {
     parseBaselineSpec,
     parseMaxAgeHours,
     resolveBaseline,
+    staleBaselineWarning,
     type BaselineSpec,
 } from './baseline.js';
 import { acquiredGrainLine, fetchTargetJobLog, type AcquiredGrain } from './joblog.js';
@@ -319,13 +320,10 @@ async function run(): Promise<void> {
     // not misconfigured and an instrument that reds its build is wrong about its
     // own subject. The bound WARNS; `fail-on` remains the only failing axis.
     const ageHours = baseline ? baselineAgeHours(baseline.meta.created_at, Date.now()) : null;
-    const baselineStale = maxAgeHours != null && ageHours != null && ageHours > maxAgeHours;
+    const baselineStale =
+        baseline != null && maxAgeHours != null && ageHours != null && ageHours > maxAgeHours;
     if (baselineStale) {
-        core.warning(
-            `Sift: STALE baseline — ${ageHours}h old, past the ${maxAgeRaw} bound. No run inside the ` +
-                `bound has re-seeded \`${baselineName}\` (a red streak never seeds); this diff compares ` +
-                `against that aged snapshot and shrinks in meaning as the streak grows.`,
-        );
+        core.warning(staleBaselineWarning(baseline.meta, ageHours, maxAgeRaw, baselineName));
     } else if (maxAgeHours != null && baseline && ageHours == null) {
         core.warning(
             `Sift: baseline-max-age=${maxAgeRaw} is set but the resolved baseline carries no ` +

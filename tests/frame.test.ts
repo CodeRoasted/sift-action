@@ -909,6 +909,44 @@ test('stale baseline: the banner renders between header and body, naming age and
     assert.ok(out.includes('5d 2h old'), 'footer age still present');
 });
 
+// The banner states what the resolver SEARCHED, never a cause it did not measure. A run-resolved
+// baseline came from ONE branch's runs of this workflow; "no green run has re-seeded it since"
+// read as repo-wide, and insight-eidos run 42366548948 showed it while four candidate runs on tag
+// refs had stored a newer baseline the branch resolver does not read.
+test('stale banner, run-resolved: names the branch it searched and the refs it does not read', () => {
+    const report = load('clean_suppressed.json');
+    const out = renderComment(
+        report,
+        ctx({ baseline_age_hours: 210, baseline_age_bound: '72h', baseline_stale: true }),
+    );
+    assert.ok(out.includes('newest green run of this workflow on `main`'), out);
+    assert.ok(out.includes('runs on other refs'), out);
+    assert.ok(!out.includes('No green run has re-seeded it since'), 'the unmeasured repo-wide claim is gone');
+});
+
+test('stale banner, artifact-resolved: the repo-wide claim is measured there, and it is stated', () => {
+    const report = load('clean_suppressed.json');
+    const out = renderComment(
+        report,
+        ctx({
+            baseline: {
+                kind: 'artifact',
+                sha: BASE_SHA,
+                run_id: '9',
+                run_url: 'https://github.com/o/r/actions/runs/9',
+                branch: 'main',
+                created_at: '2026-06-01T09:12:00Z',
+                label: 'sift-baseline-main',
+            },
+            baseline_age_hours: 100,
+            baseline_age_bound: '72h',
+            baseline_stale: true,
+        }),
+    );
+    assert.ok(out.includes('newest live `sift-baseline-main` artifact'), out);
+    assert.ok(out.includes('no run has stored a newer one'), out);
+});
+
 test('an aged-but-inside-bound baseline renders NO banner (age in the footer only)', () => {
     const report = load('clean_suppressed.json');
     const out = renderComment(

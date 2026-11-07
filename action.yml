@@ -198,7 +198,7 @@ outputs:
   outcome-regressed:
     description: 'true when the run verdict got strictly worse (Success < Unstable < Failure; Aborted/Unknown excluded).'
   baseline-age-hours:
-    description: 'Resolved baseline''s age in whole hours. Empty when unknown (cold start, a path= baseline, a pre-sidecar artifact) — never 0-for-unknown.'
+    description: 'Resolved baseline''s age in whole hours, from when its artifact was stored. Empty when unknown (cold start, a path= baseline, a pre-sidecar artifact) — never 0-for-unknown.'
   baseline-stale:
     description: 'true when a `baseline-max-age` bound is in force and the resolved baseline exceeds it, else false. Advisory — it never fails the step.'
   report-path:

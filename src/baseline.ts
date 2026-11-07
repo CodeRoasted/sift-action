@@ -97,6 +97,39 @@ export function baselineAgeHours(createdAt: string, nowMs: number): number | nul
     return Math.floor(deltaMs / (60 * 60 * 1000));
 }
 
+// The warning annotation for a baseline past its `baseline-max-age` bound. It states what the
+// resolver SEARCHED and what that scope leaves out, never a cause it did not measure: the branch
+// resolver (`auto` / `branch=`) reads one branch's runs of this workflow, so "no run re-seeded"
+// is a repo-wide claim only the named-artifact resolver has measured. A `path=` baseline carries
+// no stamp, so its age is unknown and never stale; its arm exists for the type's exhaustiveness.
+export function staleBaselineWarning(
+    meta: BaselineProvenance,
+    ageHours: number,
+    bound: string,
+    baselineName: string,
+): string {
+    const head = `Sift: STALE baseline — ${ageHours}h old, past the ${bound} bound.`;
+    const tail = 'This diff compares against that aged snapshot and shrinks in meaning as the gap grows.';
+    switch (meta.kind) {
+        case 'run':
+            return (
+                `${head} It is the \`${baselineName}\` stored by run ${meta.run_id}, the newest green run of ` +
+                `this workflow on \`${meta.branch}\`. This resolver reads that branch's runs only: a ` +
+                `\`${baselineName}\` stored since by a run on any other ref (a tag, another branch) is not ` +
+                `considered — \`baseline: artifact=${baselineName}\` reads the newest one repo-wide. ${tail}`
+            );
+        case 'artifact':
+            return (
+                `${head} It is the newest live \`${meta.label ?? ''}\` artifact in the repository, stored by ` +
+                `run ${meta.run_id}: no run has stored a newer one inside the bound (under ` +
+                '`publish-baseline: auto` a run whose target job is red never seeds). ' +
+                tail
+            );
+        case 'path':
+            return `${head} It is the local file \`${meta.label ?? ''}\`. ${tail}`;
+    }
+}
+
 export interface ResolvedBaseline {
     logPath: string;
     meta: BaselineProvenance;
@@ -251,7 +284,10 @@ async function resolveRemoteStrict(params: ResolveParams): Promise<ResolvedBasel
         run_id: String(baseRun.id),
         run_url: baseRun.html_url,
         branch,
-        created_at: baseRun.created_at,
+        // The age stamp is the STORED snapshot's, as on the named-artifact path: a run keeps its
+        // `created_at` across re-runs, so the run's stamp would age a re-run's fresh bytes by the
+        // gap between attempts. The run's stamp orders runs (newerFirst); it does not date bytes.
+        created_at: artifact.created_at ?? '',
     };
     return {
         ...(await extractBaseline(octokit, owner, repo, artifact.id, workDir, artifact.size_in_bytes)),

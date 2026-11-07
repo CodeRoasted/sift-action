@@ -470,7 +470,6 @@ test('a REORDERED page still resolves the newest green run by creation, not posi
         `picked run ${resolved.meta.run_id}; the newest green run by created_at is 900 ` +
             '(a pick of 500 is position 0 of the page — the unordered-endpoint defect)',
     );
-    assert.equal(resolved.meta.created_at, '2026-09-26T08:00:00Z');
     assert.equal(calls.length, 1, `a page holding every green run needs no second call, made ${calls.length}`);
     assert.equal(calls[0]?.status, 'success');
     assert.equal(calls[0]?.per_page, 100, `asked per_page=${String(calls[0]?.per_page)}; one run cannot be re-sorted`);
@@ -883,3 +882,115 @@ for (const cell of COLD_START_CELLS) {
         }
     });
 }
+
+// ── The age of a run-resolved baseline is the age of its STORED SNAPSHOT ─────────
+//
+// The age the bound judges is the age of the bytes this run diffs against, and those bytes were
+// stored when the artifact was created — not when the run was. A run keeps its `created_at`
+// across re-runs, so a run created days ago whose re-run stored a fresh snapshot an hour ago
+// would read days old: a false STALE on a fresh baseline. `artifact=<name>` already measures the
+// artifact's stamp; the run resolver must measure the same object, or the same bytes carry two
+// ages depending on how they were selected. (Measured: insight-eidos run 42366548948 read its
+// baseline 212h old from run 40914562578's creation, 2026-10-29T16:44:40Z, while the snapshot it
+// diffed, artifact 12920659191, was stored at 18:11:58Z — 210h.)
+
+test("auto/branch: the baseline age stamp is the stored artifact's created_at, not the run's", async () => {
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const runCreated = '2026-09-20T08:00:00Z';
+    const storedAt = '2026-09-24T17:30:00Z'; // a re-run of run 77 stored this snapshot four days later
+    const octokit = {
+        rest: {
+            actions: {
+                getWorkflowRun: async () => ({ data: { workflow_id: 5 } }),
+                listWorkflowRuns: async () => ({
+                    data: { total_count: 1, workflow_runs: [green(77, runCreated)] },
+                }),
+                listWorkflowRunArtifacts: async () => ({
+                    data: { artifacts: [liveArtifact({ created_at: storedAt })] },
+                }),
+                downloadArtifact: async () => baselineZip('green baseline\n'),
+            },
+        },
+    };
+    const resolved = await resolveBaseline(params(octokit, { workDir }));
+    assert.ok(resolved, 'one green run with a live artifact exists — a cold start here is a defect');
+    assert.equal(resolved.meta.run_id, '77');
+    assert.equal(
+        resolved.meta.created_at,
+        storedAt,
+        `meta.created_at is ${resolved.meta.created_at}; the snapshot diffed was stored at ${storedAt} ` +
+            `(the run's own creation, ${runCreated}, would age it by 4 extra days)`,
+    );
+});
+
+test("auto/branch: an artifact with no created_at stamp yields an UNKNOWN age, never the run's stamp", async () => {
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const octokit = {
+        rest: {
+            actions: {
+                getWorkflowRun: async () => ({ data: { workflow_id: 5 } }),
+                listWorkflowRuns: async () => ({
+                    data: { total_count: 1, workflow_runs: [green(78, '2026-09-20T08:00:00Z')] },
+                }),
+                listWorkflowRunArtifacts: async () => ({
+                    data: { artifacts: [liveArtifact({ created_at: null })] },
+                }),
+                downloadArtifact: async () => baselineZip('green baseline\n'),
+            },
+        },
+    };
+    const resolved = await resolveBaseline(params(octokit, { workDir }));
+    assert.ok(resolved, 'one green run with a live artifact exists — a cold start here is a defect');
+    assert.equal(
+        resolved.meta.created_at,
+        '',
+        `meta.created_at is "${resolved.meta.created_at}"; an unstamped snapshot has no known age`,
+    );
+});
+
+// ── The STALE warning states what the resolver SEARCHED, never an unmeasured cause ──
+//
+// The warning used to say "No run inside the bound has re-seeded `<name>` (a red streak never
+// seeds)" whatever the selector. Under `auto`/`branch=` that is a claim the resolver never
+// measured: it reads ONE branch's runs of this workflow. insight-eidos run 42366548948 (a
+// candidate dispatched on a tag, so `auto` resolved `main`) printed it while four candidate runs
+// had stored `sift-baseline-log` 32h to 42h earlier, on tag refs the resolver does not read — and
+// the reader concluded the baseline was not being updated. The warning names the scope it
+// searched and what that scope leaves out.
+
+import { staleBaselineWarning } from '../src/baseline.js';
+
+test('STALE warning, run-resolved: names the run and branch searched, and the refs it does not read', () => {
+    const text = staleBaselineWarning(
+        { kind: 'run', sha: 'abc', run_id: '40914562578', run_url: 'u', branch: 'main', created_at: 'x' },
+        210,
+        '72h',
+        'sift-baseline-log',
+    );
+    assert.ok(text.startsWith('Sift: STALE baseline — 210h old, past the 72h bound.'), text);
+    assert.ok(text.includes('run 40914562578'), `the resolved run is named: ${text}`);
+    assert.ok(text.includes('newest green run of this workflow on `main`'), `the searched scope is named: ${text}`);
+    assert.ok(text.includes('`baseline: artifact=sift-baseline-log`'), `the repo-wide selector is named: ${text}`);
+    assert.ok(!text.includes('No run inside the bound'), `the unmeasured repo-wide claim is gone: ${text}`);
+});
+
+test('STALE warning, artifact-resolved: the repo-wide claim IS measured there, and it is stated', () => {
+    const text = staleBaselineWarning(
+        {
+            kind: 'artifact',
+            sha: 'abc',
+            run_id: '9',
+            run_url: 'u',
+            branch: 'b',
+            created_at: 'x',
+            label: 'sift-baseline-main',
+        },
+        100,
+        '72h',
+        'sift-baseline-log',
+    );
+    assert.ok(text.startsWith('Sift: STALE baseline — 100h old, past the 72h bound.'), text);
+    assert.ok(text.includes('newest live `sift-baseline-main` artifact in the repository'), text);
+    assert.ok(text.includes('run 9'), text);
+    assert.ok(text.includes('no run has stored a newer one'), text);
+});

@@ -152,7 +152,11 @@ its inputs, and the PR comment states them above its footer, whatever its state.
 By default (`baseline: auto`) Sift diffs against the last green run of **this workflow** on the PR's
 base branch (push: the pushed branch; **tag: the repo's default branch** — so a tag build diffs
 against `main`'s last green out of the box). *Last* means the newest green run by when it was
-created: re-running an older run does not make it newer. Every part of that is overridable:
+created: re-running an older run does not make it newer. `auto` reads that one branch's runs
+only: a run on a tag still seeds its own baseline, but no later `auto` run reads it, since a tag is
+not a branch. A pipeline that runs only on tags or manual dispatches of tags therefore keeps diffing
+against the default branch's last green, however old; give it `baseline: artifact=<name>` to read
+the newest stored baseline repo-wide. Every part of that is overridable:
 
 - **`baseline`** selects the source: `auto` · `branch=<name>` · `artifact=<name>` (a **named
   baseline** — the newest non-expired artifact with that exact name, repo-wide) · `path=<file>`
@@ -175,6 +179,10 @@ created: re-running an older run does not make it newer. Every part of that is o
   failure** — your build cadence is yours, a repo that ships weekly is not misconfigured, and
   `fail-on` stays the only axis that touches the exit code. Raise the bound to match your cadence.
   The age is always in the comment footer and the `baseline-age-hours` output, bound or no bound.
+  It is measured from when the baseline's bytes were **stored** (the artifact's creation), whichever
+  selector found them — never from the run's creation, which a re-run keeps. The stale warning
+  names what the selector searched: under `auto`/`branch=`, the branch it read and the refs it did
+  not; under `artifact=`, the repository.
 - **`comment-tag`** namespaces the sticky comment, so two diffs in one job (vs `main` **and** vs
   the PR's previous run) each keep their own comment.
 
@@ -447,7 +455,7 @@ Set on **every** run, whatever the comment config — branch on them in a later 
 | `baseline-outcome` | The baseline run's engine-resolved verdict: `SUCCESS` \| `FAILURE` \| `UNSTABLE` \| `ABORTED` \| `UNKNOWN`. |
 | `changed-outcome` | This run's engine-resolved verdict (same values). |
 | `outcome-regressed` | `true` when the run verdict got strictly worse (`Success < Unstable < Failure`; Aborted/Unknown excluded). |
-| `baseline-age-hours` | Resolved baseline's age in whole hours; empty when unknown (cold start, `path=` baseline, pre-sidecar artifact) — never 0-for-unknown. |
+| `baseline-age-hours` | Resolved baseline's age in whole hours, from when its artifact was stored; empty when unknown (cold start, `path=` baseline, pre-sidecar artifact) — never 0-for-unknown. |
 | `baseline-stale` | `true` when a `baseline-max-age` bound is in force and the resolved baseline exceeds it, else `false`. Advisory — it never fails the step. |
 | `report-path` | Path to this run's `report.json` on a stable, cross-step location (empty on cold start). A later step on the **same runner** can narrate it with `sift explain --report <path>` — same content as the comment; no credential. The same report is the run's `sift-report` artifact ([The comment and the full report](#the-comment-and-the-full-report)). |
 

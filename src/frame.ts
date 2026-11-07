@@ -513,14 +513,33 @@ function body(
 // caller set `baseline-max-age` and the resolved baseline exceeds it, the diff
 // still renders — an aged comparison is information — but it must ANNOUNCE itself
 // before its numbers are read. Bound + age are frame-controlled envelope values.
+// It states what the resolver SEARCHED, never a cause it did not measure: a run-resolved
+// baseline came from one branch's runs of this workflow, so only the named-artifact resolver
+// has measured that no newer baseline exists anywhere in the repository.
 function staleBanner(context: SiftCommentContext): string {
     const age =
         context.baseline_age_hours != null ? formatAge(context.baseline_age_hours) : 'unknown age';
-    return (
-        `> ⚠️ **Stale baseline — ${age} old, past the ${context.baseline_age_bound ?? ''} bound.** ` +
-        'No green run has re-seeded it since; this diff compares against that aged snapshot ' +
-        'and loses meaning as the streak grows.'
-    );
+    const head = `> ⚠️ **Stale baseline — ${age} old, past the ${context.baseline_age_bound ?? ''} bound.** `;
+    const tail = 'This diff compares against that aged snapshot and loses meaning as the gap grows.';
+    const baseline = context.baseline;
+    if (!baseline) return head + tail;
+    switch (baseline.kind) {
+        case 'run':
+            return (
+                head +
+                `It is the newest green run of this workflow on \`${escapeInline(baseline.branch)}\`; ` +
+                'runs on other refs (a tag, another branch) are not read, so a newer baseline they ' +
+                `stored is not this one. ${tail}`
+            );
+        case 'artifact':
+            return (
+                head +
+                `It is the newest live \`${escapeInline(baseline.label ?? '')}\` artifact: no run has ` +
+                `stored a newer one since. ${tail}`
+            );
+        case 'path':
+            return `${head}It is the local file \`${escapeInline(baseline.label ?? '')}\`. ${tail}`;
+    }
 }
 
 // What the VISIBLE frame states of the report beyond its rows, and never inside a collapsed block:
