@@ -397,7 +397,7 @@ function cleanBody(report: SiftReport): string {
 }
 
 // The run-verdict predicate the Drift/Regression headlines branch on: the ENGINE-resolved
-// four-class verdict (`summary.changed_outcome`, ADR-17.D5 — authoritative side-input →
+// verdict class (`summary.changed_outcome`, ADR-17.D5 — authoritative side-input →
 // console tail → Unknown), never a render-side CI flag (the retired `build_status`).
 // Absent (Unknown) degrades to the generic headline, exactly as 'unknown' did.
 function changedRunSucceeded(report: SiftReport): boolean {

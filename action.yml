@@ -118,7 +118,7 @@ inputs:
   changed-outcome:
     description: >-
       The current run's NATIVE CI verdict token, forwarded VERBATIM to the engine
-      (`--changed-outcome`), which maps it four-class-aware (SUCCESS | FAILURE | UNSTABLE | ABORTED)
+      (`--changed-outcome`), which maps it class-aware (SUCCESS | FAILURE | UNSTABLE | ABORTED | CANCELLED)
       through its dialect vocabulary — this drives the verdict headline, the outcome-regression
       check, and the verdict-gated baseline re-seed. `auto` (default): the target job's own API
       conclusion when `target-job` is set — zero plumbing; without `target-job` set it explicitly
@@ -192,11 +192,11 @@ outputs:
   regression:
     description: 'true when a regression was flagged (a regression row OR a run-verdict regression), else false.'
   baseline-outcome:
-    description: 'The baseline run''s engine-resolved verdict: SUCCESS | FAILURE | UNSTABLE | ABORTED | UNKNOWN.'
+    description: 'The baseline run''s engine-resolved verdict: SUCCESS | FAILURE | UNSTABLE | ABORTED | CANCELLED | UNKNOWN.'
   changed-outcome:
-    description: 'This run''s engine-resolved verdict: SUCCESS | FAILURE | UNSTABLE | ABORTED | UNKNOWN.'
+    description: 'This run''s engine-resolved verdict: SUCCESS | FAILURE | UNSTABLE | ABORTED | CANCELLED | UNKNOWN.'
   outcome-regressed:
-    description: 'true when the run verdict got strictly worse (Success < Unstable < Failure; Aborted/Unknown excluded).'
+    description: 'true when the run verdict got strictly worse (Success < Unstable < Failure; Aborted/Cancelled/Unknown excluded).'
   baseline-age-hours:
     description: 'Resolved baseline''s age in whole hours, from when its artifact was stored. Empty when unknown (cold start, a path= baseline, a pre-sidecar artifact) — never 0-for-unknown.'
   baseline-stale:

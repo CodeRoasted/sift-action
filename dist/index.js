@@ -62808,6 +62808,23 @@ import * as path8 from "path";
 function hasRegression(report) {
   return report.summary.outcome_regressed === true || report.ranked_changes.some((row) => row.polarity === "regression");
 }
+function outcomeIncomplete(outcome) {
+  switch (outcome) {
+    case "ABORTED":
+    case "CANCELLED":
+      return true;
+    case "SUCCESS":
+    case "FAILURE":
+    case "UNSTABLE":
+      return false;
+  }
+}
+function resolvedOutcomeBlocksSeeding(outcome) {
+  if (outcome === void 0) {
+    return false;
+  }
+  return outcome === "FAILURE" || outcome === "UNSTABLE" || outcomeIncomplete(outcome);
+}
 function selectState(report) {
   if (report === null) {
     return "cold-start" /* ColdStart */;
@@ -103347,7 +103364,7 @@ async function run() {
     process.stdout.write(`${command}
 `);
   }
-  const badResolvedOutcome = report != null && (report.summary.changed_outcome === "FAILURE" || report.summary.changed_outcome === "UNSTABLE" || report.summary.changed_outcome === "ABORTED");
+  const badResolvedOutcome = report != null && resolvedOutcomeBlocksSeeding(report.summary.changed_outcome);
   const badColdStartToken = report == null && changedOutcome !== "" && changedOutcome.toLowerCase() !== "success";
   const runOutcomeBad = badResolvedOutcome || badColdStartToken;
   const shouldSeed = publishMode === "always" ? true : publishMode === "never" ? false : pr ? true : !runOutcomeBad;

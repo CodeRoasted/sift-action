@@ -38,13 +38,13 @@ export interface RankedChange {
     cause_lines?: { ref: number; established: 'declared' | 'inferred' }[];
 }
 
-// The run verdicts (ADR-17.D5 — the diff-layer home of the four classes). Uppercase
-// enum strings on the wire ("SUCCESS"|"FAILURE"|"UNSTABLE"|"ABORTED"), OMITTED when
-// Unknown; `outcome_regressed` (strictly worse on Success < Unstable < Failure;
-// Aborted/Unknown excluded) is emitted only when true. The frame, the verdict state,
+// The run verdicts (ADR-17.D5 — the diff-layer home of the verdict classes). Uppercase
+// enum strings on the wire ("SUCCESS"|"FAILURE"|"UNSTABLE"|"ABORTED"|"CANCELLED"), OMITTED
+// when Unknown; `outcome_regressed` (strictly worse on Success < Unstable < Failure;
+// the incomplete ABORTED/CANCELLED and Unknown excluded) is emitted only when true. The frame, the verdict state,
 // and the green-gated re-seed read THESE — the engine-resolved verdict, never a
 // render-side binary (the retired `build_status`).
-export type RunOutcome = 'SUCCESS' | 'FAILURE' | 'UNSTABLE' | 'ABORTED';
+export type RunOutcome = 'SUCCESS' | 'FAILURE' | 'UNSTABLE' | 'ABORTED' | 'CANCELLED';
 
 export interface ReportSummary {
     total_changes: number;        // every observed delta — the "of 851" suppression number
@@ -135,8 +135,8 @@ export interface SiftCommentContext {
 }
 
 // 0.2.0: the render-side `build_status` binary is RETIRED (ADR-17.D5) — the run verdict
-// now flows THROUGH the engine (`--changed-outcome`) and the frame reads the four-class
-// pair off `ReportSummary`, never a CI envelope flag.
+// now flows THROUGH the engine (`--changed-outcome`) and the frame reads the resolved
+// verdict pair off `ReportSummary`, never a CI envelope flag.
 // 0.3.0: the baseline sidecar records the transport stack its stored bytes were declared under
 // (DN-89.D38 §4), a REQUIRED member; a sidecar without it is not a baseline.
 export const CONTEXT_VERSION = '0.3.0';

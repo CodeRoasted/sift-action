@@ -5,7 +5,7 @@
 // `polarity == "regression"`, and the engine-resolved run-verdict pair
 // (`summary.outcome_regressed`, ADR-17.D5). No I/O.
 
-import type { SiftReport } from './types.js';
+import type { RunOutcome, SiftReport } from './types.js';
 
 // The four frame states (PRD-6 § "The four states"). `ColdStart` is rendered
 // without a report (the engine is not invoked when no baseline exists).
@@ -18,7 +18,7 @@ export enum State {
 
 // A regression is "a row whose polarity is regression" OR "the run verdict got
 // strictly worse" (`summary.outcome_regressed`, the engine-derived §6.1 predicate:
-// Success < Unstable < Failure, Aborted/Unknown excluded). One canonical pair the
+// Success < Unstable < Failure, the incomplete ABORTED/CANCELLED and Unknown excluded). One canonical pair the
 // headline, the rows, and the gate all agree on — a SUCCESS→UNSTABLE run with no
 // new structural row is still loud (UNSTABLE never folds, ADR-17.D5).
 export function hasRegression(report: SiftReport): boolean {
@@ -26,6 +26,31 @@ export function hasRegression(report: SiftReport): boolean {
         report.summary.outcome_regressed === true ||
         report.ranked_changes.some((row) => row.polarity === 'regression')
     );
+}
+
+// The incomplete predicate (DN-146.D7): the run stopped before its own verdict, so its log is
+// truncated — ABORTED or CANCELLED. A reader of a truncated run reads this, never one class by
+// name. The switch names every class and has no default, so `tsc` rejects a class it misses.
+export function outcomeIncomplete(outcome: RunOutcome): boolean {
+    switch (outcome) {
+        case 'ABORTED':
+        case 'CANCELLED':
+            return true;
+        case 'SUCCESS':
+        case 'FAILURE':
+        case 'UNSTABLE':
+            return false;
+    }
+}
+
+// The verdict-gated re-seed (ADR-14.D4): a run the ENGINE resolved FAILURE, UNSTABLE or
+// incomplete never overwrites the last-good baseline. Unknown (absent) stays permissive: no
+// signal is not a bad signal.
+export function resolvedOutcomeBlocksSeeding(outcome: RunOutcome | undefined): boolean {
+    if (outcome === undefined) {
+        return false;
+    }
+    return outcome === 'FAILURE' || outcome === 'UNSTABLE' || outcomeIncomplete(outcome);
 }
 
 // `report === null` ⟺ cold start (no baseline ⇒ engine not invoked).

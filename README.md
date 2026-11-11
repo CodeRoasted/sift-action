@@ -16,8 +16,8 @@ The whole integration:
 ```
 
 Your build job stays untouched — Sift pulls its log straight off the GitHub API,
-forwards the job's own verdict to the engine (four-class: SUCCESS / FAILURE /
-UNSTABLE / ABORTED), diffs, comments, and seeds the next baseline. Full hello
+forwards the job's own verdict to the engine (SUCCESS / FAILURE / UNSTABLE /
+ABORTED / CANCELLED), diffs, comments, and seeds the next baseline. Full hello
 world: [`examples/simple/ci.yml`](examples/simple/ci.yml).
 
 ## Usage
@@ -432,10 +432,10 @@ a local shell.
 | `explain-model` | no | _(pinned)_ | Advanced: override the model name passed to `sift --explain`. Leave unset for the auto-provisioned default. |
 | `baseline` | no | `auto` | Baseline **selection**: `auto` \| `branch=<name>` \| `artifact=<name>` (named baseline, repo-wide) \| `path=<file>` \| `none`. Malformed values fail the run — never a silent fallback. See [Choosing the baseline](#choosing-the-baseline--you-are-king). |
 | `baseline-name` | no | `sift-baseline-log` | Artifact name this run **publishes** its log under (and what `auto`/`branch=` resolvers look for). |
-| `publish-baseline` | no | `auto` | `auto` (PRs always seed; pushes/tags verdict-gated: FAILURE/UNSTABLE/ABORTED never re-seeds) \| `always` \| `never`. |
+| `publish-baseline` | no | `auto` | `auto` (PRs always seed; pushes/tags verdict-gated: FAILURE/UNSTABLE/ABORTED/CANCELLED never re-seeds) \| `always` \| `never`. |
 | `baseline-max-age` | no | `72h` | Staleness bound on the resolved baseline (`<n>h` \| `<n>d`; empty disables it). Exceeded ⇒ stale banner + warning annotation, **never a failed step** (still diffs, posts, seeds). Malformed values fail the run. See [Choosing the baseline](#choosing-the-baseline--you-are-king). |
 | `comment-tag` | no | _(none)_ | Namespaces the sticky comment (marker + title) so two sift invocations in one job keep separate comments. |
-| `changed-outcome` | no | `auto` | This run's **native** CI verdict token, forwarded verbatim to the engine (four-class-aware: UNSTABLE is never folded into FAILURE). `auto` = `target-job`'s own conclusion; set `${{ needs.<job>.result }}` when sourcing via `log:`, else the engine reads the log's console tail / no verdict. |
+| `changed-outcome` | no | `auto` | This run's **native** CI verdict token, forwarded verbatim to the engine (class-aware: UNSTABLE is never folded into FAILURE). `auto` = `target-job`'s own conclusion; set `${{ needs.<job>.result }}` when sourcing via `log:`, else the engine reads the log's console tail / no verdict. |
 | `pr-comment` | no | `always` | `never` \| `regression` \| `drift` \| `always` — sticky PR comment at/above this verdict. Any other value fails the run. |
 | `commit-comment` | no | `never` | `never` \| `regression` \| `drift` \| `always` — commit comment on push at/above this verdict (needs `contents: write`). Any other value fails the run. |
 | `annotations` | no | `never` | `never` \| `regression` \| `drift` \| `always` — inline check-run annotations (`::error`/`::warning`/`::notice`) at/above this verdict. **Off by default**; opt in with `drift`. Any other value fails the run. Fork-safe (stdout workflow commands, no token); fires on green. See [Inline annotations](#inline-annotations). |
@@ -452,9 +452,9 @@ Set on **every** run, whatever the comment config — branch on them in a later 
 | `total-changes` | Total observed deltas (before significance suppression). |
 | `significant-changes` | Deltas that cleared the significance floor. |
 | `regression` | `true` when a regression was flagged (a regression row **or** a run-verdict regression), else `false`. |
-| `baseline-outcome` | The baseline run's engine-resolved verdict: `SUCCESS` \| `FAILURE` \| `UNSTABLE` \| `ABORTED` \| `UNKNOWN`. |
+| `baseline-outcome` | The baseline run's engine-resolved verdict: `SUCCESS` \| `FAILURE` \| `UNSTABLE` \| `ABORTED` \| `CANCELLED` \| `UNKNOWN`. |
 | `changed-outcome` | This run's engine-resolved verdict (same values). |
-| `outcome-regressed` | `true` when the run verdict got strictly worse (`Success < Unstable < Failure`; Aborted/Unknown excluded). |
+| `outcome-regressed` | `true` when the run verdict got strictly worse (`Success < Unstable < Failure`; Aborted/Cancelled/Unknown excluded). |
 | `baseline-age-hours` | Resolved baseline's age in whole hours, from when its artifact was stored; empty when unknown (cold start, `path=` baseline, pre-sidecar artifact) — never 0-for-unknown. |
 | `baseline-stale` | `true` when a `baseline-max-age` bound is in force and the resolved baseline exceeds it, else `false`. Advisory — it never fails the step. |
 | `report-path` | Path to this run's `report.json` on a stable, cross-step location (empty on cold start). A later step on the **same runner** can narrate it with `sift explain --report <path>` — same content as the comment; no credential. The same report is the run's `sift-report` artifact ([The comment and the full report](#the-comment-and-the-full-report)). |

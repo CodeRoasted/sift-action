@@ -75,7 +75,7 @@ jobs:
           baseline-max-age: 72h                      # the shipped default, stated for clarity: a red streak stops the re-seed,
                                                      # and past this the diff announces its staleness (a warning) instead of
                                                      # silently aging. Raise it if your trunk is quieter than daily.
-          # publish-baseline: auto → verdict-gated re-seed (a FAILURE/UNSTABLE/ABORTED push keeps the old baseline)
+          # publish-baseline: auto → verdict-gated re-seed (a FAILURE/UNSTABLE/ABORTED/CANCELLED push keeps the old baseline)
           # changed-outcome: auto → the build job's own native conclusion, forwarded to the engine
 
       # ── PR: ① this build vs main (the headline sticky comment) ──

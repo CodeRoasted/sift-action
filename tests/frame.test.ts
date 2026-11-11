@@ -14,8 +14,15 @@ import { fileURLToPath } from 'node:url';
 
 import { CLAIM_BOUNDARY, ngramRefusalLine, renderComment, STICKY_MARKER, escapeInline } from '../src/frame.js';
 import { polarityGlyph, severityGlyph } from '../src/glyph.js';
-import { parseCommentLevel, selectState, shouldComment, State } from '../src/verdict.js';
-import type { RankedChange, SiftCommentContext, SiftReport } from '../src/types.js';
+import {
+    outcomeIncomplete,
+    parseCommentLevel,
+    resolvedOutcomeBlocksSeeding,
+    selectState,
+    shouldComment,
+    State,
+} from '../src/verdict.js';
+import type { RankedChange, RunOutcome, SiftCommentContext, SiftReport } from '../src/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.join(__dirname, '..', '..', 'tests', 'fixtures');
@@ -1334,3 +1341,26 @@ test('W446: an embedded markdown carries the n-gram line itself, so the visible 
     assert.ok(!visibleFrame(out).includes('N-gram limit'), visibleFrame(out));
 });
 
+
+// DN-146.D7: CANCELLED is incomplete as ABORTED is, so the verdict-gated re-seed reads it as it
+// reads ABORTED, and an absent (Unknown) verdict still seeds.
+test('the re-seed gate refuses every incomplete verdict, CANCELLED included', () => {
+    const cases: [RunOutcome | undefined, boolean, boolean][] = [
+        ['SUCCESS', false, false],
+        ['FAILURE', false, true],
+        ['UNSTABLE', false, true],
+        ['ABORTED', true, true],
+        ['CANCELLED', true, true],
+        [undefined, false, false],
+    ];
+    for (const [outcome, incomplete, blocks] of cases) {
+        if (outcome !== undefined) {
+            assert.equal(outcomeIncomplete(outcome), incomplete, `outcomeIncomplete(${outcome})`);
+        }
+        assert.equal(
+            resolvedOutcomeBlocksSeeding(outcome),
+            blocks,
+            `resolvedOutcomeBlocksSeeding(${outcome ?? 'absent'}): expected ${blocks}`,
+        );
+    }
+});

@@ -33,7 +33,14 @@ import { renderComment } from './frame.js';
 import { runPoster } from './poster.js';
 import { resolveSift } from './resolve-sift.js';
 import { parseFailOn, runSift, runExplainSetup } from './sift.js';
-import { parseCommentLevel, selectState, shouldComment, State, type CommentLevel } from './verdict.js';
+import {
+    parseCommentLevel,
+    resolvedOutcomeBlocksSeeding,
+    selectState,
+    shouldComment,
+    State,
+    type CommentLevel,
+} from './verdict.js';
 import {
     BASELINE_ARTIFACT_NAME,
     CONTEXT_VERSION,
@@ -144,7 +151,7 @@ async function provisionExplain(siftBin: string): Promise<void> {
 
 // Machine-readable verdict — set on EVERY run (PR or push), before any comment decision, so a
 // later step can branch on Sift's result without parsing a comment (contract § 3). The run
-// verdicts are the engine-resolved four-class pair (UNKNOWN when unresolved) + the §6.1
+// verdicts are the engine-resolved class pair (UNKNOWN when unresolved) + the §6.1
 // strictly-worse predicate — the same canonical fields the frame and the gate read.
 function setSiftOutputs(state: State, report: SiftReport | null): void {
     core.setOutput('state', state); // cold-start | clean | drift | regression
@@ -473,18 +480,15 @@ async function run(): Promise<void> {
 
     // One seeding rule for BOTH modes (the `create_baseline` half): `auto` keeps
     // the proven semantics — PRs always seed, pushes/tags are verdict-gated,
-    // now FOUR-CLASS (ADR-17.D5): a run the ENGINE resolved as FAILURE, UNSTABLE,
-    // or ABORTED never overwrites the last-good baseline. Unknown stays
+    // class-aware (ADR-17.D5): a run the ENGINE resolved as FAILURE, UNSTABLE,
+    // or incomplete (ABORTED, CANCELLED) never overwrites the last-good baseline. Unknown stays
     // permissive (no signal ≠ bad — the `log:`-input path without outcome wiring
     // must keep seeding, exactly as the old 'unknown' did). On a cold start (no
     // report) the native token is the only signal: GitHub's own 'success' is the
     // one token this GitHub adapter reads for its OWN seeding decision — the
     // engine-facing verdict always goes through the engine.
     const badResolvedOutcome =
-        report != null &&
-        (report.summary.changed_outcome === 'FAILURE' ||
-            report.summary.changed_outcome === 'UNSTABLE' ||
-            report.summary.changed_outcome === 'ABORTED');
+        report != null && resolvedOutcomeBlocksSeeding(report.summary.changed_outcome);
     const badColdStartToken =
         report == null && changedOutcome !== '' && changedOutcome.toLowerCase() !== 'success';
     const runOutcomeBad = badResolvedOutcome || badColdStartToken;
