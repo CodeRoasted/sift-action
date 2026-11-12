@@ -140,9 +140,9 @@ staying silent on routine pushes. `fail-on` is a separate axis — it gates the 
 not the comment. A value outside a surface's list fails the run as a configuration error, rather than
 quietly switching the surface on or off. The first run on a fresh branch is a cold start (seed only); every run after diffs.
 
-**What Drift means on two green runs.** Tamys compares exactly two runs and keeps no history. On two
+**What Drift means on two green runs.** Sift compares exactly two runs and keeps no history. On two
 successful runs, Drift means the logs differ, not that this change caused the difference: a line that
-comes and goes between your workflow's successful runs reads as Drift, because Tamys has never seen
+comes and goes between your workflow's successful runs reads as Drift, because Sift has never seen
 those runs. Measured on 21 264 pairs of successful runs from public repositories, 12 357 (58.1 %)
 read Drift. (Measured with the Sift 1.10.6 engine. Every report states the first two sentences under
 its inputs, and the PR comment states them above its footer, whatever its state.)

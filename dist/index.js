@@ -66962,7 +66962,7 @@ var MAX_INLINE_ROWS = 20;
 var MAX_SUMMARY_DISPLAY_BYTES = 1024;
 var MAX_WHERE_DISPLAY_BYTES = 256;
 var MAX_TEMPLATE_ID_DISPLAY_BYTES = 64;
-var CLAIM_BOUNDARY = "Tamys compares exactly two runs and keeps no history. On two successful runs, Drift means the logs differ, not that this change caused the difference: a line that comes and goes between your workflow's successful runs reads as Drift, because Tamys has never seen those runs.";
+var CLAIM_BOUNDARY = "Sift compares exactly two runs and keeps no history. On two successful runs, Drift means the logs differ, not that this change caused the difference: a line that comes and goes between your workflow's successful runs reads as Drift, because Sift has never seen those runs.";
 function ngramRefusalLine(report) {
   const sides = [report.inputs.baseline.ngram_refusals ?? [], report.inputs.changed.ngram_refusals ?? []];
   const windows = sides[0].length + sides[1].length;
