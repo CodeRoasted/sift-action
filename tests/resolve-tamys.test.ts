@@ -1,5 +1,5 @@
 // The binary-distribution boundary is a supply-chain surface: this Action downloads an
-// executable and runs it. Until now nothing exercised that decision — resolve-sift.ts was
+// executable and runs it. Until now nothing exercised that decision — resolve-tamys.ts was
 // one of four modules with no test at all, and it is the one where being wrong means
 // executing an unverified binary on a consumer's runner.
 //
@@ -13,9 +13,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as crypto from 'crypto';
 
-import { resolveSift, verifySha256 } from '../src/resolve-sift.js';
+import { resolveTamys, verifySha256 } from '../src/resolve-tamys.js';
 
-const BYTES = Buffer.from('#!/bin/sh\necho sift\n');
+const BYTES = Buffer.from('#!/bin/sh\necho tamys\n');
 const DIGEST = crypto.createHash('sha256').update(BYTES).digest('hex');
 
 test('a matching checksum verifies and returns the digest', () => {
@@ -57,26 +57,26 @@ test('the failure message names the asset so a red step is actionable', () => {
                   /sift-linux-x64 \(engine v1\.2\.3\)/);
 });
 
-test('an explicit sift-binary override is returned verbatim and never downloads', async () => {
+test('an explicit tamys-binary override is returned verbatim and never downloads', async () => {
     // No network is stubbed here on purpose: if this path ever tried to download, the test
     // would hang or fail rather than quietly pass.
-    assert.equal(await resolveSift('/opt/sift/sift', '/tmp'), '/opt/sift/sift');
+    assert.equal(await resolveTamys('/opt/tamys/tamys', '/tmp'), '/opt/tamys/tamys');
 });
 
-test("the default override value 'sift' is NOT treated as a user-provided path", async () => {
-    // 'sift' is the input's default, meaning "no override given". Returning it verbatim would
-    // skip the download and then exec whatever `sift` resolved to on PATH — an unverified
+test("the default override value 'tamys' is NOT treated as a user-provided path", async () => {
+    // 'tamys' is the input's default, meaning "no override given". Returning it verbatim would
+    // skip the download and then exec whatever `tamys` resolved to on PATH — an unverified
     // binary of someone else's choosing. It must fall through to the turnkey path instead.
     if (process.platform === 'linux' && process.arch === 'x64') {
         // Falls through to download; no network in tests, so assert only that it did NOT
-        // short-circuit to the literal 'sift'.
+        // short-circuit to the literal 'tamys'.
         await assert.rejects(async () => {
-            const resolved = await resolveSift('sift', '/nonexistent-workdir-for-test');
-            assert.notEqual(resolved, 'sift');
+            const resolved = await resolveTamys('tamys', '/nonexistent-workdir-for-test');
+            assert.notEqual(resolved, 'tamys');
         });
     } else {
         // Off linux-x64 the platform guard fires first, which equally proves no short-circuit.
-        await assert.rejects(() => resolveSift('sift', '/tmp'), /linux-x64/);
+        await assert.rejects(() => resolveTamys('tamys', '/tmp'), /linux-x64/);
     }
 });
 
@@ -85,7 +85,7 @@ test('an unsupported platform fails with an actionable message, never a wrong-ar
     const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!;
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
     try {
-        await assert.rejects(() => resolveSift('sift', '/tmp'), (error: Error) => {
+        await assert.rejects(() => resolveTamys('tamys', '/tmp'), (error: Error) => {
             // Asserted as a CONTRACT rather than one substring. The previous version matched
             // "publishes a linux-x64 binary only" — which passed happily while the message
             // was factually WRONG: it also told the reader Windows assets were "a fast-follow"
@@ -94,7 +94,7 @@ test('an unsupported platform fails with an actionable message, never a wrong-ar
             // can open. A substring match cannot see either defect, so these assert both.
             assert.match(error.message, /linux-x64/, 'must name the asset it downloads');
             assert.match(error.message, /darwin/, 'must name the runner it actually saw');
-            assert.match(error.message, /sift-binary|install\.ps1/,
+            assert.match(error.message, /tamys-binary|install\.ps1/,
                          'must carry a remedy, not just a refusal');
             assert.doesNotMatch(error.message, /Windows assets are a fast-follow/,
                                 'Windows IS published — this claim sent users away from a real binary');

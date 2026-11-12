@@ -1,6 +1,6 @@
 name: Samples Showcase
 
-# CLIENT-FACING TRANSPARENCY — install the PUBLIC, sha256-verified `sift` engine (the exact binary a
+# CLIENT-FACING TRANSPARENCY — install the PUBLIC, sha256-verified `tamys` engine (the exact binary a
 # user gets from install.sh) and run it over our PUBLIC Jenkins Pipeline sample logs, fetched from the
 # public coderoast-hub. It renders the honest two-part story: **silent-on-green** (an unchanged log
 # raises nothing) and **regression-catch** (a green build vs a failing one surfaces the structural
@@ -16,13 +16,13 @@ name: Samples Showcase
 on:
   workflow_dispatch:
     inputs:
-      sift_version:
+      tamys_version:
         # NO DEFAULT, deliberately — see the resolve step. A literal here read '1.7.5' while the
         # shipped pin was 1.9.6, so every dispatch that did not name a version rendered the
         # client-facing showcase with an engine two releases old, under a header promising "the
         # exact binary a user gets from install.sh". Empty means "use the pin", which follows
         # bump.sh instead of rotting beside it.
-        description: 'Published sift engine version to install (engine-v<X.Y.Z>). Empty = the pin in src/sift-version.ts.'
+        description: 'Published tamys engine version to install (engine-v<X.Y.Z>). Empty = the pin in src/tamys-version.ts.'
         required: false
       samples_ref:
         description: 'coderoast-hub ref holding the samples'
@@ -34,7 +34,7 @@ on:
         description: 'An engine-v<X.Y.Z> Release tag: the showcase installs that engine (nothing is attached to it)'
         type: string
         required: false
-      sift_version:
+      tamys_version:
         # Same as the dispatch input above: no default, so an omitted version resolves to the pin.
         type: string
         required: false
@@ -63,6 +63,6 @@ jobs:
       contents: read
     uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-sift-showcase.yml@de70630eaaf3772c3307573f232c0716638aa4ea
     with:
-      sift-version: ${{ inputs.sift_version }}
+      tamys-version: ${{ inputs.tamys_version }}
       samples-ref: ${{ inputs.samples_ref || 'main' }}
       release-tag: ${{ inputs.tag || github.event.release.tag_name }}

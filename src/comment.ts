@@ -1,4 +1,4 @@
-// Sticky comment transport (bibles/sift_action.md § 4). ONE comment per PR
+// Sticky comment transport (bibles/tamys_action.md § 4). ONE comment per PR
 // (per comment-tag), updated in place: list the PR's comments, find the one
 // carrying the hidden marker, PATCH it — else POST a new one. Never one comment
 // per push.
@@ -9,13 +9,13 @@ import { STICKY_MARKER } from './frame.js';
 type Octokit = ReturnType<typeof getOctokit>;
 
 // The body's own first-line marker is the upsert key. renderComment always leads
-// with it — tagged (`<!-- sift:pr-comment:vs-prev -->`) or not — so both the
+// with it — tagged (`<!-- tamys:pr-comment:vs-prev -->`) or not — so both the
 // inline path and the fork-artifact poster (which receives a pre-rendered body)
 // patch exactly the comment this body belongs to, tag included, with no extra
 // plumbing. `includes` stays exact: the ` -->` / `:tag -->` suffixes make no
 // marker a substring of another.
 function markerOf(body: string): string {
-    const match = body.match(/^<!-- sift:pr-comment[^>]*? -->/);
+    const match = body.match(/^<!-- tamys:pr-comment[^>]*? -->/);
     return match ? match[0] : STICKY_MARKER;
 }
 

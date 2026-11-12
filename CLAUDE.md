@@ -1,6 +1,6 @@
-# sift-action — the Sift GitHub Action (TypeScript, public, MIT)
+# sift-action — the Tamys GitHub Action (TypeScript, public, MIT)
 
-The distribution wrapper around the `sift` engine: pulls a job's log off the
+The distribution wrapper around the `tamys` engine: pulls a job's log off the
 GitHub API, diffs against the last green baseline, posts the sticky comment /
 annotations / summary, seeds the next baseline. The engine binary is downloaded
 pinned and sha256-verified; the Action never builds it.
@@ -20,7 +20,7 @@ pinned and sha256-verified; the Action never builds it.
 - `dist/` is what consumers RUN — `uses:` executes the committed bundle. A
   `src/` change is invisible until `npm run package` regenerates `dist/` and it
   lands in the same change.
-- The engine pin (`src/sift-version.ts`) is moved ONLY by `bump.sh`, which pins
+- The engine pin (`src/tamys-version.ts`) is moved ONLY by `bump.sh`, which pins
   to a PUBLISHED engine release — never hand-bump it to the workspace dev line
   (the header of `bump.sh` carries the why).
 - `action.yml` description fields must not contain `${{ }}` expressions — they

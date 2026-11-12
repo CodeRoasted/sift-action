@@ -4,7 +4,7 @@
 // is a static list in the workflow file that cannot carry expressions, which is what makes the
 // edge a declaration rather than a guess (ADR-22.D5 — acquisition derives, never infers).
 //
-// The acquisition mirrors the crawler's (insight-eidos sift/src/crawl/job_graph.cpp) because the
+// The acquisition mirrors the crawler's (insight-eidos tamys/src/crawl/job_graph.cpp) because the
 // two are the SAME producer contract over different transports, and a divergence between them
 // would be a silent fork of one wire. Same rules, stated where they bind below: verbatim `name:`,
 // the exactly-one conclusion refusal, key-less quoted renderings, and the jobs listing read on
@@ -12,7 +12,7 @@
 //
 // THE RENDERING GRAMMAR IS STATED HERE ONCE IN TYPESCRIPT (DN-127.D1): the separator, the matrix-leg
 // opener, the expression delimiters, the one template matcher and its guard, and the reach under the
-// collision refusal. Its C++ statement is insight-eidos `sift/src/job_rendering.hpp`; one case table,
+// collision refusal. Its C++ statement is insight-eidos `tamys/src/job_rendering.hpp`; one case table,
 // copied byte for byte into both repositories (here `tests/fixtures/job_rendering_cases.json`) and
 // compared by a superproject check, keeps the two one rule.
 //
@@ -404,7 +404,7 @@ const MS_PER_SECOND = 1000;
 // Whole seconds since the Unix epoch for a listing time, or null when the text is not the one
 // spelling above — a fractional second, an offset, an out-of-range field and an impossible date
 // all included — so no float and no rounding reaches the wire (DN-140.D2). The crawler's
-// `epoch_seconds` (insight-eidos `sift/src/crawl/job_graph.cpp`) applies the same rule; every value
+// `epoch_seconds` (insight-eidos `tamys/src/crawl/job_graph.cpp`) applies the same rule; every value
 // here is an integer well inside 2^53, so `Date.UTC` and the division by 1000 are exact.
 export function epochSeconds(text: string): number | null {
     if (text.length !== LISTING_TIME_LENGTH) return null;
@@ -604,7 +604,7 @@ export type WorkflowCoordinate =
 //
 // The executed file is also the TRUSTED one, on every event. The threat is a declaration that did
 // not run steering the report's fold. On the file that did run, a contributor controls nothing
-// beyond the run they authored: the jobs, their names, their `needs:` and every log byte Sift reads
+// beyond the run they authored: the jobs, their names, their `needs:` and every log byte Tamys reads
 // come from that same file. So there is no second, "safer" ref — reading the base on a PR is the
 // threat itself, not a defence against it.
 //
@@ -649,7 +649,7 @@ export async function resolveChangedJobGraph(
 
     if (workflow.kind === 'refused') {
         info(
-            `Sift: no declared job graph — ${workflow.reason}. The diff still runs; aggregator ` +
+            `Tamys: no declared job graph — ${workflow.reason}. The diff still runs; aggregator ` +
                 'rows do not fold.',
         );
         return null;
@@ -662,7 +662,7 @@ export async function resolveChangedJobGraph(
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         info(
-            `Sift: no declared job graph — could not read ${path} at ${sha} ` +
+            `Tamys: no declared job graph — could not read ${path} at ${sha} ` +
                 `(${message}). The diff still runs; aggregator rows do not fold.`,
         );
         return null;
@@ -671,7 +671,7 @@ export async function resolveChangedJobGraph(
     // followed — the one fact a reader needs to check a fold row against the workflow that ran.
     const edgeCount = declared.reduce((sum, job) => sum + job.needs.length, 0);
     info(
-        `Sift: declared job graph read from ${path} at ${sha} (GITHUB_WORKFLOW_SHA, the commit ` +
+        `Tamys: declared job graph read from ${path} at ${sha} (GITHUB_WORKFLOW_SHA, the commit ` +
             `this run executed): ${declared.length} jobs, ${edgeCount} \`needs:\` edges.`,
     );
 
@@ -689,7 +689,7 @@ export async function resolveChangedJobGraph(
         });
         return joinDeclaredJobs(declared, jobs.map(listingRow));
     } catch (error) {
-        info(`Sift: no declared job graph — ${listingFailure(error)}.`);
+        info(`Tamys: no declared job graph — ${listingFailure(error)}.`);
         return null;
     }
 }
@@ -730,7 +730,7 @@ function listingFailure(error: unknown): string {
 // EXECUTED state). Every other event is unrecoverable after the fact — `pull_request` executed a
 // merge commit the run object does not name, `pull_request_target` the base tip — and an event no
 // documentation row was read for is refused with them, fail-closed. The crawler reads the same
-// catalog (insight-eidos `sift/src/crawl/pairer.hpp`, `kExecutedEvents`); this repository is public
+// catalog (insight-eidos `tamys/src/crawl/pairer.hpp`, `kExecutedEvents`); this repository is public
 // and that one private, so each holds the list.
 export const EXECUTED_EVENTS: readonly string[] = [
     'push',
@@ -763,7 +763,7 @@ export async function resolveBaselineJobGraph(
     const { octokit, owner, repo, baselineRunId, info } = params;
     const absent = (reason: string): null => {
         info(
-            `Sift: no baseline job graph — ${reason}. The diff still runs; a step banner carrying a ` +
+            `Tamys: no baseline job graph — ${reason}. The diff still runs; a step banner carrying a ` +
                 'value is not matched to its declared step across the two runs.',
         );
         return null;
@@ -795,7 +795,7 @@ export async function resolveBaselineJobGraph(
         return absent(`could not read ${run.path} at ${run.head_sha} (${message})`);
     }
     info(
-        `Sift: baseline job graph read from ${run.path} at ${run.head_sha} (the commit baseline run ` +
+        `Tamys: baseline job graph read from ${run.path} at ${run.head_sha} (the commit baseline run ` +
             `${baselineRunId}, a \`${run.event}\` run, executed): ${declared.length} jobs, listing at attempt ` +
             `${run.run_attempt}.`,
     );

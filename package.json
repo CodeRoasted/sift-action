@@ -3,7 +3,7 @@
   "version": "2.1.1",
   "private": true,
   "type": "module",
-  "description": "Sift — structural diff of your CI logs, as a sticky PR comment + advisory gate.",
+  "description": "Tamys — structural diff of your CI logs, as a sticky PR comment + advisory gate.",
   "license": "MIT",
   "main": "dist/index.js",
   "scripts": {

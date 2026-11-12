@@ -1,4 +1,4 @@
-// Unit tests for the inline check-run annotation surface (sift_conversion_surface
+// Unit tests for the inline check-run annotation surface (tamys_conversion_surface
 // § B.3 / § B.5). Three obligations:
 //   • Mapping + content — polarity → ::error|warning|notice::; message = the
 //     engine's `summary` (+ first `evidence`) VERBATIM (never re-authored).
@@ -18,17 +18,17 @@ import {
     encodeCommandData,
     MAX_ANNOTATIONS,
 } from '../src/annotations.js';
-import type { RankedChange, SiftReport } from '../src/types.js';
+import type { RankedChange, TamysReport } from '../src/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.join(__dirname, '..', '..', 'tests', 'fixtures');
 const SRC = path.join(__dirname, '..', '..', 'src');
 
-function load(name: string): SiftReport {
-    return JSON.parse(readFileSync(path.join(FIXTURES, name), 'utf8')) as SiftReport;
+function load(name: string): TamysReport {
+    return JSON.parse(readFileSync(path.join(FIXTURES, name), 'utf8')) as TamysReport;
 }
 
-function report(rows: RankedChange[], significant = rows.length): SiftReport {
+function report(rows: RankedChange[], significant = rows.length): TamysReport {
     return {
         report_version: '0.1.0',
         summary: { total_changes: rows.length, significant_changes: significant },
@@ -82,7 +82,7 @@ test('message = the engine summary + first evidence line, VERBATIM (only transpo
     assert.ok(cmd.includes('%0Aappears 6x on changed'), 'evidence below an encoded line break');
 });
 
-test('no file=/line= anchor — Sift diffs logs, not source (check-run-level only)', () => {
+test('no file=/line= anchor — Tamys diffs logs, not source (check-run-level only)', () => {
     for (const cmd of buildAnnotationCommands(load('regression.json'), 'always')) {
         assert.ok(!/^::\w+ /.test(cmd), `must carry no properties (no fabricated anchor): ${cmd}`);
     }

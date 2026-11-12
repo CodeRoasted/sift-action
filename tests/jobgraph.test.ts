@@ -314,7 +314,7 @@ test('resolveChangedJobGraph (A3): no runner commit ⇒ ABSENT, zero requests, o
     assert.equal(graph, null, `expected ABSENT, got ${JSON.stringify(graph)}`);
     assert.deepEqual(calls, [], `no request may be made without the runner's commit; calls: ${JSON.stringify(calls)}`);
     assert.equal(lines.length, 1, `expected exactly one log line, got ${JSON.stringify(lines)}`);
-    assert.match(lines[0]!, /^Sift: no declared job graph — GITHUB_WORKFLOW_SHA is absent or empty\./);
+    assert.match(lines[0]!, /^Tamys: no declared job graph — GITHUB_WORKFLOW_SHA is absent or empty\./);
 });
 
 // ── The species travels, and the `<A> / X` containment is the caller's (DN-118.O3) ──
@@ -607,7 +607,7 @@ test('DN-140.D2: a listing row the wire cannot carry makes the graph ABSENT, nam
         const [row] = listedRows([{ name: 'Build', conclusion: 'failure' }]);
         const { graph, lines } = await resolveAt(EDGE_FREE_SHA, [{ ...row, ...cell.row }, ...listedRows([{ name: 'Merge coverage', conclusion: 'success' }], 2001)]);
         assert.equal(graph, null, `${cell.what}: expected ABSENT, got ${JSON.stringify(graph)}`);
-        assert.equal(lines.filter((line) => line.startsWith('Sift: no declared job graph')).length, 1, `${cell.what}: ${JSON.stringify(lines)}`);
+        assert.equal(lines.filter((line) => line.startsWith('Tamys: no declared job graph')).length, 1, `${cell.what}: ${JSON.stringify(lines)}`);
         assert.match(lines[lines.length - 1] ?? '', cell.reason, `${cell.what}: ${JSON.stringify(lines)}`);
     }
 });
@@ -681,7 +681,7 @@ test('resolveBaselineJobGraph: a pull_request run names no executed commit — A
         assert.equal(graph, null, `${event}: expected ABSENT`);
         assert.deepEqual(calls, ['getWorkflowRun 3131'], `${event}: no contents read and no listing; calls: ${JSON.stringify(calls)}`);
         assert.equal(lines.length, 1, `${event}: ${JSON.stringify(lines)}`);
-        assert.match(lines[0]!, new RegExp(`^Sift: no baseline job graph — baseline run 3131 is a \`${event}\` run`));
+        assert.match(lines[0]!, new RegExp(`^Tamys: no baseline job graph — baseline run 3131 is a \`${event}\` run`));
     }
 });
 

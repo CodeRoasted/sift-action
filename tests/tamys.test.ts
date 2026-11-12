@@ -16,16 +16,16 @@ import {
     measureUnreadableReport,
     runExplainSetup,
     parseFailOn,
-    runSift,
-    siftArgs,
-    SiftReportUnreadableError,
+    runTamys,
+    tamysArgs,
+    TamysReportUnreadableError,
     unreadableReportMessage,
-    type SiftInvocation,
-} from '../src/sift.js';
+    type TamysInvocation,
+} from '../src/tamys.js';
 import type { DeclaredJobWire } from '../src/jobgraph.js';
 
-const baseInvocation: SiftInvocation = {
-    siftBin: 'sift',
+const baseInvocation: TamysInvocation = {
+    tamysBin: 'tamys',
     baselineLog: 'base.log',
     changedLog: 'changed.log',
     baselineLabel: 'aaaaaaa',
@@ -39,14 +39,14 @@ const baseInvocation: SiftInvocation = {
 
 // ── The native-verdict side-inputs (ADR-17.D5) ──────────────────────────────
 
-test('siftArgs: outcome flags are ABSENT when no token — the engine ladder must fall to the console tail', () => {
-    const args = siftArgs(baseInvocation);
+test('tamysArgs: outcome flags are ABSENT when no token — the engine ladder must fall to the console tail', () => {
+    const args = tamysArgs(baseInvocation);
     assert.ok(!args.includes('--baseline-outcome'));
     assert.ok(!args.includes('--changed-outcome'));
 });
 
-test('siftArgs: native tokens forward VERBATIM (no adapter-side translation — ADR-17.D5)', () => {
-    const args = siftArgs({ ...baseInvocation, baselineOutcome: 'success', changedOutcome: 'cancelled' });
+test('tamysArgs: native tokens forward VERBATIM (no adapter-side translation — ADR-17.D5)', () => {
+    const args = tamysArgs({ ...baseInvocation, baselineOutcome: 'success', changedOutcome: 'cancelled' });
     const b = args.indexOf('--baseline-outcome');
     const c = args.indexOf('--changed-outcome');
     assert.ok(b >= 0 && args[b + 1] === 'success', 'baseline token must ride verbatim');
@@ -73,7 +73,7 @@ test('siftArgs: native tokens forward VERBATIM (no adapter-side translation — 
 // both tokens are present would pass preflight and break the two single-token cells — which is the
 // shape the Action actually sends whenever only one side has a known verdict. Preflight proves the
 // vector RUNS; this proves the vector is PAIRED.
-test('siftArgs: the verdict PAIR is never half-declared — vocabulary iff token, all four cells', () => {
+test('tamysArgs: the verdict PAIR is never half-declared — vocabulary iff token, all four cells', () => {
     const cells: ReadonlyArray<{ baselineOutcome: string; changedOutcome: string; expectVocabulary: boolean }> = [
         { baselineOutcome: '', changedOutcome: '', expectVocabulary: false },
         { baselineOutcome: 'success', changedOutcome: '', expectVocabulary: true },
@@ -81,7 +81,7 @@ test('siftArgs: the verdict PAIR is never half-declared — vocabulary iff token
         { baselineOutcome: 'success', changedOutcome: 'failure', expectVocabulary: true },
     ];
     for (const cell of cells) {
-        const args = siftArgs({ ...baseInvocation, ...cell });
+        const args = tamysArgs({ ...baseInvocation, ...cell });
         const where = `[baseline=${cell.baselineOutcome || '<none>'} changed=${cell.changedOutcome || '<none>'}]`;
         const vocabAt = args.indexOf('--outcome-vocabulary');
         const hasToken = args.includes('--baseline-outcome') || args.includes('--changed-outcome');
@@ -107,19 +107,19 @@ test('siftArgs: the verdict PAIR is never half-declared — vocabulary iff token
     }
 });
 
-test('siftArgs: --outcome-vocabulary is NOT --dialect — the Action never declares a dialect', () => {
+test('tamysArgs: --outcome-vocabulary is NOT --dialect — the Action never declares a dialect', () => {
     // The guard on the repair, not on the defect. `--outcome-vocabulary github` is a fact about WHO
     // supplies the verdict; `--dialect github` would be a false claim about the log's BYTES, which
     // are frequently raw cmake/ninja output carrying no `##[` marker at all. A false declaration is
     // worse than an absent one because it SUCCEEDS — the dialect enters `semantic_identity` and
     // every document silently becomes incomparable with the truth.
-    const args = siftArgs({ ...baseInvocation, baselineOutcome: 'success', changedOutcome: 'failure' });
+    const args = tamysArgs({ ...baseInvocation, baselineOutcome: 'success', changedOutcome: 'failure' });
     assert.ok(!args.includes('--dialect'), 'the Action must never declare a dialect for bytes it did not author');
 });
 
 // ── The declared IntentChannel (ADR-22.D4 + ADR-22.D5) ──────────────────────
 
-test('siftArgs: --channel=annotated is ALWAYS declared — this Action fetches the runner raw job log', () => {
+test('tamysArgs: --channel=annotated is ALWAYS declared — this Action fetches the runner raw job log', () => {
     // Unconditional and not an input: joblog.ts fetches via octokit's downloadJobLogsForWorkflowRun,
     // which returns the ANNOTATED materialization (`##[group]Run <cmd>` banners). The Action is the
     // caller that KNOWS, and ADR-22.D4 + ADR-22.D5 say the IntentChannel is declared by the
@@ -127,7 +127,7 @@ test('siftArgs: --channel=annotated is ALWAYS declared — this Action fetches t
     // (ADR-22.D5) — the PR comment silently stops comparing step by step. Before the
     // coordinate existed it was worse than silent: the bare `Run ` row fired on annotated
     // prose and invented phantom steps (9.05% of 22030 real logs of exactly this form).
-    const args = siftArgs(baseInvocation);
+    const args = tamysArgs(baseInvocation);
     const idx = args.indexOf('--channel');
     assert.ok(idx >= 0, '--channel must always be declared');
     assert.equal(args[idx + 1], 'annotated', 'the Action fetches the runner RAW job log, not the stripped form');
@@ -135,21 +135,21 @@ test('siftArgs: --channel=annotated is ALWAYS declared — this Action fetches t
 
 // ── The declared `needs:` job graph (ADR-22.D13) ─────────────────────────────
 
-test('siftArgs: --changed-job-graph is ABSENT when no graph — absent is a first-class state, not an empty file', () => {
-    const args = siftArgs(baseInvocation);
+test('tamysArgs: --changed-job-graph is ABSENT when no graph — absent is a first-class state, not an empty file', () => {
+    const args = tamysArgs(baseInvocation);
     assert.ok(!args.includes('--changed-job-graph'), 'no graph acquired ⇒ no flag ⇒ the fold is inert');
 });
 
-test('siftArgs: the graph rides as the FILE PATH runSift writes — a declared-empty graph still rides', () => {
+test('tamysArgs: the graph rides as the FILE PATH runTamys writes — a declared-empty graph still rides', () => {
     // `[]` is "declared, zero jobs" — a different fact from absent, and the engine acts on the
     // difference (ADR-22.D13: one flag, two states, no companion marker).
-    const args = siftArgs({ ...baseInvocation, changedJobGraph: { path: '/tmp/g.json', jobs: [] } });
+    const args = tamysArgs({ ...baseInvocation, changedJobGraph: { path: '/tmp/g.json', jobs: [] } });
     const idx = args.indexOf('--changed-job-graph');
     assert.ok(idx >= 0, 'a declared graph must ride, even when it declares zero jobs');
     assert.equal(args[idx + 1], '/tmp/g.json', 'the flag carries the path the file is written to');
 });
 
-test('siftArgs: a graph CONCLUSION is a declared verdict — the vocabulary pair widens to cover it', () => {
+test('tamysArgs: a graph CONCLUSION is a declared verdict — the vocabulary pair widens to cover it', () => {
     // The pinned engine REFUSES any non-empty graph `conclusion` with no --outcome-vocabulary
     // (the half-pair refusal at the CLI boundary), and this is a real ship shape: `log:` sourcing
     // with `changed-outcome` unset still acquires a graph whose rows carry API conclusions. The
@@ -161,7 +161,7 @@ test('siftArgs: a graph CONCLUSION is a declared verdict — the vocabulary pair
             { key: 'gate', display: 'gate', needs: ['build'], conclusion: 'failure', calls_workflow: false, declares_matrix: false, declared_steps: [] },
         ],
     };
-    const args = siftArgs({ ...baseInvocation, changedJobGraph: graphed });
+    const args = tamysArgs({ ...baseInvocation, changedJobGraph: graphed });
     const vocabAt = args.indexOf('--outcome-vocabulary');
     assert.ok(vocabAt >= 0, 'a graph conclusion without --outcome-vocabulary is the HALF-PAIR — refused by the pin');
     assert.equal(args[vocabAt + 1], 'github', 'same declarer, same run, same vocabulary');
@@ -191,7 +191,7 @@ const WITHHELD_EVERYWHERE: DeclaredJobWire[] = [
     },
 ];
 
-test('siftArgs: a stated LISTED-STEP conclusion is a declared verdict too — the vocabulary rides on it alone', () => {
+test('tamysArgs: a stated LISTED-STEP conclusion is a declared verdict too — the vocabulary rides on it alone', () => {
     // The engine's half-pair refusal reads listed step conclusions beside job conclusions
     // (DN-140.D2): a rendering whose job is still running can list a step that already failed.
     const [build, deps, rendering] = WITHHELD_EVERYWHERE as [DeclaredJobWire, DeclaredJobWire, Extract<DeclaredJobWire, { job_id: number }>];
@@ -200,13 +200,13 @@ test('siftArgs: a stated LISTED-STEP conclusion is a declared verdict too — th
         deps,
         { ...rendering, listed_steps: [{ number: 1, name: 'Set up job', conclusion: 'failure', started_at: 1781534400, completed_at: 1781534405 }] },
     ];
-    const args = siftArgs({ ...baseInvocation, changedJobGraph: { path: '/tmp/g.json', jobs: stepStated } });
+    const args = tamysArgs({ ...baseInvocation, changedJobGraph: { path: '/tmp/g.json', jobs: stepStated } });
     assert.equal(args[args.indexOf('--outcome-vocabulary') + 1], 'github', `argv: ${args.join(' ')}`);
 });
 
-test('siftArgs: a graph whose every conclusion is withheld declares no verdict — NO vocabulary rides on it', () => {
+test('tamysArgs: a graph whose every conclusion is withheld declares no verdict — NO vocabulary rides on it', () => {
     const inert = { path: '/tmp/g.json', jobs: WITHHELD_EVERYWHERE };
-    const args = siftArgs({ ...baseInvocation, changedJobGraph: inert });
+    const args = tamysArgs({ ...baseInvocation, changedJobGraph: inert });
     assert.ok(args.includes('--changed-job-graph'), 'the declaration itself still travels');
     assert.ok(
         !args.includes('--outcome-vocabulary'),
@@ -231,7 +231,7 @@ function flagValue(args: readonly string[], flag: string): string | undefined {
 }
 
 test('A1: a target-job changed side declares the API job-log stack, outermost first', () => {
-    const args = siftArgs({ ...baseInvocation, changedTransport: JOB_LOG_STACK });
+    const args = tamysArgs({ ...baseInvocation, changedTransport: JOB_LOG_STACK });
     assert.equal(
         flagValue(args, '--changed-transport'),
         'utf8-bom-line-prefix,api-rfc3339-line-prefix',
@@ -240,7 +240,7 @@ test('A1: a target-job changed side declares the API job-log stack, outermost fi
 });
 
 test('A1: a `log:` changed side declares none — an empty stack is a declaration, never an absence', () => {
-    const args = siftArgs({ ...baseInvocation, changedTransport: [] });
+    const args = tamysArgs({ ...baseInvocation, changedTransport: [] });
     assert.equal(flagValue(args, '--changed-transport'), 'none', `argv: ${args.join(' ')}`);
 });
 
@@ -248,66 +248,66 @@ test("A1: the baseline side forwards its sidecar's stack verbatim and in order; 
     // Deliberately NOT the canonical order: a stack is ordered, so an Action that sorted or
     // re-derived it would pass on the canonical list and fail here.
     const recorded = ['api-rfc3339-line-prefix', 'utf8-bom-line-prefix'];
-    const args = siftArgs({ ...baseInvocation, baselineTransport: recorded });
+    const args = tamysArgs({ ...baseInvocation, baselineTransport: recorded });
     assert.equal(
         flagValue(args, '--baseline-transport'),
         'api-rfc3339-line-prefix,utf8-bom-line-prefix',
         `argv: ${args.join(' ')}`,
     );
-    const none = siftArgs({ ...baseInvocation, baselineTransport: [] });
+    const none = tamysArgs({ ...baseInvocation, baselineTransport: [] });
     assert.equal(flagValue(none, '--baseline-transport'), 'none', `argv: ${none.join(' ')}`);
 });
 
 test('A1: a `path=` baseline is left undeclared — no baseline transport flag at all', () => {
-    const args = siftArgs({ ...baseInvocation, baselineTransport: undefined });
+    const args = tamysArgs({ ...baseInvocation, baselineTransport: undefined });
     assert.ok(!args.includes('--baseline-transport'), `argv: ${args.join(' ')}`);
 });
 
 test('A1: no argv carries the one-token --transport', () => {
-    const cells: Array<Partial<SiftInvocation>> = [
+    const cells: Array<Partial<TamysInvocation>> = [
         { changedTransport: JOB_LOG_STACK, baselineTransport: JOB_LOG_STACK },
         { changedTransport: JOB_LOG_STACK, baselineTransport: [] },
         { changedTransport: [], baselineTransport: undefined },
         { changedTransport: [], baselineTransport: JOB_LOG_STACK },
     ];
     for (const cell of cells) {
-        const args = siftArgs({ ...baseInvocation, ...cell });
+        const args = tamysArgs({ ...baseInvocation, ...cell });
         assert.ok(!args.includes('--transport'), `argv: ${args.join(' ')}`);
     }
 });
 
 // ── DN-89.D34: the baseline graph rides beside the changed one ───────────────────────────────
 
-test('siftArgs: --baseline-job-graph rides as the file path runSift writes, and is absent without one', () => {
-    assert.ok(!siftArgs(baseInvocation).includes('--baseline-job-graph'), 'no baseline graph ⇒ no flag');
-    const args = siftArgs({ ...baseInvocation, baselineJobGraph: { path: '/tmp/b.json', jobs: [] } });
+test('tamysArgs: --baseline-job-graph rides as the file path runTamys writes, and is absent without one', () => {
+    assert.ok(!tamysArgs(baseInvocation).includes('--baseline-job-graph'), 'no baseline graph ⇒ no flag');
+    const args = tamysArgs({ ...baseInvocation, baselineJobGraph: { path: '/tmp/b.json', jobs: [] } });
     assert.equal(flagValue(args, '--baseline-job-graph'), '/tmp/b.json', `argv: ${args.join(' ')}`);
 });
 
-test('siftArgs: a stated listed-step conclusion in the BASELINE graph pairs with the vocabulary; its job conclusions alone do not', () => {
+test('tamysArgs: a stated listed-step conclusion in the BASELINE graph pairs with the vocabulary; its job conclusions alone do not', () => {
     const [build, , rendering] = WITHHELD_EVERYWHERE as [DeclaredJobWire, DeclaredJobWire, Extract<DeclaredJobWire, { job_id: number }>];
     const jobOnly: DeclaredJobWire[] = [{ ...rendering, conclusion: 'success' }];
     const stepStated: DeclaredJobWire[] = [
         build,
         { ...rendering, listed_steps: [{ number: 1, name: 'Set up job', conclusion: 'success', started_at: 1781534400, completed_at: 1781534402 }] },
     ];
-    const quiet = siftArgs({ ...baseInvocation, baselineJobGraph: { path: '/tmp/b.json', jobs: jobOnly } });
+    const quiet = tamysArgs({ ...baseInvocation, baselineJobGraph: { path: '/tmp/b.json', jobs: jobOnly } });
     assert.ok(!quiet.includes('--outcome-vocabulary'), `a baseline job conclusion is read by nothing: ${quiet.join(' ')}`);
-    const paired = siftArgs({ ...baseInvocation, baselineJobGraph: { path: '/tmp/b.json', jobs: stepStated } });
+    const paired = tamysArgs({ ...baseInvocation, baselineJobGraph: { path: '/tmp/b.json', jobs: stepStated } });
     assert.equal(flagValue(paired, '--outcome-vocabulary'), 'github', `argv: ${paired.join(' ')}`);
 });
 
-test('runSift: writes both graph files the argv names, byte for byte the typed wire', async () => {
-    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'sift-graphs-'));
-    const engine = path.join(dir, 'fake-sift');
+test('runTamys: writes both graph files the argv names, byte for byte the typed wire', async () => {
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'tamys-graphs-'));
+    const engine = path.join(dir, 'fake-tamys');
     await fsp.writeFile(engine, `#!${process.execPath}\nprocess.exit(4);\n`);
     await fsp.chmod(engine, 0o755);
     const changed: DeclaredJobWire[] = [WITHHELD_EVERYWHERE[0]!];
     const baseline: DeclaredJobWire[] = [WITHHELD_EVERYWHERE[1]!];
     await assert.rejects(
-        runSift({
+        runTamys({
             ...baseInvocation,
-            siftBin: engine,
+            tamysBin: engine,
             outputPath: path.join(dir, 'report.json'),
             changedJobGraph: { path: path.join(dir, 'changed.json'), jobs: changed },
             baselineJobGraph: { path: path.join(dir, 'baseline.json'), jobs: baseline },
@@ -321,21 +321,21 @@ test('runSift: writes both graph files the argv names, byte for byte the typed w
 // ── DN-140.D4, as DN-140.D9 corrects it: the CHANGED log's provenance, and no baseline half ────
 
 test('provenance: a target-job log declares the job id it was fetched by and its attempt', () => {
-    const args = siftArgs({ ...baseInvocation, changedLogProvenance: { jobId: 81441945730, attempt: 2 } });
+    const args = tamysArgs({ ...baseInvocation, changedLogProvenance: { jobId: 81441945730, attempt: 2 } });
     assert.equal(flagValue(args, '--changed-log-job-id'), '81441945730', `argv: ${args.join(' ')}`);
     assert.equal(flagValue(args, '--changed-log-attempt'), '2', `argv: ${args.join(' ')}`);
 });
 
 test('provenance: a row stating no attempt declares the job id alone', () => {
-    const args = siftArgs({ ...baseInvocation, changedLogProvenance: { jobId: 7, attempt: null } });
+    const args = tamysArgs({ ...baseInvocation, changedLogProvenance: { jobId: 7, attempt: null } });
     assert.equal(flagValue(args, '--changed-log-job-id'), '7', `argv: ${args.join(' ')}`);
     assert.ok(!args.includes('--changed-log-attempt'), `argv: ${args.join(' ')}`);
 });
 
 test('provenance: a `log:` file declares none, and no argv ever carries a baseline provenance flag', () => {
-    const bare = siftArgs(baseInvocation);
+    const bare = tamysArgs(baseInvocation);
     assert.ok(!bare.includes('--changed-log-job-id') && !bare.includes('--changed-log-attempt'), `argv: ${bare.join(' ')}`);
-    for (const args of [bare, siftArgs({ ...baseInvocation, changedLogProvenance: { jobId: 7, attempt: 1 } })]) {
+    for (const args of [bare, tamysArgs({ ...baseInvocation, changedLogProvenance: { jobId: 7, attempt: 1 } })]) {
         assert.ok(
             !args.includes('--baseline-log-job-id') && !args.includes('--baseline-log-attempt'),
             `no row naming a step rests on the baseline side (DN-140.D9): ${args.join(' ')}`,
@@ -343,25 +343,25 @@ test('provenance: a `log:` file declares none, and no argv ever carries a baseli
     }
 });
 
-test('siftArgs: --explain is absent by default (opt-in)', () => {
-    assert.ok(!siftArgs(baseInvocation).includes('--explain'));
-    assert.ok(!siftArgs({ ...baseInvocation, explain: false }).includes('--explain'));
+test('tamysArgs: --explain is absent by default (opt-in)', () => {
+    assert.ok(!tamysArgs(baseInvocation).includes('--explain'));
+    assert.ok(!tamysArgs({ ...baseInvocation, explain: false }).includes('--explain'));
 });
 
-test('siftArgs: explain=true adds --explain, no --explain-model unless overridden', () => {
-    const args = siftArgs({ ...baseInvocation, explain: true });
+test('tamysArgs: explain=true adds --explain, no --explain-model unless overridden', () => {
+    const args = tamysArgs({ ...baseInvocation, explain: true });
     assert.ok(args.includes('--explain'), 'must pass --explain');
     assert.ok(!args.includes('--explain-model'), 'no model override ⇒ the auto-provisioned default');
 });
 
-test('siftArgs: an explicit explainModel passes --explain-model NAME', () => {
-    const args = siftArgs({ ...baseInvocation, explain: true, explainModel: 'phi-3.5-mini' });
+test('tamysArgs: an explicit explainModel passes --explain-model NAME', () => {
+    const args = tamysArgs({ ...baseInvocation, explain: true, explainModel: 'phi-3.5-mini' });
     const i = args.indexOf('--explain-model');
     assert.ok(i >= 0 && args[i + 1] === 'phi-3.5-mini', 'must pass --explain-model NAME');
 });
 
-test('siftArgs: --explain-model is NOT passed when explain is off', () => {
-    const args = siftArgs({ ...baseInvocation, explain: false, explainModel: 'phi-3.5-mini' });
+test('tamysArgs: --explain-model is NOT passed when explain is off', () => {
+    const args = tamysArgs({ ...baseInvocation, explain: false, explainModel: 'phi-3.5-mini' });
     assert.ok(!args.includes('--explain') && !args.includes('--explain-model'));
 });
 
@@ -416,7 +416,7 @@ test('engineEnv is a closed env: only the operational allowlist + the pinned tri
 
 // ── The engine's exit-code contract (the T4 "enormous log" repair) ────────────
 //
-// Before this mapping existed, runSift() read the report file unconditionally after
+// Before this mapping existed, runTamys() read the report file unconditionally after
 // `ignoreReturnCode: true`. An engine that refused — or crashed on an uncaught bad_alloc
 // (exit 134, SIGABRT) — surfaced as `ENOENT: no such file or directory, open
 // '.../report.json'`, a message about the Action's own plumbing rather than about the log.
@@ -460,7 +460,7 @@ test('engineFailureMessage: exit 3 names the ceiling, the check, and the way out
     assert.match(message, /wc -lc/);
     assert.match(message, /LC_ALL=C awk 'length\(\$0\) > 4194304'/, 'must give the long-line check');
     // The WAY OUT — a limit with no remedy reads as "this product does not work here".
-    assert.match(message, /SIFT_CAPTURE/);
+    assert.match(message, /TAMYS_CAPTURE/);
     // And it must say this is a LIMIT, not a failure — the whole point of the repair.
     assert.match(message, /not a crash/);
 });
@@ -567,7 +567,7 @@ test('unreadableReportMessage: zero control bytes does NOT claim a control byte'
     assert.doesNotMatch(message, /byte offset null/);
 });
 
-// ── The Action-level bound on `sift explain-setup` ──────────────────────────
+// ── The Action-level bound on `tamys explain-setup` ──────────────────────────
 //
 // The engine's libcurl bound stops a stalled TRANSFER; it cannot stop a wedged PROCESS,
 // which produces no exit code and so never reaches the fail-soft degrade. These exercise
@@ -578,7 +578,7 @@ test('unreadableReportMessage: zero control bytes does NOT claim a control byte'
 const fakeEngines: string[] = [];
 
 async function fakeEngine(name: string, body: string): Promise<string> {
-    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'sift-explain-setup-'));
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'tamys-explain-setup-'));
     const file = path.join(dir, name);
     await fsp.writeFile(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
     fakeEngines.push(dir);
@@ -635,7 +635,7 @@ test('runExplainSetup: a non-zero exit degrades and names the code, not the boun
 });
 
 test('runExplainSetup: a missing engine binary degrades, never throws', async () => {
-    const result = await runExplainSetup('/nonexistent/sift-binary-that-is-not-there', 30_000);
+    const result = await runExplainSetup('/nonexistent/tamys-binary-that-is-not-there', 30_000);
     assert.equal(result.ok, false);
     assert.equal(result.timedOutAfterMs, undefined);
     assert.match(result.detail, /could not be started/);
@@ -649,7 +649,7 @@ test('runExplainSetup: the engine child gets the SCRUBBED env (contract §6.1 it
     const previous = process.env.GITHUB_TOKEN;
     process.env.GITHUB_TOKEN = 'leak-canary-value';
     try {
-        const out = await fsp.mkdtemp(path.join(os.tmpdir(), 'sift-env-'));
+        const out = await fsp.mkdtemp(path.join(os.tmpdir(), 'tamys-env-'));
         const probe = path.join(out, 'env.txt');
         const bin = await fakeEngine('envprobe', `printenv > ${probe}\nexit 0`);
         const result = await runExplainSetup(bin, 30_000);
@@ -692,7 +692,7 @@ test('runExplainSetup: the cancellation relay is REMOVED on settle — no listen
 // the Action displays (each row's summary, location and evidence, and the rendered markdown)
 // carries no control byte. The Action verifies both and fails on a breach, because a lenient
 // read would substitute U+FFFD without a signal and a comment built from it would present an
-// engine defect as the user's result. These run the real runSift against a fake engine that
+// engine defect as the user's result. These run the real runTamys against a fake engine that
 // leaves a prepared report at the output path, so the read, the decode and the checks are the
 // shipped ones.
 
@@ -716,19 +716,19 @@ function conformantReport(): Record<string, unknown> {
             },
         ],
         inputs: { baseline: { label: 'aaaaaaa' }, changed: { label: 'bbbbbbb' } },
-        markdown: '# Sift\n\n* new error: café\n',
+        markdown: '# Tamys\n\n* new error: café\n',
     };
 }
 
 async function runOn(name: string, reportBytes: Uint8Array): Promise<unknown> {
-    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'sift-report-'));
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'tamys-report-'));
     fakeEngines.push(dir);
     const prepared = path.join(dir, 'prepared.json');
     const outputPath = path.join(dir, 'report.json');
     await fsp.writeFile(prepared, reportBytes);
     const bin = await fakeEngine(name, `cp '${prepared}' '${outputPath}'`);
     try {
-        return await runSift({ ...baseInvocation, siftBin: bin, outputPath });
+        return await runTamys({ ...baseInvocation, tamysBin: bin, outputPath });
     } catch (error) {
         return error;
     }
@@ -738,23 +738,23 @@ function bytesOf(report: unknown): Buffer {
     return Buffer.from(JSON.stringify(report), 'utf8');
 }
 
-test('runSift: a report holding ONE ill-formed UTF-8 byte is refused, located and never quoted', async () => {
+test('runTamys: a report holding ONE ill-formed UTF-8 byte is refused, located and never quoted', async () => {
     const good = bytesOf(conformantReport());
     const at = good.indexOf(Buffer.from('new error', 'utf8'));
     const bad = Buffer.concat([good.subarray(0, at), Buffer.from([0x80]), good.subarray(at)]);
     const outcome = await runOn('illformed', bad);
-    assert.ok(outcome instanceof SiftReportUnreadableError, `expected a refusal, got ${String(outcome)}`);
+    assert.ok(outcome instanceof TamysReportUnreadableError, `expected a refusal, got ${String(outcome)}`);
     assert.match(outcome.message, /not well-formed UTF-8/);
     assert.match(outcome.message, new RegExp(`byte offset ${at}\\b`));
     assert.match(outcome.message, /ENGINE/);
     assert.doesNotMatch(outcome.message, /caf|new error/);
 });
 
-test('runSift: a report cut in the middle of a UTF-8 sequence is refused as ill-formed', async () => {
+test('runTamys: a report cut in the middle of a UTF-8 sequence is refused as ill-formed', async () => {
     const good = bytesOf({ ...conformantReport(), markdown: 'café' });
     const cut = good.subarray(0, good.lastIndexOf(0xa9));
     const outcome = await runOn('cut', cut);
-    assert.ok(outcome instanceof SiftReportUnreadableError, `expected a refusal, got ${String(outcome)}`);
+    assert.ok(outcome instanceof TamysReportUnreadableError, `expected a refusal, got ${String(outcome)}`);
     assert.match(outcome.message, /not well-formed UTF-8/);
     assert.match(outcome.message, /ends inside a UTF-8 sequence/);
 });
@@ -763,13 +763,13 @@ for (const [field, plant] of [
     ['ranked_changes[0].summary', (r: any) => { r.ranked_changes[0].summary = `red ${ESC}[31m text`; }],
     ['ranked_changes[0].where', (r: any) => { r.ranked_changes[0].where = `job${String.fromCharCode(0x09)}step`; }],
     ['ranked_changes[0].evidence[1]', (r: any) => { r.ranked_changes[0].evidence[1] = `gone${DEL}`; }],
-    ['markdown', (r: any) => { r.markdown = `# Sift\n\n* a${String.fromCharCode(0x0d)}\n`; }],
+    ['markdown', (r: any) => { r.markdown = `# Tamys\n\n* a${String.fromCharCode(0x0d)}\n`; }],
 ] as const) {
-    test(`runSift: a control byte in ${field}, text the Action displays, is refused and the field is named`, async () => {
+    test(`runTamys: a control byte in ${field}, text the Action displays, is refused and the field is named`, async () => {
         const report = conformantReport();
         plant(report);
         const outcome = await runOn('control', bytesOf(report));
-        assert.ok(outcome instanceof SiftReportUnreadableError, `expected a refusal, got ${String(outcome)}`);
+        assert.ok(outcome instanceof TamysReportUnreadableError, `expected a refusal, got ${String(outcome)}`);
         assert.ok(outcome.message.includes(field), outcome.message);
         assert.match(outcome.message, /control byte/);
         assert.match(outcome.message, /ENGINE/);
@@ -780,7 +780,7 @@ for (const [field, plant] of [
     });
 }
 
-test('runSift: a control byte in a field the Action does NOT display is not its to refuse', async () => {
+test('runTamys: a control byte in a field the Action does NOT display is not its to refuse', async () => {
     // `phase` and the input labels are identity on the wire: the engine keeps them faithful and
     // escaped, and the Action never embeds them, so they are outside this check.
     const report = conformantReport() as any;
@@ -790,18 +790,18 @@ test('runSift: a control byte in a field the Action does NOT display is not its 
     assert.ok(!(outcome instanceof Error), String(outcome));
 });
 
-test('runSift: a line feed in markdown is the one control byte the rendered body may carry', async () => {
+test('runTamys: a line feed in markdown is the one control byte the rendered body may carry', async () => {
     const outcome = await runOn('markdown-lf', bytesOf(conformantReport()));
     assert.ok(!(outcome instanceof Error), String(outcome));
 });
 
-test('runSift: a report that starts with a byte-order mark is refused, never silently stripped', async () => {
+test('runTamys: a report that starts with a byte-order mark is refused, never silently stripped', async () => {
     const outcome = await runOn('bom', Buffer.concat([Buffer.from(BOM), bytesOf(conformantReport())]));
-    assert.ok(outcome instanceof SiftReportUnreadableError, `expected a refusal, got ${String(outcome)}`);
+    assert.ok(outcome instanceof TamysReportUnreadableError, `expected a refusal, got ${String(outcome)}`);
     assert.match(outcome.message, /not valid JSON/);
 });
 
-test('runSift: a conformant report is returned exactly as a lenient read parses it', async () => {
+test('runTamys: a conformant report is returned exactly as a lenient read parses it', async () => {
     const bytes = bytesOf(conformantReport());
     const outcome = (await runOn('conformant', bytes)) as { report: unknown; exitCode: number };
     assert.ok(!(outcome instanceof Error), String(outcome));
@@ -809,10 +809,10 @@ test('runSift: a conformant report is returned exactly as a lenient read parses 
     assert.equal(outcome.exitCode, 0);
 });
 
-test('siftArgs: each gate value forwards verbatim as `--fail-on <value>`; `none` forwards no flag', () => {
-    assert.ok(!siftArgs(baseInvocation).includes('--fail-on'), 'none must not reach argv');
+test('tamysArgs: each gate value forwards verbatim as `--fail-on <value>`; `none` forwards no flag', () => {
+    assert.ok(!tamysArgs(baseInvocation).includes('--fail-on'), 'none must not reach argv');
     for (const failOn of ['medium', 'high', 'critical'] as const) {
-        const args = siftArgs({ ...baseInvocation, failOn });
+        const args = tamysArgs({ ...baseInvocation, failOn });
         const at = args.indexOf('--fail-on');
         assert.ok(at >= 0, `--fail-on absent for ${failOn}: ${args.join(' ')}`);
         assert.equal(args[at + 1], failOn, `--fail-on ${failOn} forwarded as ${args[at + 1]}: ${args.join(' ')}`);

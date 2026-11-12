@@ -1,12 +1,12 @@
-Sift Action — NOTICE
+Tamys Action — NOTICE
 ====================
 
-This repository (the "Sift Action") is a GitHub Action wrapper licensed under
+This repository (the "Tamys Action") is a GitHub Action wrapper licensed under
 the MIT License (see LICENSE). The MIT license covers ONLY the wrapper in this
 repository: the TypeScript source under src/, the bundled dist/ output,
 action.yml, and the workflow/config files.
 
-THE `sift` ENGINE BINARY IS NOT PART OF THIS REPOSITORY AND IS NOT COVERED BY
+THE `tamys` ENGINE BINARY IS NOT PART OF THIS REPOSITORY AND IS NOT COVERED BY
 THE MIT LICENSE. The Action downloads it at runtime as a version-pinned,
 checksum-verified release asset. That binary is:
 
@@ -18,7 +18,7 @@ checksum-verified release asset. That binary is:
     binary. Contact: emmanuel.prunet@coderoast.fr
 
 The binary is fetched at runtime and is NEVER vendored into this repository —
-do not commit a `sift` binary blob here.
+do not commit a `tamys` binary blob here.
 
 Third-party dependencies bundled into dist/ retain their own licenses, listed
 in dist/licenses.txt.
@@ -31,8 +31,8 @@ license texts ship in that repo):
       Phi-3.5-mini-instruct, MIT License (© Microsoft).
     - llama-server-linux-x64 — a static build of the llama.cpp server,
       MIT License (© 2023-2026 The ggml authors).
-These are fetched + checksum-verified by the `sift` engine; they are never
+These are fetched + checksum-verified by the `tamys` engine; they are never
 vendored into this Action repository.
 
-"Sift" and "CodeRoast" are trademarks of Emmanuel Prunet (CodeRoast). Trademark rights are
+"Tamys" and "CodeRoast" are trademarks of Emmanuel Prunet (CodeRoast). Trademark rights are
 separate from, and not granted by, the MIT license on this code.

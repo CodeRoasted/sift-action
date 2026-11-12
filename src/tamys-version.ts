@@ -1,5 +1,5 @@
-// The `sift` ENGINE-BINARY version this Action downloads as a release asset
-// (bibles/sift_action.md §7). This is the engine pin, NOT the Action's own
+// The `tamys` ENGINE-BINARY version this Action downloads as a release asset
+// (bibles/tamys_action.md §7). This is the engine pin, NOT the Action's own
 // version: it tracks the latest PUBLISHED engine release. It is never hand-edited
 // and never rides the workspace platform bump — the engine for a version is not
 // published until that version's cut, so a bumped pin names a release that does
@@ -16,4 +16,4 @@
 // line that debuts at 1.0.0 — do NOT conflate the two numbers. Bump THIS to the
 // latest published engine when cutting an Action release; bump package.json on the
 // Action wrapper's own release cadence.
-export const SIFT_VERSION = '1.10.11';
+export const TAMYS_VERSION = '1.10.11';

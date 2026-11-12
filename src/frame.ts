@@ -3,42 +3,42 @@
 // `renderComment(report, context)` is a PURE, DETERMINISIC function: same
 // (report, context) ⇒ same string. The only varying inputs are identity stamps
 // (head_sha, baseline.sha) which IDENTIFY the run, not its content
-// (bibles/sift_action.md § 4). The frame owns the header, the one-line
+// (bibles/tamys_action.md § 4). The frame owns the header, the one-line
 // verdict, the state logic, and the footer; the ENGINE owns every row
 // (`summary`) and the full <details> body (`markdown`), surfaced verbatim up to
 // the comment's byte budget (below) — the Action never re-authors a row
 // (contract § 1; PRD-6 — "rows are the engine's, not ours"). Copy below is
-// governed by PRD-6 § "Surface: Sift PR comment".
+// governed by PRD-6 § "Surface: Tamys PR comment".
 //
 // The comment is a BOUNDED PROJECTION of a report that is never capped
 // (ADR-14.D12): GitHub refuses a comment over MAX_RENDERED_BODY_BYTES and posts
 // nothing, so the frame composes within that budget by construction and declares
-// every elision; the full report is the run's `sift-report` artifact.
+// every elision; the full report is the run's `tamys-report` artifact.
 
 import {
     MAX_RENDERED_BODY_BYTES,
     type RankedChange,
-    type SiftReport,
-    type SiftCommentContext,
+    type TamysReport,
+    type TamysCommentContext,
 } from './types.js';
 import { polarityGlyph, severityGlyph } from './glyph.js';
 import { State, selectState } from './verdict.js';
 
 // Hidden sticky-comment key (contract § 4): list comments, PATCH the marked one
 // or POST a new one — one comment per PR (per tag), updated in place. A
-// `comment-tag` namespaces the marker so two sift invocations in one job (e.g.
+// `comment-tag` namespaces the marker so two tamys invocations in one job (e.g.
 // vs-main and vs-previous) each keep their own sticky comment; the untagged
 // marker is NOT a substring of a tagged one (`:` vs ` `), so lookups stay exact.
-export const STICKY_MARKER = '<!-- sift:pr-comment -->';
+export const STICKY_MARKER = '<!-- tamys:pr-comment -->';
 export function stickyMarker(tag?: string): string {
-    return tag ? `<!-- sift:pr-comment:${tag} -->` : STICKY_MARKER;
+    return tag ? `<!-- tamys:pr-comment:${tag} -->` : STICKY_MARKER;
 }
 
 // Shared header, every state (PRD-6 § "The four states", verbatim).
-const HEADER = '### 🔬 Sift — structural diff of your CI logs';
+const HEADER = '### 🔬 Tamys — structural diff of your CI logs';
 
-// "What is this?" target — the product's Sift front door (PRD-6 § "Page: Sift").
-const SIFT_URL = 'https://coderoast.fr/sift';
+// "What is this?" target — the product's Tamys front door (PRD-6 § "Page: Tamys").
+const TAMYS_URL = 'https://coderoast.fr/tamys';
 
 // Defensive cap on inline rows so a pathological significant-set cannot bloat the
 // comment; the full set always lives in the <details> body. Real CI diffs surface
@@ -67,20 +67,20 @@ const MAX_TEMPLATE_ID_DISPLAY_BYTES = 64;
 // 29 KiB for the envelope strings (branch, labels, tag), which GitHub bounds far below that.
 
 // The report's claim boundary, as every human-readable view of the engine states it under its
-// two inputs: insight-eidos `kClaimBoundary` (`sift/api/sift.api-report.cppm`), Eqya's wording of
+// two inputs: insight-eidos `kClaimBoundary` (`tamys/api/tamys.api-report.cppm`), Eqya's wording of
 // LIM-25's first two sentences, no figure (W469). The JSON carries no member for it, so the frame
 // holds a copy, and preflight reds when the pinned engine's markdown stops carrying it verbatim.
 export const CLAIM_BOUNDARY =
-    'Sift compares exactly two runs and keeps no history. On two successful runs, Drift means the ' +
+    'Tamys compares exactly two runs and keeps no history. On two successful runs, Drift means the ' +
     'logs differ, not that this change caused the difference: a line that comes and goes between ' +
-    "your workflow's successful runs reads as Drift, because Sift has never seen those runs.";
+    "your workflow's successful runs reads as Drift, because Tamys has never seen those runs.";
 
 // The engine's n-gram disclosure (ADR-9.D3, W446), rendered from the JSON a report always carries
 // (`inputs.<side>.ngram_refusals`) in the engine's own sentence (`ngram_refusal_line`,
-// insight-eidos `sift/src/report/change_report_serialize.cpp`), so a comment that does not embed
+// insight-eidos `tamys/src/report/change_report_serialize.cpp`), so a comment that does not embed
 // the engine's markdown still states it. '' when no window refused. preflight reds when the pinned
 // engine's markdown stops carrying this sentence verbatim.
-export function ngramRefusalLine(report: SiftReport): string {
+export function ngramRefusalLine(report: TamysReport): string {
     const sides = [report.inputs.baseline.ngram_refusals ?? [], report.inputs.changed.ngram_refusals ?? []];
     const windows = sides[0]!.length + sides[1]!.length;
     if (windows === 0) return '';
@@ -197,7 +197,7 @@ function cutForDisplay(text: string, capBytes: number): DisplayCut {
 // the row's template (the key a reader looks it up by) and, when this run uploaded it, the
 // artifact holding the full text. Composed OUTSIDE any code span, so its own backticks stay
 // structure.
-function elisionMarker(elidedBytes: number, row: RankedChange, context: SiftCommentContext): string {
+function elisionMarker(elidedBytes: number, row: RankedChange, context: TamysCommentContext): string {
     const parts = [`+${groupThousands(elidedBytes)} B not shown`];
     if (row.template_id) {
         const id = cutForDisplay(row.template_id, MAX_TEMPLATE_ID_DISPLAY_BYTES);
@@ -214,7 +214,7 @@ function displayed(
     text: string,
     capBytes: number,
     row: RankedChange,
-    context: SiftCommentContext,
+    context: TamysCommentContext,
 ): { shown: string; marker: string } {
     const cut = cutForDisplay(text, capBytes);
     return { shown: cut.shown, marker: cut.elidedBytes > 0 ? elisionMarker(cut.elidedBytes, row, context) : '' };
@@ -268,7 +268,7 @@ function groupBySeverity(rows: readonly RankedChange[]): SeveritySection[] {
 // direction renders nothing, no empty badge. `polarity` is an engine ENUM (trusted);
 // the `summary` is engine CONTENT — verbatim up to its display cap, safely embedded
 // (escapeInline).
-function renderRow(index: number, row: RankedChange, context: SiftCommentContext): string {
+function renderRow(index: number, row: RankedChange, context: TamysCommentContext): string {
     const glyph = polarityGlyph(row.polarity);
     const badge = row.polarity ? `${glyph ? `${glyph} ` : ''}**[${row.polarity}]** ` : '';
     const summary = displayed(row.summary, MAX_SUMMARY_DISPLAY_BYTES, row, context);
@@ -298,7 +298,7 @@ function renderRow(index: number, row: RankedChange, context: SiftCommentContext
 // 1 true incident, and the incident must be READABLE at the top of the comment. The
 // noise the layout was ruled against is the REPEATED per-row chip, not the finding
 // itself. Everything below index 0, and the full report, stays collapsed.
-function renderSection(section: SeveritySection, disclosed: boolean, context: SiftCommentContext): string {
+function renderSection(section: SeveritySection, disclosed: boolean, context: TamysCommentContext): string {
     const count = section.rows.length;
     const heading =
         `${severityGlyph(section.severity)} <b>${escapeHtml(section.severity.toUpperCase())}</b>` +
@@ -307,7 +307,7 @@ function renderSection(section: SeveritySection, disclosed: boolean, context: Si
     return `<details${disclosed ? ' open' : ''}><summary>${heading}</summary>\n\n${rows}\n\n</details>`;
 }
 
-function renderRows(report: SiftReport, context: SiftCommentContext): string {
+function renderRows(report: TamysReport, context: TamysCommentContext): string {
     const rows = report.ranked_changes;
     const shown = rows.slice(0, MAX_INLINE_ROWS);
     // Index 0 is the hottest section by the ladder — whatever severity that is on this
@@ -339,7 +339,7 @@ enum DetailsMode {
     Declare,
 }
 
-function renderDetails(report: SiftReport, context: SiftCommentContext, mode: DetailsMode): string {
+function renderDetails(report: TamysReport, context: TamysCommentContext, mode: DetailsMode): string {
     const { total_changes, significant_changes } = report.summary;
     const summaryLine = `Full report — ${groupThousands(total_changes)} changes, ${groupThousands(
         significant_changes,
@@ -351,7 +351,7 @@ function renderDetails(report: SiftReport, context: SiftCommentContext, mode: De
 
 // The declared line standing in for a markdown too large to embed: its size, the limit, and
 // where it is read whole when this run uploaded it.
-function declaredReportLine(report: SiftReport, context: SiftCommentContext): string {
+function declaredReportLine(report: TamysReport, context: TamysCommentContext): string {
     const bytes = Buffer.byteLength(report.markdown ?? '', 'utf8');
     const line =
         `The full report is ${groupThousands(bytes)} B of markdown, too large to embed in a comment ` +
@@ -368,16 +368,16 @@ function declaredReportLine(report: SiftReport, context: SiftCommentContext): st
 // baseline SOURCE — the base branch by default (which may be master/develop),
 // or the configured named source (`baseline_source`) when the user overrode
 // selection — the only deviation from the literal copy, and the correct one.
-function coldStartBody(context: SiftCommentContext): string {
+function coldStartBody(context: TamysCommentContext): string {
     const source = context.baseline_source ?? `the last green run on \`${context.base_branch}\``;
     return (
-        `🔬 No baseline yet. Sift diffs each run against ${source}.\n` +
+        `🔬 No baseline yet. Tamys diffs each run against ${source}.\n` +
         'Once one lands, every PR gets a structural diff here — nothing to compare this time.'
     );
 }
 
 // ② Clean — significant === 0. One block, no <details> (nothing to drill into).
-function cleanBody(report: SiftReport): string {
+function cleanBody(report: TamysReport): string {
     const baseline = groupThousands(report.inputs.baseline.lines_observed);
     const changed = groupThousands(report.inputs.changed.lines_observed);
     const total = report.summary.total_changes;
@@ -392,7 +392,7 @@ function cleanBody(report: SiftReport): string {
     // only the last is noise (ADR-20.D15). The copy states the observed total and no cause.
     return (
         `${headline}\n` +
-        `Sift weighed ${groupThousands(total)} surface diffs and found no structural change worth a look among them.`
+        `Tamys weighed ${groupThousands(total)} surface diffs and found no structural change worth a look among them.`
     );
 }
 
@@ -400,12 +400,12 @@ function cleanBody(report: SiftReport): string {
 // verdict class (`summary.changed_outcome`, ADR-17.D5 — authoritative side-input →
 // console tail → Unknown), never a render-side CI flag (the retired `build_status`).
 // Absent (Unknown) degrades to the generic headline, exactly as 'unknown' did.
-function changedRunSucceeded(report: SiftReport): boolean {
+function changedRunSucceeded(report: TamysReport): boolean {
     return report.summary.changed_outcome === 'SUCCESS';
 }
 
 // ③ Drift — significant > 0, no regression. The cache-died hero lands here.
-function driftBody(report: SiftReport, context: SiftCommentContext, details: DetailsMode): string {
+function driftBody(report: TamysReport, context: TamysCommentContext, details: DetailsMode): string {
     const significant = report.summary.significant_changes;
     // The observed total, never the gap: see cleanBody.
     const observed = groupThousands(report.summary.total_changes);
@@ -428,7 +428,7 @@ function driftBody(report: SiftReport, context: SiftCommentContext, details: Det
 // rows already sort first (the engine ranks NewError/Escalated at the top tier).
 // The three headline branches are mutually exclusive by construction: a SUCCESS
 // changed run cannot be an outcome regression (SUCCESS is the axis floor).
-function regressionBody(report: SiftReport, context: SiftCommentContext, details: DetailsMode): string {
+function regressionBody(report: TamysReport, context: TamysCommentContext, details: DetailsMode): string {
     const { baseline_outcome, changed_outcome, outcome_regressed } = report.summary;
     const headline = changedRunSucceeded(report)
         ? // run verdict SUCCESS — the strongest hero (founder-LOCKED line)
@@ -452,10 +452,10 @@ function regressionBody(report: SiftReport, context: SiftCommentContext, details
 // § "What the frame carries"): "last green run on `branch` @ sha", linked to the
 // run. Determinism + on-prem stated once, flat. Identity stamps (head/baseline
 // sha) are run identity, not content.
-function footer(context: SiftCommentContext): string {
+function footer(context: TamysCommentContext): string {
     const parts = [
         'Deterministic — same inputs, same comment. Runs in your CI; your logs never leave it.',
-        `[What is this?](${SIFT_URL})`,
+        `[What is this?](${TAMYS_URL})`,
     ];
     if (context.baseline) {
         parts.push(baselineFootnote(context.baseline));
@@ -476,7 +476,7 @@ function footer(context: SiftCommentContext): string {
 // The provenance footnote adapts to how the baseline was SELECTED (the user is
 // King of the baseline): a branch's last green run (the turnkey default), a
 // named baseline artifact, or a local file.
-function baselineFootnote(baseline: NonNullable<SiftCommentContext['baseline']>): string {
+function baselineFootnote(baseline: NonNullable<TamysCommentContext['baseline']>): string {
     const sha = shortSha(baseline.sha);
     const linkedSha = baseline.run_url ? `[\`${sha}\`](${baseline.run_url})` : `\`${sha}\``;
     switch (baseline.kind) {
@@ -492,8 +492,8 @@ function baselineFootnote(baseline: NonNullable<SiftCommentContext['baseline']>)
 // ── The renderer ────────────────────────────────────────────────────────────
 
 function body(
-    report: SiftReport | null,
-    context: SiftCommentContext,
+    report: TamysReport | null,
+    context: TamysCommentContext,
     state: State,
     details: DetailsMode,
 ): string {
@@ -501,11 +501,11 @@ function body(
         case State.ColdStart:
             return coldStartBody(context);
         case State.Clean:
-            return cleanBody(report as SiftReport);
+            return cleanBody(report as TamysReport);
         case State.Drift:
-            return driftBody(report as SiftReport, context, details);
+            return driftBody(report as TamysReport, context, details);
         case State.Regression:
-            return regressionBody(report as SiftReport, context, details);
+            return regressionBody(report as TamysReport, context, details);
     }
 }
 
@@ -516,7 +516,7 @@ function body(
 // It states what the resolver SEARCHED, never a cause it did not measure: a run-resolved
 // baseline came from one branch's runs of this workflow, so only the named-artifact resolver
 // has measured that no newer baseline exists anywhere in the repository.
-function staleBanner(context: SiftCommentContext): string {
+function staleBanner(context: TamysCommentContext): string {
     const age =
         context.baseline_age_hours != null ? formatAge(context.baseline_age_hours) : 'unknown age';
     const head = `> ⚠️ **Stale baseline — ${age} old, past the ${context.baseline_age_bound ?? ''} bound.** `;
@@ -547,7 +547,7 @@ function staleBanner(context: SiftCommentContext): string {
 // details block, and a markdown too large to embed is replaced by its size line — then the claim
 // boundary, on every report, as every human view of the engine states it (W446, W469). The text is
 // the engine's (CLAIM_BOUNDARY, ngramRefusalLine), escaped as any engine string.
-function reportStatements(report: SiftReport, state: State, details: DetailsMode): string {
+function reportStatements(report: TamysReport, state: State, details: DetailsMode): string {
     const parts: string[] = [];
     const refusals = ngramRefusalLine(report);
     if (refusals !== '' && (state === State.Clean || details === DetailsMode.Declare)) {
@@ -557,7 +557,7 @@ function reportStatements(report: SiftReport, state: State, details: DetailsMode
     return `\n\n${parts.join('\n\n')}`;
 }
 
-function compose(report: SiftReport | null, context: SiftCommentContext, details: DetailsMode): string {
+function compose(report: TamysReport | null, context: TamysCommentContext, details: DetailsMode): string {
     const state = selectState(report);
     const header = context.comment_tag ? `${HEADER} (${context.comment_tag})` : HEADER;
     const stale = context.baseline_stale ? `${staleBanner(context)}\n\n` : '';
@@ -570,7 +570,7 @@ function compose(report: SiftReport | null, context: SiftCommentContext, details
 // The engine's markdown is embedded when the composed comment then fits the budget,
 // measured on the composed bytes; a markdown whose SOURCE already exceeds the budget is
 // never escaped to find out, since escaping never shrinks it.
-export function renderComment(report: SiftReport | null, context: SiftCommentContext): string {
+export function renderComment(report: TamysReport | null, context: TamysCommentContext): string {
     if (Buffer.byteLength(report?.markdown ?? '', 'utf8') <= MAX_RENDERED_BODY_BYTES) {
         const whole = compose(report, context, DetailsMode.Embed);
         if (Buffer.byteLength(whole, 'utf8') <= MAX_RENDERED_BODY_BYTES) return whole;

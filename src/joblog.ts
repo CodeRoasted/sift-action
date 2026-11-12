@@ -1,6 +1,6 @@
-// Job-log sourcing — the zero-plumbing way to feed Sift (`target-job` input).
+// Job-log sourcing — the zero-plumbing way to feed Tamys (`target-job` input).
 // Instead of tee-ing a build step into a file, a later job (`needs: <build>`)
-// points Sift at the finished job by NAME; the action downloads that job's log
+// points Tamys at the finished job by NAME; the action downloads that job's log
 // from the GitHub API AS BYTES, declares the delivery stack those bytes carry,
 // and (optionally) selects the user-marked capture sections. No shell plumbing in
 // the build job, and no byte of any line rewritten (DN-89.D38).
@@ -13,13 +13,13 @@
 // line's mark, and was invisible to the engine (DN-89.D38).
 //
 // Capture markers — plain lines the build steps emit (`echo`):
-//   SIFT_CAPTURE            open an anonymous section
-//   SIFT_CAPTURE <name>     open a named section (independent baseline lineages
+//   TAMYS_CAPTURE            open an anonymous section
+//   TAMYS_CAPTURE <name>     open a named section (independent baseline lineages
 //                           from one job: ci vs release, etc.)
-//   SIFT_CAPTURE_END        close the open section
+//   TAMYS_CAPTURE_END        close the open section
 // A line is a marker when its PAYLOAD is exactly one of those, the payload being
 // what is left behind the delivery head (`markerPayload`). Matching is exact on the
-// whole payload, so the runner's script-echo of `echo "SIFT_CAPTURE ci"` in the
+// whole payload, so the runner's script-echo of `echo "TAMYS_CAPTURE ci"` in the
 // ##[group] header can never false-match. The `capture` input selects: `auto`
 // (default — if any sections exist use them all, else the whole log), `off` (whole
 // log always), or a section name (only that section's parts; absent ⇒ config
@@ -27,7 +27,7 @@
 // own terminator; marker lines are not forwarded.
 //
 // The target job must be COMPLETED (the API serves logs for finished jobs), so
-// the Sift invocation lives in a job that `needs:` it — which is also what makes
+// the Tamys invocation lives in a job that `needs:` it — which is also what makes
 // `changed-outcome: ${{ needs.<job>.result }}` trivial for the caller.
 
 import type { getOctokit } from '@actions/github';
@@ -143,8 +143,8 @@ function splitLines(bytes: Uint8Array): ServedLine[] {
     return lines;
 }
 
-const MARKER_OPEN = 'SIFT_CAPTURE';
-const MARKER_CLOSE = 'SIFT_CAPTURE_END';
+const MARKER_OPEN = 'TAMYS_CAPTURE';
+const MARKER_CLOSE = 'TAMYS_CAPTURE_END';
 
 interface CaptureSection {
     name: string; // '' for an anonymous section
@@ -187,7 +187,7 @@ export function selectCapture(served: Uint8Array, capture: string): Uint8Array {
         throw new Error(
             `capture section "${mode}" not found in the target job's log ` +
                 `(sections seen: ${seen.length ? seen.join(', ') : 'none'}). ` +
-                `Emit it with \`echo "SIFT_CAPTURE ${mode}"\` … \`echo "SIFT_CAPTURE_END"\`.`,
+                `Emit it with \`echo "TAMYS_CAPTURE ${mode}"\` … \`echo "TAMYS_CAPTURE_END"\`.`,
         );
     }
     return Buffer.concat(named.flatMap((section) => section.lines));
@@ -230,7 +230,7 @@ export interface TargetJobLog {
     runJobCount: number;
 }
 
-// What one Sift step acquired, for the grain statement every run log carries (ADR-14.D8).
+// What one Tamys step acquired, for the grain statement every run log carries (ADR-14.D8).
 export type AcquiredGrain =
     | { kind: 'job'; jobName: string; runJobCount: number }
     | { kind: 'file'; path: string };
@@ -242,14 +242,14 @@ export type AcquiredGrain =
 export function acquiredGrainLine(grain: AcquiredGrain): string {
     if (grain.kind === 'file') {
         return (
-            `Sift: grain — diffing the \`log:\` file "${grain.path}"; no job log was acquired from ` +
+            `Tamys: grain — diffing the \`log:\` file "${grain.path}"; no job log was acquired from ` +
             'this run, so this diff covers exactly what the workflow captured into that file.'
         );
     }
     const others = grain.runJobCount - 1;
     const unread = others === 1 ? 'the log of the other 1 is' : `the logs of the other ${others} are`;
     return (
-        `Sift: grain — acquired 1 job of the ${grain.runJobCount} this run lists ("${grain.jobName}"); ` +
+        `Tamys: grain — acquired 1 job of the ${grain.runJobCount} this run lists ("${grain.jobName}"); ` +
         `${unread} not read, so this diff covers that one job, not the whole run.`
     );
 }
@@ -287,7 +287,7 @@ export async function fetchTargetJobLog(params: FetchJobLogParams): Promise<Targ
     const job = matches[0]!;
     if (job.status !== 'completed') {
         throw new Error(
-            `target-job "${job.name}" has not completed (status: ${job.status}) — run Sift in a job that \`needs:\` it`,
+            `target-job "${job.name}" has not completed (status: ${job.status}) — run Tamys in a job that \`needs:\` it`,
         );
     }
 
@@ -322,8 +322,8 @@ function statedAttempt(attempt: number | undefined): number | null {
 function overCeiling(jobName: string, bytes: number): Error {
     return new Error(
         `the log of job "${jobName}" is ${bytes} bytes, over the ${MAX_CHANGED_LOG_BYTES} ` +
-            'byte per-input ceiling Sift declares. Bound what you compare with the ' +
-            'SIFT_CAPTURE / SIFT_CAPTURE_END markers and set the `capture` input — a marked ' +
+            'byte per-input ceiling Tamys declares. Bound what you compare with the ' +
+            'TAMYS_CAPTURE / TAMYS_CAPTURE_END markers and set the `capture` input — a marked ' +
             'section is diffed on its own, and is usually the part you actually care about.',
     );
 }

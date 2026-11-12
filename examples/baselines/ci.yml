@@ -4,17 +4,17 @@
 # Your build job stays exactly as it is. Optionally, bracket the region you
 # want diffed with capture markers (plain echoed lines):
 #
-#     echo "SIFT_CAPTURE ci"        # open a named section
+#     echo "TAMYS_CAPTURE ci"        # open a named section
 #     make ci                       # ... anything ...
-#     echo "SIFT_CAPTURE_END"       # close it
+#     echo "TAMYS_CAPTURE_END"       # close it
 #
-# No markers ⇒ Sift diffs the whole job log. Either way, the `sift` job below
+# No markers ⇒ Tamys diffs the whole job log. Either way, the `tamys` job below
 # pulls the finished build job's log straight off the GitHub API
 # (`target-job: build`) — no tee, no artifact hand-off, no shell changes.
 #
 # What the topology does:
 #   * push to main / tag on main  → diff vs the NAMED main baseline
-#                                   (`sift-baseline-main-ci`), then re-seed it
+#                                   (`tamys-baseline-main-ci`), then re-seed it
 #                                   (green-gated: a red build never overwrites it).
 #   * PR into main                → TWO diffs: this build vs the main baseline
 #                                   (the sticky comment), AND this build vs the
@@ -29,7 +29,7 @@
 # source, names, seeding, capture, run-conditions — is an input; override at will.
 #
 # A second lineage from the same job (e.g. a release-packaging phase)? Bracket it
-# with `SIFT_CAPTURE release` … `SIFT_CAPTURE_END` and add one more sift step
+# with `TAMYS_CAPTURE release` … `TAMYS_CAPTURE_END` and add one more tamys step
 # with `capture: release` + its own `baseline-name` (+ `comment-tag`).
 
 name: CI
@@ -52,11 +52,11 @@ jobs:
       # Your real build — unchanged. Markers are optional precision, not plumbing.
       - name: Build + test
         run: |
-          echo "SIFT_CAPTURE ci"
+          echo "TAMYS_CAPTURE ci"
           make ci
-          echo "SIFT_CAPTURE_END"
+          echo "TAMYS_CAPTURE_END"
 
-  sift:
+  tamys:
     needs: build
     if: ${{ always() }}
     runs-on: ubuntu-latest
@@ -65,13 +65,13 @@ jobs:
       pull-requests: write  # the sticky PR comment(s)
     steps:
       # ── main push / tag: diff vs the named main baseline, then re-seed it ──
-      - name: Sift — vs main baseline (and re-seed it)
+      - name: Tamys — vs main baseline (and re-seed it)
         if: ${{ github.event_name == 'push' }}
         uses: CodeRoasted/sift-action@v2
         with:
           target-job: build
-          baseline: artifact=sift-baseline-main-ci
-          baseline-name: sift-baseline-main-ci       # publish back under the same name
+          baseline: artifact=tamys-baseline-main-ci
+          baseline-name: tamys-baseline-main-ci       # publish back under the same name
           baseline-max-age: 72h                      # the shipped default, stated for clarity: a red streak stops the re-seed,
                                                      # and past this the diff announces its staleness (a warning) instead of
                                                      # silently aging. Raise it if your trunk is quieter than daily.
@@ -79,24 +79,24 @@ jobs:
           # changed-outcome: auto → the build job's own native conclusion, forwarded to the engine
 
       # ── PR: ① this build vs main (the headline sticky comment) ──
-      - name: Sift — vs main baseline
+      - name: Tamys — vs main baseline
         if: ${{ github.event_name == 'pull_request' }}
         uses: CodeRoasted/sift-action@v2
         with:
           target-job: build
-          baseline: artifact=sift-baseline-main-ci
+          baseline: artifact=tamys-baseline-main-ci
           baseline-max-age: 72h                      # same bound as the seeding leg — a PR must not silently diff against a stale main
           publish-baseline: never                    # ② below owns this PR's seeding
 
       # ── PR: ② this build vs this PR's previous run (its own tagged comment),
       #        then seed the per-PR baseline for the next push ──
-      - name: Sift — vs previous run of this PR
+      - name: Tamys — vs previous run of this PR
         if: ${{ github.event_name == 'pull_request' }}
         uses: CodeRoasted/sift-action@v2
         with:
           target-job: build
-          baseline: artifact=sift-baseline-ci-pr-${{ github.event.number }}
-          baseline-name: sift-baseline-ci-pr-${{ github.event.number }}
+          baseline: artifact=tamys-baseline-ci-pr-${{ github.event.number }}
+          baseline-name: tamys-baseline-ci-pr-${{ github.event.number }}
           baseline-max-age: ''                       # deliberately UNBOUNDED: a per-PR baseline legitimately ages
                                                      # between pushes, so the 72h default would only manufacture noise
           comment-tag: vs-previous-run

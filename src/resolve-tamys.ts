@@ -1,8 +1,8 @@
-// Binary distribution boundary (Argos lane; bibles/sift_action.md §6–7).
+// Binary distribution boundary (Argos lane; bibles/tamys_action.md §6–7).
 //
-// The frame logic (sift.ts) shells out to a `sift` binary; THIS module decides how
+// The frame logic (tamys.ts) shells out to a `tamys` binary; THIS module decides how
 // that binary reaches the runner. Two paths:
-//   1. Override — the `sift-binary` input names a path (self-hosted runner, an
+//   1. Override — the `tamys-binary` input names a path (self-hosted runner, an
 //      in-image build, or a Docker-bundle packaging). Used verbatim, no download.
 //   2. Turnkey (default) — download the version-pinned `sift-linux-x64` release
 //      asset from this Action's own PUBLIC repo (CodeRoasted/sift-action) and
@@ -16,7 +16,7 @@
 // ubuntu-latest). On any other platform we fail with an actionable message rather
 // than download a wrong-arch binary. That is THIS ACTION's scope, not the engine's:
 // sift-windows-x64.exe is published on every engine-v* release — see the correction
-// at resolveSift() below, which this line contradicted. arm is the fast-follow;
+// at resolveTamys() below, which this line contradicted. arm is the fast-follow;
 // macOS is NOT a delivery target -- Linux and Windows are the shipped platforms.
 
 import * as core from '@actions/core';
@@ -25,7 +25,7 @@ import * as crypto from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 
-import { SIFT_VERSION } from './sift-version.js';
+import { TAMYS_VERSION } from './tamys-version.js';
 
 const RELEASE_REPO = 'CodeRoasted/sift-action'; // public — unauthenticated download
 const ASSET = 'sift-linux-x64';
@@ -35,11 +35,11 @@ async function download(url: string, dest: string): Promise<void> {
     // (a missing asset must error loudly, not write an HTML error page to the file).
     const code = await exec.exec('curl', ['-fsSL', url, '-o', dest], { ignoreReturnCode: true });
     if (code !== 0) {
-        throw new Error(`Sift: failed to download ${url} (curl exit ${code}).`);
+        throw new Error(`Tamys: failed to download ${url} (curl exit ${code}).`);
     }
 }
 
-// Split out of resolveSift so the supply-chain decision is reachable without a network:
+// Split out of resolveTamys so the supply-chain decision is reachable without a network:
 // "did these bytes match this checksum file" is the security property, and it was the one
 // part of this module no test could drive. Pure, so it is exercised directly.
 //
@@ -55,27 +55,27 @@ export function verifySha256(shaFileContent: string, contents: Buffer, label: st
     const expected = shaFileContent.trim().split(/\s+/)[0] ?? '';
     if (!SHA256_HEX.test(expected)) {
         throw new Error(
-            `Sift: malformed checksum file for ${label} — expected a 64-char hex sha256, got ` +
+            `Tamys: malformed checksum file for ${label} — expected a 64-char hex sha256, got ` +
                 `'${expected.slice(0, 80)}'. Refusing to run an unverified binary.`,
         );
     }
     const actual = crypto.createHash('sha256').update(contents).digest('hex');
     if (expected.toLowerCase() !== actual) {
         throw new Error(
-            `Sift: sha256 mismatch for ${label} — refusing to run an unverified binary ` +
+            `Tamys: sha256 mismatch for ${label} — refusing to run an unverified binary ` +
                 `(expected '${expected.toLowerCase()}', got '${actual}').`,
         );
     }
     return actual;
 }
 
-export async function resolveSift(override: string, workDir: string): Promise<string> {
-    if (override && override !== 'sift') {
-        core.info(`Sift: using provided binary '${override}' (download skipped).`);
+export async function resolveTamys(override: string, workDir: string): Promise<string> {
+    if (override && override !== 'tamys') {
+        core.info(`Tamys: using provided binary '${override}' (download skipped).`);
         return override;
     }
 
-    // This Action downloads the linux-x64 asset only — GitHub-hosted Sift jobs run on linux
+    // This Action downloads the linux-x64 asset only — GitHub-hosted Tamys jobs run on linux
     // runners. It is NOT a statement about what the engine publishes: `sift-windows-x64.exe`
     // is published (with its .sha256) on every engine-v* release, and install.ps1 installs it
     // as a standalone CLI. The old message said Windows was "a fast-follow", which was false
@@ -84,8 +84,8 @@ export async function resolveSift(override: string, workDir: string): Promise<st
     if (process.platform !== 'linux' || process.arch !== 'x64') {
         throw new Error(
             `This Action downloads the linux-x64 engine asset; this runner is ` +
-                `${process.platform}/${process.arch}. Run the Sift step on a linux x64 ` +
-                `runner, or set 'sift-binary:' to a path you provide. ` +
+                `${process.platform}/${process.arch}. Run the Tamys step on a linux x64 ` +
+                `runner, or set 'tamys-binary:' to a path you provide. ` +
                 `On Windows outside Actions, install the published standalone CLI ` +
                 `(sift-windows-x64.exe) with install.ps1 — see the README. ` +
                 `arm assets are a fast-follow; macOS is not a supported platform.`,
@@ -97,9 +97,9 @@ export async function resolveSift(override: string, workDir: string): Promise<st
     // semver `v1.4.2` would outrank `v1.0.0` as GitHub's "Latest". Keeping the binary on
     // `engine-v…` means the public repo + Marketplace always headline the Action, never the
     // engine asset. release-publish.yml (insight-eidos) publishes under the same scheme.
-    const base = `https://github.com/${RELEASE_REPO}/releases/download/engine-v${SIFT_VERSION}`;
-    const bin = path.join(workDir, 'sift');
-    const shaFile = path.join(workDir, 'sift.sha256');
+    const base = `https://github.com/${RELEASE_REPO}/releases/download/engine-v${TAMYS_VERSION}`;
+    const bin = path.join(workDir, 'tamys');
+    const shaFile = path.join(workDir, 'tamys.sha256');
 
     await download(`${base}/${ASSET}`, bin);
     await download(`${base}/${ASSET}.sha256`, shaFile);
@@ -107,9 +107,9 @@ export async function resolveSift(override: string, workDir: string): Promise<st
     // chmod +x happens ONLY after this returns — an unverified binary is never made
     // executable, let alone run.
     verifySha256(await fs.readFile(shaFile, 'utf8'), await fs.readFile(bin),
-                 `${ASSET} (engine v${SIFT_VERSION})`);
+                 `${ASSET} (engine v${TAMYS_VERSION})`);
 
     await fs.chmod(bin, 0o755);
-    core.info(`Sift: downloaded + sha256-verified ${ASSET} (engine v${SIFT_VERSION}).`);
+    core.info(`Tamys: downloaded + sha256-verified ${ASSET} (engine v${TAMYS_VERSION}).`);
     return bin;
 }

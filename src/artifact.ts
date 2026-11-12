@@ -1,10 +1,10 @@
 // Artifact transport:
 //   • publishBaselineLog       — self-publishing the baseline (contract § 3, step 6),
 //                                via @actions/artifact's runtime-token path.
-//   • publishReport            — the full report as this run's `sift-report` artifact,
+//   • publishReport            — the full report as this run's `tamys-report` artifact,
 //                                on every run that has one (ADR-14.D12), same path.
 //   • writeRenderedComment     — `render` mode: write the escaped comment body + meta
-//                                into $RUNNER_TEMP/sift-comment/. The CONSUMER's
+//                                into $RUNNER_TEMP/tamys-comment/. The CONSUMER's
 //                                workflow uploads that dir (actions/upload-artifact),
 //                                so the unprivileged build job needs no API write.
 //   • downloadRenderedComment  — `post` mode: pull that body off the TRIGGERING run
@@ -22,9 +22,9 @@ import {
     MAX_RENDERED_BODY_BYTES,
     RENDERED_BODY_FILE,
     RENDERED_META_FILE,
-    SIFT_COMMENT_ARTIFACT_NAME,
-    SIFT_REPORT_JSON_FILE,
-    SIFT_REPORT_MARKDOWN_FILE,
+    TAMYS_COMMENT_ARTIFACT_NAME,
+    TAMYS_REPORT_JSON_FILE,
+    TAMYS_REPORT_MARKDOWN_FILE,
     type BaselineMeta,
     type RenderedCommentMeta,
 } from './types.js';
@@ -69,12 +69,12 @@ export async function publishReport(
     name: string,
     client: Pick<ArtifactClient, 'uploadArtifact'> = new DefaultArtifactClient(),
 ): Promise<void> {
-    const dir = await fs.mkdtemp(path.join(path.dirname(reportJsonPath), 'sift-report-'));
-    const jsonPath = path.join(dir, SIFT_REPORT_JSON_FILE);
+    const dir = await fs.mkdtemp(path.join(path.dirname(reportJsonPath), 'tamys-report-'));
+    const jsonPath = path.join(dir, TAMYS_REPORT_JSON_FILE);
     await fs.copyFile(reportJsonPath, jsonPath);
     const files = [jsonPath];
     if (markdown !== undefined) {
-        const markdownPath = path.join(dir, SIFT_REPORT_MARKDOWN_FILE);
+        const markdownPath = path.join(dir, TAMYS_REPORT_MARKDOWN_FILE);
         await fs.writeFile(markdownPath, markdown, 'utf8');
         files.push(markdownPath);
     }
@@ -84,9 +84,9 @@ export async function publishReport(
 // ── render → post cross-boundary body (contract § 6.1) ───────────────────────
 
 // `render` mode: write the already-escaped comment body + its head_sha provenance
-// into `dir` (= $RUNNER_TEMP/sift-comment/). The action does NOT upload — the
+// into `dir` (= $RUNNER_TEMP/tamys-comment/). The action does NOT upload — the
 // consumer's `actions/upload-artifact@v4` step publishes the dir as the
-// `sift-comment` artifact (examples/fork-safe/build.yml), keeping the unprivileged
+// `tamys-comment` artifact (examples/fork-safe/build.yml), keeping the unprivileged
 // build job free of any GitHub write.
 export async function writeRenderedComment(
     body: string,
@@ -138,10 +138,10 @@ export async function downloadRenderedComment(
 
     let artifact: { id: number; size?: number; digest?: string };
     try {
-        ({ artifact } = await client.getArtifact(SIFT_COMMENT_ARTIFACT_NAME, { findBy }));
+        ({ artifact } = await client.getArtifact(TAMYS_COMMENT_ARTIFACT_NAME, { findBy }));
     } catch {
         core.info(
-            `Sift poster: no "${SIFT_COMMENT_ARTIFACT_NAME}" artifact on run ${workflowRunId} — nothing to post.`,
+            `Tamys poster: no "${TAMYS_COMMENT_ARTIFACT_NAME}" artifact on run ${workflowRunId} — nothing to post.`,
         );
         return null;
     }
@@ -149,7 +149,7 @@ export async function downloadRenderedComment(
     // Pre-download bound: refuse on the metadata size, before any bytes transfer.
     if (artifact.size !== undefined && artifact.size > MAX_RENDERED_ARTIFACT_BYTES) {
         core.warning(
-            `Sift poster: rendered artifact is ${artifact.size}B (compressed), over the ` +
+            `Tamys poster: rendered artifact is ${artifact.size}B (compressed), over the ` +
                 `${MAX_RENDERED_ARTIFACT_BYTES}B cap — refusing to download.`,
         );
         return null;
@@ -161,7 +161,7 @@ export async function downloadRenderedComment(
         findBy,
     });
     if (digestMismatch) {
-        core.warning('Sift poster: rendered artifact digest mismatch — refusing to post.');
+        core.warning('Tamys poster: rendered artifact digest mismatch — refusing to post.');
         return null;
     }
 
@@ -169,7 +169,7 @@ export async function downloadRenderedComment(
     // Post-inflate bound: a body over GitHub's comment limit could not post anyway.
     if (Buffer.byteLength(body, 'utf8') > MAX_RENDERED_BODY_BYTES) {
         core.warning(
-            `Sift poster: rendered body exceeds GitHub's ${MAX_RENDERED_BODY_BYTES}-char ` +
+            `Tamys poster: rendered body exceeds GitHub's ${MAX_RENDERED_BODY_BYTES}-char ` +
                 'comment limit — refusing to post.',
         );
         return null;

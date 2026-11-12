@@ -7,8 +7,8 @@
 // this: it asserts the arg vector's CONTENT, and the vector was always exactly what we intended
 // — the defect is that the engine on the other side rejects it.
 //
-// Reuse, not reimplementation. This imports the REAL `siftArgs` (the vector the Action sends),
-// the REAL `resolveSift` (the pin, via SIFT_VERSION) and the REAL `engineEnv` (the allowlisted
+// Reuse, not reimplementation. This imports the REAL `tamysArgs` (the vector the Action sends),
+// the REAL `resolveTamys` (the pin, via TAMYS_VERSION) and the REAL `engineEnv` (the allowlisted
 // child environment). It restates none of them. A preflight that rebuilt the vector by hand
 // would be a second copy of the predicate, and a second copy is precisely how a reproduction
 // comes to disagree with the thing it reproduces.
@@ -19,7 +19,7 @@
 // Cost, stated: it DOWNLOADS the pinned engine (once per version bump; the resolver caches).
 // That is the accepted price for catching this class before the push instead of after.
 //
-// COVERAGE BOUNDARY, declared rather than implied: this drives every flag `siftArgs` can emit
+// COVERAGE BOUNDARY, declared rather than implied: this drives every flag `tamysArgs` can emit
 // EXCEPT the `--explain` / `--explain-model` pair, which would require provisioning the local
 // model server. Those two are NOT covered here. Probing them with `--help` instead would be a
 // reimplemented predicate — the very thing this file refuses to do — so the residue is recorded
@@ -28,7 +28,7 @@
 // SECOND BOUNDARY, and its history is the reason it is written down. Until 2026-08-10 this file
 // drove ONE argument vector, the one with every optional field populated — which took every
 // conditional push but exercised every CONDITION in exactly one cell. Measured: mutating
-// `siftArgs` so `--outcome-vocabulary` rides only when BOTH outcome tokens are present — which
+// `tamysArgs` so `--outcome-vocabulary` rides only when BOTH outcome tokens are present — which
 // breaks the two single-token cells the Action really sends — left this preflight GREEN.
 // The verdict coordinate is now driven in all four cells below, so that specific hole is closed.
 //
@@ -39,10 +39,10 @@
 // four shapes: `none` on both sides (sections A to C), a job-log stack against an undeclared
 // `path=` baseline and `none` against a stored job-log stack (section C′, with every catalogue row
 // a stored sidecar may record), and the job-log stack on both sides of a pair the real
-// acquisition produced (section D). Every other conditional in `siftArgs` is still exercised in a
+// acquisition produced (section D). Every other conditional in `tamysArgs` is still exercised in a
 // single combination, and a mutation aimed at one of those would still green here.
 // This file's sentence is *"the pinned engine ACCEPTS what the Action emits"*;
-// `tests/sift.test.ts`'s is *"the Action emits a PAIRED vector in every cell"*. **Neither subsumes
+// `tests/tamys.test.ts`'s is *"the Action emits a PAIRED vector in every cell"*. **Neither subsumes
 // the other, and a property provable without the engine belongs in the unit arm, where it is total
 // and free.**
 
@@ -56,15 +56,15 @@ import { joinDeclaredJobs, parseWorkflowJobs, type RenderedJob } from '../src/jo
 import {
     engineEnv,
     readReport,
-    siftArgs,
-    SiftReportUnreadableError,
-    type SiftInvocation,
-} from '../src/sift.js';
+    tamysArgs,
+    TamysReportUnreadableError,
+    type TamysInvocation,
+} from '../src/tamys.js';
 import { fetchTargetJobLog, JOB_LOG_TRANSPORT, type FetchJobLogParams } from '../src/joblog.js';
 import { TRANSPORT_CATALOGUE } from '../src/types.js';
 import { CLAIM_BOUNDARY, ngramRefusalLine } from '../src/frame.js';
-import { resolveSift } from '../src/resolve-sift.js';
-import { SIFT_VERSION } from '../src/sift-version.js';
+import { resolveTamys } from '../src/resolve-tamys.js';
+import { TAMYS_VERSION } from '../src/tamys-version.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -84,15 +84,15 @@ const VERDICT_CELLS: ReadonlyArray<{ name: string; baselineOutcome: string; chan
     { name: 'both verdicts', baselineOutcome: 'success', changedOutcome: 'failure' },
 ];
 
-// ── The link between SIFT_VERSION and the ENGINE CAPABILITY it pins ──────────────────────────
+// ── The link between TAMYS_VERSION and the ENGINE CAPABILITY it pins ──────────────────────────
 //
-// This is the one thing no other instrument here could hold. `tests/sift.test.ts` proves the
+// This is the one thing no other instrument here could hold. `tests/tamys.test.ts` proves the
 // Action never emits a half-pair; nothing proved what the PINNED ENGINE does when it receives
 // one, and that behaviour changes underneath us at a bump.
 //
 // MEASURED on engine v1.9.2 (2026-08-10): a verdict token with NO `--outcome-vocabulary` was
 // accepted, exit 0, output byte-identical to the paired invocation, and NOT ONE WORD of
-// diagnostic. That is the silent degradation itself — the same shape cost `sift-crawl` 60
+// diagnostic. That is the silent degradation itself — the same shape cost `tamys-crawl` 60
 // critical/high `regression` rows across 63 identical-commit pairs whose ground truth was
 // silence.
 //
@@ -104,18 +104,18 @@ const VERDICT_CELLS: ReadonlyArray<{ name: string; baselineOutcome: string; chan
 // OUTCOME, and a CLI has an exit code and must use it). This probe went red on exactly this bump
 // and the declaration moved with the pin, which is this constant doing its one job.
 //
-// So this constant is the pin's other half, and it fails CLOSED: `bump.sh` moves SIFT_VERSION,
+// So this constant is the pin's other half, and it fails CLOSED: `bump.sh` moves TAMYS_VERSION,
 // this stops matching, preflight goes red, and whoever bumps must look at the difference rather
 // than remember it. Do not "fix" a red here by editing this value alone — read the engine's new
 // behaviour first and confirm it is the one intended.
 const PINNED_ENGINE_HALF_PAIR: 'tolerated' | 'fatal' = 'fatal';
 
-// ── The link between SIFT_VERSION and the OUTPUT CONTRACT the Action checks ──────────────────
+// ── The link between TAMYS_VERSION and the OUTPUT CONTRACT the Action checks ──────────────────
 //
 // `readReport` refuses a report that is not well-formed UTF-8, or whose displayed text carries
 // a control byte. Those are guarantees of the ENGINE, so the check is only safe to ship beside
 // a pin that keeps them: against an engine that does not, it fails every user whose log holds
-// such a byte. `tests/sift.test.ts` proves the Action refuses a breach; nothing there can prove
+// such a byte. `tests/tamys.test.ts` proves the Action refuses a breach; nothing there can prove
 // the PINNED engine never commits one. These pairs do, on the engine itself.
 //
 // MEASURED with the published binaries (2026-09-30): engine v1.10.4 breaches both — the control
@@ -260,11 +260,11 @@ interface RunResult {
     ranClean: boolean;
 }
 
-async function runVector(siftBin: string, args: readonly string[], outputPath: string): Promise<RunResult> {
+async function runVector(tamysBin: string, args: readonly string[], outputPath: string): Promise<RunResult> {
     let stderr = '';
     let exitCode = 0;
     try {
-        const r = await execFileAsync(siftBin, [...args], { env: engineEnv(), maxBuffer: 32 * 1024 * 1024 });
+        const r = await execFileAsync(tamysBin, [...args], { env: engineEnv(), maxBuffer: 32 * 1024 * 1024 });
         stderr = r.stderr;
     } catch (e) {
         const err = e as { stderr?: string; code?: number; signal?: string };
@@ -277,7 +277,7 @@ async function runVector(siftBin: string, args: readonly string[], outputPath: s
     // The engine's own rejection vocabulary. It fails CLOSED on an unknown token, which is the
     // behaviour that makes this check possible at all.
     const rejected = /^FATAL:/m.test(stderr) || /unknown|unrecognized/i.test(stderr);
-    // sift exits 2 when --fail-on holds. That is a VERDICT, not a rejection, and the fixture
+    // tamys exits 2 when --fail-on holds. That is a VERDICT, not a rejection, and the fixture
     // pair is built to trigger it — so 0 and 2 are both healthy here.
     const ranClean = exitCode === 0 || exitCode === 2;
 
@@ -292,27 +292,27 @@ async function runVector(siftBin: string, args: readonly string[], outputPath: s
 }
 
 async function main(): Promise<void> {
-    const work = await mkdtemp(join(tmpdir(), 'sift-preflight-'));
+    const work = await mkdtemp(join(tmpdir(), 'tamys-preflight-'));
     const baselineLog = join(work, 'baseline.log');
     const changedLog = join(work, 'changed.log');
 
     await writeFile(baselineLog, BASELINE_LOG);
     await writeFile(changedLog, CHANGED_LOG);
 
-    process.stdout.write(`preflight: resolving the PINNED engine (SIFT_VERSION ${SIFT_VERSION})\n`);
-    const siftBin = await resolveSift('', work);
+    process.stdout.write(`preflight: resolving the PINNED engine (TAMYS_VERSION ${TAMYS_VERSION})\n`);
+    const tamysBin = await resolveTamys('', work);
 
     const failures: string[] = [];
     let bothCellArgs: readonly string[] = [];
     let bothCellOutput = '';
 
     // ── A) every verdict cell the Action can emit, each against the PINNED engine ────────────
-    // Every other optional field stays populated, so every conditional `args.push` in siftArgs is
+    // Every other optional field stays populated, so every conditional `args.push` in tamysArgs is
     // still TAKEN in each cell. Only the verdict coordinate varies.
     for (const [index, cell] of VERDICT_CELLS.entries()) {
         const outputPath = join(work, `report-${index}.json`);
-        const invocation: SiftInvocation = {
-            siftBin,
+        const invocation: TamysInvocation = {
+            tamysBin,
             baselineLog,
             changedLog,
             baselineLabel: 'preflight-baseline',
@@ -324,13 +324,13 @@ async function main(): Promise<void> {
             changedTransport: LOG_FILE_TRANSPORT,
             baselineTransport: LOG_FILE_TRANSPORT,
         };
-        const args = siftArgs(invocation);
+        const args = tamysArgs(invocation);
         if (cell.baselineOutcome && cell.changedOutcome) {
             bothCellArgs = args;
             bothCellOutput = outputPath;
         }
 
-        const r = await runVector(siftBin, args, outputPath);
+        const r = await runVector(tamysBin, args, outputPath);
         const ok = !r.rejected && r.ranClean && r.wroteReport;
         process.stdout.write(
             `preflight cell ${index + 1}/${VERDICT_CELLS.length} [${cell.name}]: ` +
@@ -387,7 +387,7 @@ async function main(): Promise<void> {
                 '        os: [linux, windows]',
                 '  ghost:',
                 '    runs-on: ubuntu-latest',
-                '  sift:',
+                '  tamys:',
                 '    runs-on: ubuntu-latest',
                 '  gate:',
                 '    needs: [build, bazel, unit]',
@@ -410,7 +410,7 @@ async function main(): Promise<void> {
                 { id: 503, name: 'Bazel / test windows', conclusion: 'failure', run_attempt: 1, steps: [], runner_id: 13, runner_name: 'GitHub Actions 13' },
                 { id: 504, name: 'unit (linux)', conclusion: 'success', run_attempt: 1, steps: [], runner_id: null, runner_name: null },
                 { id: 505, name: 'unit (windows)', conclusion: 'skipped', run_attempt: 1, steps: [], runner_id: null, runner_name: null },
-                { id: 506, name: 'sift', conclusion: null, run_attempt: 1, steps: [{ number: 1, name: 'Set up job', conclusion: null, started_at: '2026-10-07T10:04:00Z', completed_at: null }], runner_id: 14, runner_name: 'GitHub Actions 14' },
+                { id: 506, name: 'tamys', conclusion: null, run_attempt: 1, steps: [{ number: 1, name: 'Set up job', conclusion: null, started_at: '2026-10-07T10:04:00Z', completed_at: null }], runner_id: 14, runner_name: 'GitHub Actions 14' },
                 { id: 507, name: 'gate', conclusion: 'failure', run_attempt: 1, steps: [], runner_id: 15, runner_name: 'GitHub Actions 15' },
             ],
             baselineOutcome: 'success',
@@ -446,11 +446,11 @@ async function main(): Promise<void> {
         const outputPath = join(work, `report-graph-${index}.json`);
         const graphPath = join(work, `graph-${index}.json`);
         const jobs = joinDeclaredJobs(parseWorkflowJobs(cell.workflow), cell.listing);
-        // The file body is written the way runSift writes it — JSON.stringify of the typed wire —
+        // The file body is written the way runTamys writes it — JSON.stringify of the typed wire —
         // so this drives the bytes the engine will really receive, not a hand-authored guess.
         await writeFile(graphPath, JSON.stringify(jobs));
-        const invocation: SiftInvocation = {
-            siftBin,
+        const invocation: TamysInvocation = {
+            tamysBin,
             baselineLog,
             changedLog,
             baselineLabel: 'preflight-baseline',
@@ -463,8 +463,8 @@ async function main(): Promise<void> {
             baselineTransport: LOG_FILE_TRANSPORT,
             changedJobGraph: { path: graphPath, jobs },
         };
-        const args = siftArgs(invocation);
-        const r = await runVector(siftBin, args, outputPath);
+        const args = tamysArgs(invocation);
+        const r = await runVector(tamysBin, args, outputPath);
         const ok = !r.rejected && r.ranClean && r.wroteReport;
         process.stdout.write(
             `preflight graph cell ${index + 1}/${GRAPH_CELLS.length} [${cell.name}]: ` +
@@ -484,7 +484,7 @@ async function main(): Promise<void> {
     }
 
     // ── B) the CAPABILITY PROBE — what does the PINNED engine do with a HALF-PAIR? ───────────
-    // This is deliberately NOT a vector the Action can build (`tests/sift.test.ts` proves it never
+    // This is deliberately NOT a vector the Action can build (`tests/tamys.test.ts` proves it never
     // emits one). It is derived from the real both-token vector by REMOVING the vocabulary, so it
     // stays a fact about the engine rather than a hand-written guess at one. The probe asserts
     // nothing about the Action; it asserts that the pin's behaviour is still the one declared
@@ -500,7 +500,7 @@ async function main(): Promise<void> {
         const probeArgs = [...bothCellArgs.slice(0, vocabAt), ...bothCellArgs.slice(vocabAt + 2)].map((a) =>
             a === bothCellOutput ? probeOutput : a,
         );
-        const r = await runVector(siftBin, probeArgs, probeOutput);
+        const r = await runVector(tamysBin, probeArgs, probeOutput);
         const observed: 'tolerated' | 'fatal' =
             r.rejected || r.exitCode === 134 || !r.ranClean ? 'fatal' : 'tolerated';
         process.stdout.write(
@@ -520,16 +520,16 @@ async function main(): Promise<void> {
     }
 
     // ── C) the OUTPUT CONTRACT — does the pinned engine keep what `readReport` checks? ───────
-    // The real vector and the real read: `siftArgs` builds the invocation, the pinned engine
-    // writes the report, and `readReport` judges the bytes exactly as `runSift` hands them over.
+    // The real vector and the real read: `tamysArgs` builds the invocation, the pinned engine
+    // writes the report, and `readReport` judges the bytes exactly as `runTamys` hands them over.
     for (const [index, cell] of HOSTILE_CELLS.entries()) {
         const hostileBaseline = join(work, `hostile-baseline-${index}.log`);
         const hostileChanged = join(work, `hostile-changed-${index}.log`);
         const outputPath = join(work, `report-hostile-${index}.json`);
         await writeFile(hostileBaseline, HOSTILE_BASELINE);
         await writeFile(hostileChanged, cell.changed);
-        const invocation: SiftInvocation = {
-            siftBin,
+        const invocation: TamysInvocation = {
+            tamysBin,
             baselineLog: hostileBaseline,
             changedLog: hostileChanged,
             baselineLabel: 'preflight-baseline',
@@ -541,7 +541,7 @@ async function main(): Promise<void> {
             changedTransport: LOG_FILE_TRANSPORT,
             baselineTransport: LOG_FILE_TRANSPORT,
         };
-        const r = await runVector(siftBin, siftArgs(invocation), outputPath);
+        const r = await runVector(tamysBin, tamysArgs(invocation), outputPath);
         let verdict = '';
         if (r.rejected || !r.ranClean || !r.wroteReport) {
             verdict = `the engine did not write a report (exit ${r.exitCode})`;
@@ -558,7 +558,7 @@ async function main(): Promise<void> {
                         'longer exercises the contract — re-derive the pair before trusting the pass';
                 }
             } catch (error) {
-                if (!(error instanceof SiftReportUnreadableError)) {
+                if (!(error instanceof TamysReportUnreadableError)) {
                     throw error;
                 }
                 verdict = `the Action would REFUSE this report (${error.defect.kind})`;
@@ -594,8 +594,8 @@ async function main(): Promise<void> {
     ];
     for (const [index, cell] of TRANSPORT_CELLS.entries()) {
         const outputPath = join(work, `report-transport-${index}.json`);
-        const invocation: SiftInvocation = {
-            siftBin,
+        const invocation: TamysInvocation = {
+            tamysBin,
             baselineLog,
             changedLog,
             baselineLabel: 'preflight-baseline',
@@ -607,8 +607,8 @@ async function main(): Promise<void> {
             changedTransport: cell.changed,
             ...(cell.baseline !== undefined ? { baselineTransport: cell.baseline } : {}),
         };
-        const args = siftArgs(invocation);
-        const r = await runVector(siftBin, args, outputPath);
+        const args = tamysArgs(invocation);
+        const r = await runVector(tamysBin, args, outputPath);
         const ok = !r.rejected && r.ranClean && r.wroteReport;
         process.stdout.write(
             `preflight transport cell ${index + 1}/${TRANSPORT_CELLS.length} [${cell.name}]: exit ${r.exitCode} — ` +
@@ -636,8 +636,8 @@ async function main(): Promise<void> {
         const outputPath = join(work, 'report-stamped.json');
         await writeFile(stampedBaseline, baseline.bytes);
         await writeFile(stampedChanged, changed.bytes);
-        const invocation: SiftInvocation = {
-            siftBin,
+        const invocation: TamysInvocation = {
+            tamysBin,
             baselineLog: stampedBaseline,
             changedLog: stampedChanged,
             baselineLabel: 'preflight-baseline',
@@ -650,8 +650,8 @@ async function main(): Promise<void> {
             // A baseline stored by a target-job run carries the same stack in its sidecar.
             baselineTransport: baseline.transport,
         };
-        const args = siftArgs(invocation);
-        const r = await runVector(siftBin, args, outputPath);
+        const args = tamysArgs(invocation);
+        const r = await runVector(tamysBin, args, outputPath);
         const agrees = `transport: preflight-changed ${changed.transport.join(',')} (declared) — the probe on these bytes agrees`;
         let verdict = '';
         if (r.rejected || !r.ranClean || !r.wroteReport) {
@@ -702,8 +702,8 @@ async function main(): Promise<void> {
         await writeFile(graphPath, JSON.stringify(jobs));
         const frameCell = async (withGraph: boolean): Promise<{ args: string[]; rows: string[]; verdict: string }> => {
             const outputPath = join(work, `report-frame-${withGraph ? 'graph' : 'bare'}.json`);
-            const invocation: SiftInvocation = {
-                siftBin,
+            const invocation: TamysInvocation = {
+                tamysBin,
                 baselineLog: frameBaseline,
                 changedLog: frameChanged,
                 baselineLabel: 'preflight-baseline',
@@ -716,8 +716,8 @@ async function main(): Promise<void> {
                 baselineTransport: JOB_LOG_TRANSPORT,
                 ...(withGraph ? { changedJobGraph: { path: graphPath, jobs } } : {}),
             };
-            const args = siftArgs(invocation);
-            const r = await runVector(siftBin, args, outputPath);
+            const args = tamysArgs(invocation);
+            const r = await runVector(tamysBin, args, outputPath);
             if (r.rejected || !r.ranClean || !r.wroteReport) {
                 return { args, rows: [], verdict: `the engine did not write a report (exit ${r.exitCode})` };
             }
@@ -747,7 +747,7 @@ async function main(): Promise<void> {
     // ── F) DN-140.D4 and DN-140.D5 — a failed target job's row names the step its listing declares failed ─
     // End to end through the Action's own halves: the log acquired by `fetchTargetJobLog` from a
     // listing row (its id and attempt returned beside the bytes), the graph joined from that same
-    // row by the producer, the vector built by `siftArgs` with the provenance declared. The pinned
+    // row by the producer, the vector built by `tamysArgs` with the provenance declared. The pinned
     // engine names step 3 on the job's FAILING row, with the seconds it ran. The control drops the
     // provenance and must name nothing, counting the side `provenance_undeclared`, so a naming that
     // engaged without the declaration cannot pass here.
@@ -786,8 +786,8 @@ async function main(): Promise<void> {
         await writeFile(graphPath, JSON.stringify(jobs));
         const namingCell = async (declared: boolean) => {
             const outputPath = join(work, `report-naming-${declared ? 'declared' : 'undeclared'}.json`);
-            const invocation: SiftInvocation = {
-                siftBin,
+            const invocation: TamysInvocation = {
+                tamysBin,
                 baselineLog: namingBaseline,
                 changedLog: namingChanged,
                 baselineLabel: 'preflight-baseline',
@@ -801,8 +801,8 @@ async function main(): Promise<void> {
                 changedJobGraph: { path: graphPath, jobs },
                 ...(declared ? { changedLogProvenance: { jobId: acquired.jobId, attempt: acquired.runAttempt } } : {}),
             };
-            const args = siftArgs(invocation);
-            const r = await runVector(siftBin, args, outputPath);
+            const args = tamysArgs(invocation);
+            const r = await runVector(tamysBin, args, outputPath);
             if (r.rejected || !r.ranClean || !r.wroteReport) {
                 return { args, rows: [] as string[], naming: '', failure: `the engine did not write a report (exit ${r.exitCode})` };
             }
@@ -867,8 +867,8 @@ async function main(): Promise<void> {
         await writeFile(baselineGraph.path, JSON.stringify(baselineGraph.jobs));
         const templateCell = async (withBaseline: boolean) => {
             const outputPath = join(work, `report-template-${withBaseline ? 'both' : 'changed'}.json`);
-            const invocation: SiftInvocation = {
-                siftBin,
+            const invocation: TamysInvocation = {
+                tamysBin,
                 baselineLog: templateBaseline,
                 changedLog: templateChanged,
                 baselineLabel: 'preflight-baseline',
@@ -882,8 +882,8 @@ async function main(): Promise<void> {
                 changedJobGraph: changedGraph,
                 ...(withBaseline ? { baselineJobGraph: baselineGraph } : {}),
             };
-            const args = siftArgs(invocation);
-            const r = await runVector(siftBin, args, outputPath);
+            const args = tamysArgs(invocation);
+            const r = await runVector(tamysBin, args, outputPath);
             if (r.rejected || !r.ranClean || !r.wroteReport) {
                 return { args, total: -1, failure: `the engine did not write a report (exit ${r.exitCode})` };
             }
@@ -922,8 +922,8 @@ async function main(): Promise<void> {
         await writeFile(capBaseline, `${all.slice(0, 3000).join('\n')}\n`);
         await writeFile(capChanged, `${shuffled.join('\n')}\n`);
         const outputPath = join(work, 'report-ngram.json');
-        const invocation: SiftInvocation = {
-            siftBin,
+        const invocation: TamysInvocation = {
+            tamysBin,
             baselineLog: capBaseline,
             changedLog: capChanged,
             baselineLabel: 'preflight-baseline',
@@ -935,8 +935,8 @@ async function main(): Promise<void> {
             changedTransport: LOG_FILE_TRANSPORT,
             baselineTransport: LOG_FILE_TRANSPORT,
         };
-        const args = siftArgs(invocation);
-        const r = await runVector(siftBin, args, outputPath);
+        const args = tamysArgs(invocation);
+        const r = await runVector(tamysBin, args, outputPath);
         let verdict = '';
         if (r.rejected || !r.ranClean || !r.wroteReport) {
             verdict = `the engine did not write a report (exit ${r.exitCode})`;
@@ -958,10 +958,10 @@ async function main(): Promise<void> {
 
     if (failures.length > 0) {
         process.stderr.write(
-            `\nPREFLIGHT FAILED — engine ${siftBin} (SIFT_VERSION ${SIFT_VERSION})\n` +
+            `\nPREFLIGHT FAILED — engine ${tamysBin} (TAMYS_VERSION ${TAMYS_VERSION})\n` +
                 `${failures.join('\n')}\n` +
                 `\nA forwarded flag or value outruns the pin, or the pin's behaviour moved under us.\n` +
-                `Either the engine must ship the capability first and SIFT_VERSION move with it, or the\n` +
+                `Either the engine must ship the capability first and TAMYS_VERSION move with it, or the\n` +
                 `forwarding comes out.\n`,
         );
         process.exitCode = 1;

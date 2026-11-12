@@ -1,5 +1,5 @@
 {
-  "about": "DN-127.D1's rendering grammar as one case table. A byte-identical copy lives at insight-eidos sift/tests/crawl/fixtures/job_rendering_cases.json and at sift-action tests/fixtures/job_rendering_cases.json; a superproject pharos check reds on any byte between them. Each case is a graph's declarations and the renderings the listing quotes. For each rendering, reached_by lists every declaration that REACHES it under the predicate with its collision refusal (empty: none), and arm names the arm (E, R, M or T; null when none reaches it). A declaration's anchor is its name, else its key.",
+  "about": "DN-127.D1's rendering grammar as one case table. A byte-identical copy lives at insight-eidos tamys/tests/crawl/fixtures/job_rendering_cases.json and at sift-action tests/fixtures/job_rendering_cases.json; a superproject pharos check reds on any byte between them. Each case is a graph's declarations and the renderings the listing quotes. For each rendering, reached_by lists every declaration that REACHES it under the predicate with its collision refusal (empty: none), and arm names the arm (E, R, M or T; null when none reaches it). A declaration's anchor is its name, else its key.",
   "cases": [
     {
       "name": "arm E: a plain job reaches its own rendering and nothing beside it",

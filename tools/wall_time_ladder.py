@@ -135,7 +135,7 @@ def time_once(engine: Path, base: Path, changed: Path, report: Path) -> tuple[fl
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--engine", required=True, type=Path, help="path to the sift binary under test")
+    ap.add_argument("--engine", required=True, type=Path, help="path to the tamys binary under test")
     ap.add_argument("--logs", required=True, type=Path, help="directory holding the showcase logs")
     ap.add_argument("--baseline-log", default="logcraft__ci-build__green-a.log")
     ap.add_argument("--changed-log", default="logcraft__ci-build__red.log")
@@ -162,7 +162,7 @@ def main() -> int:
     coord = runner_coordinate()
 
     print("=" * 78)
-    print("SIFT WALL TIME — size ladder")
+    print("TAMYS WALL TIME — size ladder")
     print("=" * 78)
     print(f"engine        : {version}")
     print(f"engine sha256 : {subprocess.run(['sha256sum', str(engine)], capture_output=True, text=True).stdout.split()[0]}")
@@ -177,7 +177,7 @@ def main() -> int:
 
     rungs = [int(x) for x in args.rungs.split(",") if x.strip()]
     results = []
-    tmp = Path(tempfile.mkdtemp(prefix="sift-ladder-"))
+    tmp = Path(tempfile.mkdtemp(prefix="tamys-ladder-"))
     try:
         for n in rungs:
             base = tmp / f"base_{n}.log"

@@ -1,6 +1,6 @@
-# Sift hello world — the whole integration is the last four lines.
+# Tamys hello world — the whole integration is the last four lines.
 #
-# Your build job stays exactly as it is. The `sift` job pulls the finished
+# Your build job stays exactly as it is. The `tamys` job pulls the finished
 # build job's log off the GitHub API (`target-job`), diffs it against the last
 # green run on your base branch, posts one sticky PR comment, and seeds the
 # next baseline. Green/red is read from the build job's own conclusion.
@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v5
       - run: make ci    # your build — untouched, nothing to capture
 
-  sift:
+  tamys:
     needs: build
     if: ${{ !cancelled() }}   # still diff when the build went red — that's the point
     runs-on: ubuntu-latest
@@ -31,7 +31,7 @@ jobs:
       actions: write          # read the build job's log + baselines; upload this run's baseline
       pull-requests: write    # post/update the sticky comment
     steps:
-      - name: Sift Log Diff
+      - name: Tamys Log Diff
         uses: CodeRoasted/sift-action@v2
         with:
           target-job: build

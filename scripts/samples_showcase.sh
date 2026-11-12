@@ -1,34 +1,34 @@
 #!/usr/bin/env bash
 ###############################################################################
-# samples_showcase — run the PUBLIC `sift` engine over our PUBLIC CI-log samples
-# and render an honest "what Sift does on a CI pipeline" showcase.
+# samples_showcase — run the PUBLIC `tamys` engine over our PUBLIC CI-log samples
+# and render an honest "what Tamys does on a CI pipeline" showcase.
 #
 # CLIENT-FACING TRANSPARENCY, NOT A GATE. For every corpus whose logs carry a
 # green-vs-red CI outcome (so a baseline-vs-changed diff is meaningful — Jenkins
 # Pipeline, GitHub Actions; NOT system logs like LogHub) it tells the honest
 # two-part story:
 #
-#   1. silent-on-green — diff a passing build against ITSELF. Sift must stay quiet
+#   1. silent-on-green — diff a passing build against ITSELF. Tamys must stay quiet
 #      (0 significant). A tool that cries wolf on an unchanged log is useless.
 #   2. regression-catch — diff a passing build against a failing one (same project
-#      where possible). Sift surfaces the structural regression.
+#      where possible). Tamys surfaces the structural regression.
 #
 # Each corpus's baseline/changed pair is chosen from that corpus's OWN metadata
 # (corpus.jsonl), never hand-picked filenames — Jenkins by (sub_type, result),
 # GitHub Actions by (repo, ci_outcome). Runs the REAL engine over REAL published
-# samples; the output is whatever Sift actually produces.
+# samples; the output is whatever Tamys actually produces.
 #
-#   samples_showcase.sh <sift-binary> <hub-samples-root> <out-dir>
+#   samples_showcase.sh <tamys-binary> <hub-samples-root> <out-dir>
 #
 # <hub-samples-root> is a coderoast-hub checkout's `samples/` tree.
 ###############################################################################
 set -euo pipefail
 
-SIFT="${1:?usage: samples_showcase.sh <sift-binary> <hub-samples-root> <out-dir>}"
-SAMPLES="${2:?usage: samples_showcase.sh <sift-binary> <hub-samples-root> <out-dir>}"
-OUT="${3:?usage: samples_showcase.sh <sift-binary> <hub-samples-root> <out-dir>}"
+TAMYS="${1:?usage: samples_showcase.sh <tamys-binary> <hub-samples-root> <out-dir>}"
+SAMPLES="${2:?usage: samples_showcase.sh <tamys-binary> <hub-samples-root> <out-dir>}"
+OUT="${3:?usage: samples_showcase.sh <tamys-binary> <hub-samples-root> <out-dir>}"
 
-[ -x "$SIFT" ]     || { echo "error: sift binary '$SIFT' is not executable" >&2; exit 2; }
+[ -x "$TAMYS" ]     || { echo "error: tamys binary '$TAMYS' is not executable" >&2; exit 2; }
 [ -d "$SAMPLES" ]  || { echo "error: hub-samples-root '$SAMPLES' is not a directory" >&2; exit 2; }
 mkdir -p "$OUT"
 
@@ -66,7 +66,7 @@ PY
 # capture, don't abort.
 run_diff() {
     local dir="$1" name="$2" blog="$3" blabel="$4" clog="$5" clabel="$6" rc=0
-    "$SIFT" "$blog" "$clog" --format both -o "$dir/$name.report.json" \
+    "$TAMYS" "$blog" "$clog" --format both -o "$dir/$name.report.json" \
         --baseline-label "$blabel" --changed-label "$clabel" --fail-on medium \
         > "$dir/$name.render.txt" 2>&1 || rc=$?
     echo "$rc" > "$dir/$name.exit"
@@ -135,11 +135,11 @@ done
 
 # ── Aggregate client-facing README over every corpus shown ────────────────────
 {
-  echo "# Sift over our public CI-log samples"
+  echo "# Tamys over our public CI-log samples"
   echo
-  echo "**Sift** is the CodeRoast structural CI-log differ — it compares a build's log against a"
+  echo "**Tamys** is the CodeRoast structural CI-log differ — it compares a build's log against a"
   echo "known-good baseline and surfaces the *structural* change, not a line-by-line text diff. This"
-  echo "page is the real \`sift\` engine run over the **public CI-log samples** we ship in"
+  echo "page is the real \`tamys\` engine run over the **public CI-log samples** we ship in"
   echo "[coderoast-hub](https://github.com/CodeRoasted/coderoast-hub) under \`samples/\`."
   echo
   echo "It is an **honest showcase, not a gate**. For each CI dialect with a green-vs-red outcome, two"
@@ -148,7 +148,7 @@ done
   echo "passing build vs a failing one → the structural regression). LogHub-style system logs are not"
   echo "shown — they have no green/red CI baseline to diff."
   echo
-  echo "| dialect | run | baseline → changed | sift verdict | exit |"
+  echo "| dialect | run | baseline → changed | tamys verdict | exit |"
   echo "| --- | --- | --- | --- | --- |"
   for entry in "${shown[@]}"; do
     IFS='|' read -r slug label bid cid <<< "$entry"
@@ -158,13 +158,13 @@ done
     echo "| | regression-catch | \`$bid\` → \`$cid\` | $rv | \`$re\` |"
   done
   echo
-  echo "> The **verdict** (\`N changes, M significant\`) is Sift's own summary line; the exit is the"
+  echo "> The **verdict** (\`N changes, M significant\`) is Tamys's own summary line; the exit is the"
   echo "> advisory gate (\`0\` = nothing significant, non-zero = fires). Per-run \`*.report.json\` +"
   echo "> \`*.render.txt\` are under each dialect's folder (\`<slug>/\`)."
   echo
   echo "> **Note (pre-1.7.6):** the canon core is still dialect-unaware (e.g. the Jenkins timestamper"
   echo "> prefix isn't stripped, so each line is its own template) — the diff is coarser than it will be"
-  echo "> once the per-dialect semantic packages land. Even so, Sift already stays silent on green and"
+  echo "> once the per-dialect semantic packages land. Even so, Tamys already stays silent on green and"
   echo "> fires on the regression across dialects."
   echo
   echo "## The renders"
@@ -174,7 +174,7 @@ done
     echo "### $label"
     echo
     for name in silent-on-green regression-catch; do
-      echo "#### \`$slug/$name\`  (sift exit \`$(cat "$OUT/$slug/$name.exit")\`)"
+      echo "#### \`$slug/$name\`  (tamys exit \`$(cat "$OUT/$slug/$name.exit")\`)"
       echo
       echo '```'
       head -c 6000 "$OUT/$slug/$name.render.txt"
@@ -204,4 +204,4 @@ done
   echo "> real crawled corpora stay private."
 } > "$OUT/README.md"
 
-echo "sift showcase rendered → $OUT (${#shown[@]} dialect(s): ${shown[*]%%|*})" >&2
+echo "tamys showcase rendered → $OUT (${#shown[@]} dialect(s): ${shown[*]%%|*})" >&2

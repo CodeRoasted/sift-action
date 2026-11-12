@@ -1,4 +1,4 @@
-// Baseline resolution (bibles/sift_action.md § 3) — the user is King of the
+// Baseline resolution (bibles/tamys_action.md § 3) — the user is King of the
 // baseline. The `baseline` input selects the source; the default (`auto`) stays
 // the turnkey zero-config behavior: the latest `success` run of THIS workflow on
 // the PR's base branch (push: the pushed branch; tag: the repo default branch),
@@ -13,8 +13,8 @@
 //                         page (newestNamedArtifact). Decouples the baseline
 //                         from "this workflow ran on that branch": named
 //                         baselines (a main-seeded
-//                         `sift-baseline-main-build`, a per-PR
-//                         `sift-baseline-build-pr-123`) resolve from ANY event —
+//                         `tamys-baseline-main-build`, a per-PR
+//                         `tamys-baseline-build-pr-123`) resolve from ANY event —
 //                         tags and PRs included.
 //   path=<file>         — a local file (self-hosted / bring-your-own baseline).
 //   none                — forced cold start (seed-only runs).
@@ -108,7 +108,7 @@ export function staleBaselineWarning(
     bound: string,
     baselineName: string,
 ): string {
-    const head = `Sift: STALE baseline — ${ageHours}h old, past the ${bound} bound.`;
+    const head = `Tamys: STALE baseline — ${ageHours}h old, past the ${bound} bound.`;
     const tail = 'This diff compares against that aged snapshot and shrinks in meaning as the gap grows.';
     switch (meta.kind) {
         case 'run':
@@ -164,7 +164,7 @@ export interface ResolveParams {
 
 export async function resolveBaseline(params: ResolveParams): Promise<ResolvedBaseline | null> {
     if (params.spec.kind === 'none') {
-        core.info('Sift: baseline=none — forced cold start (seed-only run).');
+        core.info('Tamys: baseline=none — forced cold start (seed-only run).');
         return null;
     }
     if (params.spec.kind === 'path') {
@@ -195,12 +195,12 @@ export async function resolveBaseline(params: ResolveParams): Promise<ResolvedBa
         return await resolveRemoteStrict(params);
     } catch (error) {
         if (error instanceof BaselineRefusal) {
-            core.warning(`Sift: ${error.message} — proceeding cold start (current log only, no diff).`);
+            core.warning(`Tamys: ${error.message} — proceeding cold start (current log only, no diff).`);
             return null;
         }
         const reason = error instanceof Error ? error.message : String(error);
         core.warning(
-            `Sift: baseline lookup failed (${reason}) — proceeding cold start (current log only, ` +
+            `Tamys: baseline lookup failed (${reason}) — proceeding cold start (current log only, ` +
                 `no diff). On a fork PR this is expected: the read-only token cannot read the ` +
                 `repo's run/artifact history.`,
         );
@@ -226,7 +226,7 @@ async function resolveRemoteStrict(params: ResolveParams): Promise<ResolvedBasel
             throw new BaselineRefusal(scan.reason);
         }
         if (scan.kind === 'none') {
-            core.info(`Sift: no live \`${spec.name}\` baseline artifact in the repo yet — cold start.`);
+            core.info(`Tamys: no live \`${spec.name}\` baseline artifact in the repo yet — cold start.`);
             return null;
         }
         const artifact = scan.artifact;
@@ -257,7 +257,7 @@ async function resolveRemoteStrict(params: ResolveParams): Promise<ResolvedBasel
 
     const baseRun = await newestGreenRun(octokit, owner, repo, workflowId, branch, runId);
     if (!baseRun) {
-        core.info(`Sift: no green run of this workflow on \`${branch}\` yet — cold start.`);
+        core.info(`Tamys: no green run of this workflow on \`${branch}\` yet — cold start.`);
         return null;
     }
 
@@ -272,7 +272,7 @@ async function resolveRemoteStrict(params: ResolveParams): Promise<ResolvedBasel
     );
     if (!artifact) {
         core.info(
-            `Sift: green base run ${baseRun.id} has no live \`${artifactName}\` artifact ` +
+            `Tamys: green base run ${baseRun.id} has no live \`${artifactName}\` artifact ` +
                 `(first adoption, or aged past retention) — cold start.`,
         );
         return null;

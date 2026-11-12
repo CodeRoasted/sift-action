@@ -22,7 +22,7 @@ import { acquiredGrainLine, fetchTargetJobLog, type FetchJobLogParams } from '..
 import { MAX_CHANGED_LOG_BYTES } from '../src/types.js';
 
 // A real head as the job-log API serves it: an RFC 3339 stamp with seven fraction digits, then
-// one space (the shape of the engine's own stack test, sift_cli_transport_stack_peel_test.cpp).
+// one space (the shape of the engine's own stack test, tamys_cli_transport_stack_peel_test.cpp).
 const T = '2026-06-21T12:19:42.7928236Z ';
 const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
 const ILL_FORMED = Buffer.from([0xff]);
@@ -186,7 +186,7 @@ test('A2: capture auto on a log without sections — the served bytes, byte for 
 });
 
 test('A2: capture off passes sections through too — markers are selected only when asked', async () => {
-    const served = cat(st('setup'), st('SIFT_CAPTURE ci'), st('line a'), st('SIFT_CAPTURE_END'), st('outside'));
+    const served = cat(st('setup'), st('TAMYS_CAPTURE ci'), st('line a'), st('TAMYS_CAPTURE_END'), st('outside'));
     assertSameBytes(await acquire(served, 'off'), served, 'capture off must not select');
 });
 
@@ -210,10 +210,10 @@ test('A1: a target-job acquisition declares the API job-log stack, mark row firs
 test('A4: a named section behind stamps — its lines forwarded with their stamps, markers dropped', async () => {
     const served = cat(
         ln(BOM, utf8(T), utf8('Current runner version: 2.335.1')),
-        st('SIFT_CAPTURE ci'),
+        st('TAMYS_CAPTURE ci'),
         st('building'),
         st('   indented by three'),
-        st('SIFT_CAPTURE_END'),
+        st('TAMYS_CAPTURE_END'),
         st('teardown'),
     );
     assertSameBytes(
@@ -224,12 +224,12 @@ test('A4: a named section behind stamps — its lines forwarded with their stamp
 });
 
 test('A4: an anonymous section opened behind a mark AND a stamp, at offset 0', async () => {
-    const served = cat(ln(BOM, utf8(T), utf8('SIFT_CAPTURE')), st('payload'), st('SIFT_CAPTURE_END'), st('after'));
+    const served = cat(ln(BOM, utf8(T), utf8('TAMYS_CAPTURE')), st('payload'), st('TAMYS_CAPTURE_END'), st('after'));
     assertSameBytes(await acquire(served, 'auto'), st('payload'), 'the mark-led opener was missed');
 });
 
 test('A4: markers on CRLF lines — the CR is set aside for the test and kept on forwarded lines', async () => {
-    const served = cat(stCrlf('SIFT_CAPTURE ci'), stCrlf('kept with its CR'), stCrlf('SIFT_CAPTURE_END'), stCrlf('after'));
+    const served = cat(stCrlf('TAMYS_CAPTURE ci'), stCrlf('kept with its CR'), stCrlf('TAMYS_CAPTURE_END'), stCrlf('after'));
     assertSameBytes(
         await acquire(served, 'ci'),
         stCrlf('kept with its CR'),
@@ -238,7 +238,7 @@ test('A4: markers on CRLF lines — the CR is set aside for the test and kept on
 });
 
 test('A4: an unterminated section still captures its tail (a job that died mid-capture)', async () => {
-    const served = cat(st('before'), st('SIFT_CAPTURE ci'), st('last gasp'), utf8(T), utf8('no terminator'));
+    const served = cat(st('before'), st('TAMYS_CAPTURE ci'), st('last gasp'), utf8(T), utf8('no terminator'));
     assertSameBytes(
         await acquire(served, 'ci'),
         cat(st('last gasp'), utf8(T), utf8('no terminator')),
@@ -249,36 +249,36 @@ test('A4: an unterminated section still captures its tail (a job that died mid-c
 test('A4: auto selects every section in order; a named capture selects only its own', async () => {
     const served = cat(
         st('setup'),
-        st('SIFT_CAPTURE ci'),
+        st('TAMYS_CAPTURE ci'),
         st('line a'),
-        st('SIFT_CAPTURE_END'),
+        st('TAMYS_CAPTURE_END'),
         st('between'),
-        st('SIFT_CAPTURE release'),
+        st('TAMYS_CAPTURE release'),
         st('line b'),
-        st('SIFT_CAPTURE_END'),
+        st('TAMYS_CAPTURE_END'),
     );
     assertSameBytes(await acquire(served, 'auto'), cat(st('line a'), st('line b')), 'auto lost a section or reordered');
     assertSameBytes(await acquire(served, 'release'), st('line b'), 'the named capture took the wrong section');
     await assert.rejects(acquire(served, 'nightly'), /capture section "nightly" not found/);
 });
 
-test('A4 controls: a script echo, an echoed command and SIFT_CAPTURE_ENDX are content, never markers', async () => {
+test('A4 controls: a script echo, an echoed command and TAMYS_CAPTURE_ENDX are content, never markers', async () => {
     const served = cat(
-        st('##[group]Run echo "SIFT_CAPTURE ci"'),
-        st('echo SIFT_CAPTURE ci'),
+        st('##[group]Run echo "TAMYS_CAPTURE ci"'),
+        st('echo TAMYS_CAPTURE ci'),
         st('##[endgroup]'),
-        st('SIFT_CAPTURE ci'),
+        st('TAMYS_CAPTURE ci'),
         st('building'),
-        st('SIFT_CAPTURE_ENDX'),
+        st('TAMYS_CAPTURE_ENDX'),
         st('still inside'),
-        st('SIFT_CAPTURE_END'),
+        st('TAMYS_CAPTURE_END'),
         st('outside'),
     );
     // Were either echo a marker, the section would open early and `##[endgroup]` would be
-    // forwarded; were SIFT_CAPTURE_ENDX a close, `still inside` would be lost.
+    // forwarded; were TAMYS_CAPTURE_ENDX a close, `still inside` would be lost.
     assertSameBytes(
         await acquire(served, 'ci'),
-        cat(st('building'), st('SIFT_CAPTURE_ENDX'), st('still inside')),
+        cat(st('building'), st('TAMYS_CAPTURE_ENDX'), st('still inside')),
         'a control was read as a marker',
     );
 });
@@ -292,7 +292,7 @@ test('A4 controls: a script echo, an echoed command and SIFT_CAPTURE_ENDX are co
 //
 // The table is shared by literal, not by file: the engine-side witness
 // `ActionStampHeadMirror.CanonsStackPeelsEveryHeadToItsPayload` (insight-eidos,
-// sift/tests/contract/action_stamp_head_mirror_test.cpp) peels these same heads through canon's
+// tamys/tests/contract/action_stamp_head_mirror_test.cpp) peels these same heads through canon's
 // declared stack and asserts the payload starts right after each one. This repository is public
 // and that one private, so the two hold a copy each. Two witnesses catch canon changing its
 // grammar; they do NOT catch one lane editing one copy out of agreement with the other.
@@ -322,9 +322,9 @@ for (const { name, head } of [...REAL_HEADS, ...GRAMMAR_HEADS]) {
     test(`A5: a marker behind a head canon accepts is found — ${name}`, async () => {
         const served = cat(
             st('before'),
-            ln(head, utf8('SIFT_CAPTURE ci')),
+            ln(head, utf8('TAMYS_CAPTURE ci')),
             st('inside'),
-            ln(head, utf8('SIFT_CAPTURE_END')),
+            ln(head, utf8('TAMYS_CAPTURE_END')),
             st('after'),
         );
         assertSameBytes(
@@ -337,8 +337,8 @@ for (const { name, head } of [...REAL_HEADS, ...GRAMMAR_HEADS]) {
 
 test('A5 control: after a mark with no stamp, a space is payload — the line is content, not a marker', async () => {
     // The mark row strips nothing after the mark, so canon's payload here starts with the space.
-    const markThenSpace = ln(BOM, utf8(' SIFT_CAPTURE ci'));
-    const served = cat(st('SIFT_CAPTURE ci'), markThenSpace, st('SIFT_CAPTURE_END'));
+    const markThenSpace = ln(BOM, utf8(' TAMYS_CAPTURE ci'));
+    const served = cat(st('TAMYS_CAPTURE ci'), markThenSpace, st('TAMYS_CAPTURE_END'));
     assertSameBytes(
         await acquire(served, 'ci'),
         markThenSpace,
@@ -438,7 +438,7 @@ test('fetchTargetJobLog: missing, ambiguous, and not-completed jobs all THROW wi
 // single-sourcing was costed and is unreachable.
 //
 // So the mechanism is TWO INDEPENDENT WITNESSES OVER THE SAME LITERAL EXAMPLE. The engine
-// side is `SiftCrawlJobGraph.TheAnchorMatchesItsExactRenderingAndEveryFanOutRowUnderIt`,
+// side is `TamysCrawlJobGraph.TheAnchorMatchesItsExactRenderingAndEveryFanOutRowUnderIt`,
 // on these exact names, measured off a real run. If GitHub changes the rendering, both go
 // red, and neither repo depends on the other to notice.
 //
@@ -506,7 +506,7 @@ test('target-job: a log over the per-input ceiling is REFUSED, and the message n
         // The number, so the user can compare it against their own `wc -c`.
         assert.match(error.message, new RegExp(String(MAX_CHANGED_LOG_BYTES)));
         // The remedy — a ceiling with no way past it reads as "unsupported".
-        assert.match(error.message, /SIFT_CAPTURE/);
+        assert.match(error.message, /TAMYS_CAPTURE/);
         return true;
     });
 });
@@ -532,22 +532,22 @@ test("fetchTargetJobLog: returns the resolved job name and the run's full job co
         { id: 1, name: 'lint', status: 'completed', conclusion: 'success' },
         { id: 2, name: 'ci / build', status: 'completed', conclusion: 'success' },
         { id: 3, name: 'test', status: 'completed', conclusion: 'failure' },
-        { id: 4, name: 'sift', status: 'in_progress', conclusion: null },
+        { id: 4, name: 'tamys', status: 'in_progress', conclusion: null },
     ];
     const out = await fetchTargetJobLog(fetchParams(jobs, st('x')));
     assert.equal(out.jobName, 'ci / build', `resolved "${out.jobName}", expected the rendered row "ci / build"`);
-    assert.equal(out.runJobCount, 4, `counted ${out.runJobCount} jobs, the run lists 4 (Sift's own included)`);
+    assert.equal(out.runJobCount, 4, `counted ${out.runJobCount} jobs, the run lists 4 (Tamys's own included)`);
 });
 
 test('acquiredGrainLine: a target job states "1 job of N" and names what was NOT read', () => {
     assert.equal(
         acquiredGrainLine({ kind: 'job', jobName: 'build', runJobCount: 7 }),
-        'Sift: grain — acquired 1 job of the 7 this run lists ("build"); the logs of the other 6 are ' +
+        'Tamys: grain — acquired 1 job of the 7 this run lists ("build"); the logs of the other 6 are ' +
             'not read, so this diff covers that one job, not the whole run.',
     );
     assert.equal(
         acquiredGrainLine({ kind: 'job', jobName: 'build', runJobCount: 2 }),
-        'Sift: grain — acquired 1 job of the 2 this run lists ("build"); the log of the other 1 is ' +
+        'Tamys: grain — acquired 1 job of the 2 this run lists ("build"); the log of the other 1 is ' +
             'not read, so this diff covers that one job, not the whole run.',
     );
 });
@@ -555,7 +555,7 @@ test('acquiredGrainLine: a target job states "1 job of N" and names what was NOT
 test('acquiredGrainLine: a `log:` file states that no job log was acquired from the run', () => {
     assert.equal(
         acquiredGrainLine({ kind: 'file', path: 'build.log' }),
-        'Sift: grain — diffing the `log:` file "build.log"; no job log was acquired from this run, so ' +
+        'Tamys: grain — diffing the `log:` file "build.log"; no job log was acquired from this run, so ' +
             'this diff covers exactly what the workflow captured into that file.',
     );
 });

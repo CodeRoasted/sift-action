@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Move the Action's ENGINE pin to a PUBLISHED sift engine release.
+# Move the Action's ENGINE pin to a PUBLISHED tamys engine release.
 #
 # WHY THIS LIVES HERE, AND NOT IN `malf bump`
 # -------------------------------------------
 # The Action's engine pin used to ride the workspace-wide platform bump: `malf bump X.Y.Z`
-# rewrote src/sift-version.ts to X.Y.Z, and pin_coherence INV-8 then asserted the pin was
+# rewrote src/tamys-version.ts to X.Y.Z, and pin_coherence INV-8 then asserted the pin was
 # <= the open dev baseline. That coupling was wrong in a specific, recurring way. The engine
 # for a version is published by the eidos Release DURING that version's cut — so between the
 # post-cut bump and the next cut, the platform baseline names an engine that does not exist
@@ -71,7 +71,7 @@ for asset in $ASSETS; do
 done
 
 # ── 3. Rewrite the FOUR source pins ─────────────────────────────────────────────────────
-# src/sift-version.ts is what the bundle bakes in; examples/jenkins/Jenkinsfile is a doc
+# src/tamys-version.ts is what the bundle bakes in; examples/jenkins/Jenkinsfile is a doc
 # recipe a user copies verbatim, so a stale one silently installs an old engine. They moved
 # in lock-step under `malf bump` + INV-8b and must keep doing so — enforced below by
 # re-reading both after the write rather than trusting the substitution.
@@ -83,7 +83,7 @@ done
 # carry a baked default pin — which only stays true if the SAME writer that owns the other
 # pins owns these too. A hand-maintained pin beside a derived one is the drift class this
 # script exists to remove: derive at the writer, from the PUBLISHED set, or it rots.
-ver_ts="$here/src/sift-version.ts"
+ver_ts="$here/src/tamys-version.ts"
 jenkinsfile="$here/examples/jenkins/Jenkinsfile"
 install_sh="$here/install.sh"
 install_ps1="$here/install.ps1"
@@ -96,10 +96,10 @@ import pathlib, re, sys
 ver = sys.argv[1]
 ver_ts, jenkinsfile, install_sh, install_ps1 = (pathlib.Path(p) for p in sys.argv[2:6])
 targets = (
-    (ver_ts,      r"(SIFT_VERSION\s*=\s*['\"])[^'\"]*(['\"])",        True),
-    (jenkinsfile, r"(SIFT_VERSION\s*=\s*['\"])\d+\.\d+\.\d+(['\"])",  False),
-    (install_sh,  r"(SIFT_PINNED_VERSION=\")\d+\.\d+\.\d+(\")",        True),
-    (install_ps1, r"(\$SiftPinnedVersion = ')\d+\.\d+\.\d+(')",        True),
+    (ver_ts,      r"(TAMYS_VERSION\s*=\s*['\"])[^'\"]*(['\"])",        True),
+    (jenkinsfile, r"(TAMYS_VERSION\s*=\s*['\"])\d+\.\d+\.\d+(['\"])",  False),
+    (install_sh,  r"(TAMYS_PINNED_VERSION=\")\d+\.\d+\.\d+(\")",        True),
+    (install_ps1, r"(\$TamysPinnedVersion = ')\d+\.\d+\.\d+(')",        True),
 )
 for path, pattern, required in targets:
     if not path.exists():
@@ -119,15 +119,15 @@ PY
 
 # ── 4. Repackage the bundle — the committed dist IS what runs ───────────────────────────
 # action.yml declares `main: dist/index.js`, so GitHub executes the COMMITTED bundle and
-# esbuild bakes SIFT_VERSION in at build time. Rewriting only the source leaves the bundle
+# esbuild bakes TAMYS_VERSION in at build time. Rewriting only the source leaves the bundle
 # still downloading the previous engine. `malf bump` used to do this repackage; dropping the
 # Action from that bump means the step has to live here or the bundle silently rots. ci.yml's
 # dist-sync gate catches it after the fact — this keeps it coherent by construction.
 [ -d "$here/node_modules" ] || err "node_modules missing — run 'npm ci' first; the pins are rewritten but dist/index.js cannot be regenerated."
 ( cd "$here" && npm run package ) || err "'npm run package' failed — dist/index.js still bakes in the old engine."
 
-grep -q "SIFT_VERSION = \"$ver\"" "$here/dist/index.js" \
-    || err "dist/index.js does not embed SIFT_VERSION = \"$ver\" after repackage."
+grep -q "TAMYS_VERSION = \"$ver\"" "$here/dist/index.js" \
+    || err "dist/index.js does not embed TAMYS_VERSION = \"$ver\" after repackage."
 
 # ── 5. Prove every source pin agrees (what INV-8b used to assert) ───────────────────────
 # Re-READ after the write rather than trusting the substitution: a regex that silently
@@ -135,23 +135,23 @@ grep -q "SIFT_VERSION = \"$ver\"" "$here/dist/index.js" \
 # `| sed -n 1p || true`, as scripts/engine_pin.sh's does: under `set -eo pipefail` a read that
 # matches nothing would otherwise abort HERE at exit 1 with no message, before the `err` line
 # that names the file; and `sed -n 1p` drains, where `head -1` could SIGPIPE its writer.
-a="$(grep -oE "SIFT_VERSION\s*=\s*['\"][^'\"]+['\"]" "$ver_ts" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
-[ "$a" = "$ver" ] || err "src/sift-version.ts reads $a, expected $ver after the rewrite."
+a="$(grep -oE "TAMYS_VERSION\s*=\s*['\"][^'\"]+['\"]" "$ver_ts" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
+[ "$a" = "$ver" ] || err "src/tamys-version.ts reads $a, expected $ver after the rewrite."
 if [ -f "$jenkinsfile" ]; then
-    b="$(grep -oE "SIFT_VERSION\s*=\s*['\"][0-9.]+['\"]" "$jenkinsfile" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
-    [ "$a" = "$b" ] || err "src/sift-version.ts ($a) and the Jenkins example ($b) disagree after the rewrite."
+    b="$(grep -oE "TAMYS_VERSION\s*=\s*['\"][0-9.]+['\"]" "$jenkinsfile" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
+    [ "$a" = "$b" ] || err "src/tamys-version.ts ($a) and the Jenkins example ($b) disagree after the rewrite."
 fi
-c="$(grep -oE 'SIFT_PINNED_VERSION="[0-9.]+"' "$install_sh" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
-[ "$a" = "$c" ] || err "src/sift-version.ts ($a) and install.sh ($c) disagree after the rewrite."
-d="$(grep -oE "\\\$SiftPinnedVersion = '[0-9.]+'" "$install_ps1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
-[ "$a" = "$d" ] || err "src/sift-version.ts ($a) and install.ps1 ($d) disagree after the rewrite."
+c="$(grep -oE 'TAMYS_PINNED_VERSION="[0-9.]+"' "$install_sh" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
+[ "$a" = "$c" ] || err "src/tamys-version.ts ($a) and install.sh ($c) disagree after the rewrite."
+d="$(grep -oE "\\\$TamysPinnedVersion = '[0-9.]+'" "$install_ps1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
+[ "$a" = "$d" ] || err "src/tamys-version.ts ($a) and install.ps1 ($d) disagree after the rewrite."
 
 # The installers must never fall back to `latest` again: the default has to be the pin, and
 # `latest` reachable only when the user names it. Asserted here because this is the writer
 # that would otherwise re-introduce it.
-grep -q 'SIFT_PINNED_VERSION' "$install_sh" \
+grep -q 'TAMYS_PINNED_VERSION' "$install_sh" \
     || err "install.sh lost its baked pin — it would default to 'latest' again."
-grep -q 'SiftPinnedVersion' "$install_ps1" \
+grep -q 'TamysPinnedVersion' "$install_ps1" \
     || err "install.ps1 lost its baked pin — it would default to 'latest' again."
 
 echo "✓ sift-action pinned to published engine v$ver (src + jenkins example + install.sh + install.ps1 + dist bundle)"

@@ -1,6 +1,6 @@
 // DN-127.D1's rendering grammar, read off the ONE case table both repositories copy byte for byte,
 // through this producer's own join (`joinDeclaredJobs`). The table is tests/fixtures/job_rendering_cases.json;
-// insight-eidos drives its copy at sift/tests/crawl/fixtures/job_rendering_cases.json through the
+// insight-eidos drives its copy at tamys/tests/crawl/fixtures/job_rendering_cases.json through the
 // crawl's `join_declared_jobs`, and a superproject check reds on any byte between the two copies.
 //
 // Each case's declarations become a workflow file `parseWorkflowJobs` reads, so the species reach

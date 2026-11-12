@@ -62899,21 +62899,21 @@ import * as path from "path";
 
 // src/types.ts
 var CONTEXT_VERSION = "0.3.0";
-var BASELINE_ARTIFACT_NAME = "sift-baseline-log";
-var BASELINE_META_FILE = "sift-baseline-meta.json";
+var BASELINE_ARTIFACT_NAME = "tamys-baseline-log";
+var BASELINE_META_FILE = "tamys-baseline-meta.json";
 var TRANSPORT_CATALOGUE = [
   "api-rfc3339-line-prefix",
   "bracket-rfc3339-line-prefix",
   "utf8-bom-line-prefix"
 ];
-var SIFT_REPORT_ARTIFACT_NAME = "sift-report";
-var SIFT_REPORT_JSON_FILE = "report.json";
-var SIFT_REPORT_MARKDOWN_FILE = "report.md";
+var TAMYS_REPORT_ARTIFACT_NAME = "tamys-report";
+var TAMYS_REPORT_JSON_FILE = "report.json";
+var TAMYS_REPORT_MARKDOWN_FILE = "report.md";
 function reportArtifactName(tag) {
-  return tag ? `${SIFT_REPORT_ARTIFACT_NAME}-${tag}` : SIFT_REPORT_ARTIFACT_NAME;
+  return tag ? `${TAMYS_REPORT_ARTIFACT_NAME}-${tag}` : TAMYS_REPORT_ARTIFACT_NAME;
 }
-var SIFT_COMMENT_ARTIFACT_NAME = "sift-comment";
-var SIFT_COMMENT_DIR = "sift-comment";
+var TAMYS_COMMENT_ARTIFACT_NAME = "tamys-comment";
+var TAMYS_COMMENT_DIR = "tamys-comment";
 var RENDERED_BODY_FILE = "comment-body.md";
 var RENDERED_META_FILE = "comment-meta.json";
 var MAX_RENDERED_ARTIFACT_BYTES = 1024 * 1024;
@@ -62967,7 +62967,7 @@ function baselineAgeHours(createdAt, nowMs) {
   return Math.floor(deltaMs / (60 * 60 * 1e3));
 }
 function staleBaselineWarning(meta, ageHours, bound, baselineName) {
-  const head = `Sift: STALE baseline \u2014 ${ageHours}h old, past the ${bound} bound.`;
+  const head = `Tamys: STALE baseline \u2014 ${ageHours}h old, past the ${bound} bound.`;
   const tail = "This diff compares against that aged snapshot and shrinks in meaning as the gap grows.";
   switch (meta.kind) {
     case "run":
@@ -62980,7 +62980,7 @@ function staleBaselineWarning(meta, ageHours, bound, baselineName) {
 }
 async function resolveBaseline(params) {
   if (params.spec.kind === "none") {
-    info("Sift: baseline=none \u2014 forced cold start (seed-only run).");
+    info("Tamys: baseline=none \u2014 forced cold start (seed-only run).");
     return null;
   }
   if (params.spec.kind === "path") {
@@ -63005,12 +63005,12 @@ async function resolveBaseline(params) {
     return await resolveRemoteStrict(params);
   } catch (error2) {
     if (error2 instanceof BaselineRefusal) {
-      warning(`Sift: ${error2.message} \u2014 proceeding cold start (current log only, no diff).`);
+      warning(`Tamys: ${error2.message} \u2014 proceeding cold start (current log only, no diff).`);
       return null;
     }
     const reason = error2 instanceof Error ? error2.message : String(error2);
     warning(
-      `Sift: baseline lookup failed (${reason}) \u2014 proceeding cold start (current log only, no diff). On a fork PR this is expected: the read-only token cannot read the repo's run/artifact history.`
+      `Tamys: baseline lookup failed (${reason}) \u2014 proceeding cold start (current log only, no diff). On a fork PR this is expected: the read-only token cannot read the repo's run/artifact history.`
     );
     return null;
   }
@@ -63025,7 +63025,7 @@ async function resolveRemoteStrict(params) {
       throw new BaselineRefusal(scan.reason);
     }
     if (scan.kind === "none") {
-      info(`Sift: no live \`${spec.name}\` baseline artifact in the repo yet \u2014 cold start.`);
+      info(`Tamys: no live \`${spec.name}\` baseline artifact in the repo yet \u2014 cold start.`);
       return null;
     }
     const artifact2 = scan.artifact;
@@ -63049,7 +63049,7 @@ async function resolveRemoteStrict(params) {
   const workflowId = thisRun.data.workflow_id;
   const baseRun = await newestGreenRun(octokit, owner, repo, workflowId, branch, runId);
   if (!baseRun) {
-    info(`Sift: no green run of this workflow on \`${branch}\` yet \u2014 cold start.`);
+    info(`Tamys: no green run of this workflow on \`${branch}\` yet \u2014 cold start.`);
     return null;
   }
   const artifacts = await octokit.rest.actions.listWorkflowRunArtifacts({
@@ -63063,7 +63063,7 @@ async function resolveRemoteStrict(params) {
   );
   if (!artifact) {
     info(
-      `Sift: green base run ${baseRun.id} has no live \`${artifactName}\` artifact (first adoption, or aged past retention) \u2014 cold start.`
+      `Tamys: green base run ${baseRun.id} has no live \`${artifactName}\` artifact (first adoption, or aged past retention) \u2014 cold start.`
     );
     return null;
   }
@@ -63312,8 +63312,8 @@ function splitLines(bytes) {
   }
   return lines;
 }
-var MARKER_OPEN = "SIFT_CAPTURE";
-var MARKER_CLOSE = "SIFT_CAPTURE_END";
+var MARKER_OPEN = "TAMYS_CAPTURE";
+var MARKER_CLOSE = "TAMYS_CAPTURE_END";
 function extractCaptureSections(lines) {
   const sections = [];
   let open2 = null;
@@ -63343,18 +63343,18 @@ function selectCapture(served, capture) {
   if (named.length === 0) {
     const seen = [...new Set(sections.map((s) => s.name || "(anonymous)"))];
     throw new Error(
-      `capture section "${mode}" not found in the target job's log (sections seen: ${seen.length ? seen.join(", ") : "none"}). Emit it with \`echo "SIFT_CAPTURE ${mode}"\` \u2026 \`echo "SIFT_CAPTURE_END"\`.`
+      `capture section "${mode}" not found in the target job's log (sections seen: ${seen.length ? seen.join(", ") : "none"}). Emit it with \`echo "TAMYS_CAPTURE ${mode}"\` \u2026 \`echo "TAMYS_CAPTURE_END"\`.`
     );
   }
   return Buffer.concat(named.flatMap((section) => section.lines));
 }
 function acquiredGrainLine(grain) {
   if (grain.kind === "file") {
-    return `Sift: grain \u2014 diffing the \`log:\` file "${grain.path}"; no job log was acquired from this run, so this diff covers exactly what the workflow captured into that file.`;
+    return `Tamys: grain \u2014 diffing the \`log:\` file "${grain.path}"; no job log was acquired from this run, so this diff covers exactly what the workflow captured into that file.`;
   }
   const others = grain.runJobCount - 1;
   const unread = others === 1 ? "the log of the other 1 is" : `the logs of the other ${others} are`;
-  return `Sift: grain \u2014 acquired 1 job of the ${grain.runJobCount} this run lists ("${grain.jobName}"); ${unread} not read, so this diff covers that one job, not the whole run.`;
+  return `Tamys: grain \u2014 acquired 1 job of the ${grain.runJobCount} this run lists ("${grain.jobName}"); ${unread} not read, so this diff covers that one job, not the whole run.`;
 }
 async function fetchTargetJobLog(params) {
   const { octokit, owner, repo, runId, jobName, capture } = params;
@@ -63381,7 +63381,7 @@ async function fetchTargetJobLog(params) {
   const job = matches[0];
   if (job.status !== "completed") {
     throw new Error(
-      `target-job "${job.name}" has not completed (status: ${job.status}) \u2014 run Sift in a job that \`needs:\` it`
+      `target-job "${job.name}" has not completed (status: ${job.status}) \u2014 run Tamys in a job that \`needs:\` it`
     );
   }
   const download2 = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
@@ -63406,7 +63406,7 @@ function statedAttempt(attempt) {
 }
 function overCeiling(jobName, bytes) {
   return new Error(
-    `the log of job "${jobName}" is ${bytes} bytes, over the ${MAX_CHANGED_LOG_BYTES} byte per-input ceiling Sift declares. Bound what you compare with the SIFT_CAPTURE / SIFT_CAPTURE_END markers and set the \`capture\` input \u2014 a marked section is diffed on its own, and is usually the part you actually care about.`
+    `the log of job "${jobName}" is ${bytes} bytes, over the ${MAX_CHANGED_LOG_BYTES} byte per-input ceiling Tamys declares. Bound what you compare with the TAMYS_CAPTURE / TAMYS_CAPTURE_END markers and set the \`capture\` input \u2014 a marked section is diffed on its own, and is usually the part you actually care about.`
   );
 }
 async function readServedBytes(body3, jobName) {
@@ -66809,7 +66809,7 @@ async function resolveChangedJobGraph(params) {
   const { octokit, owner, repo, runId, workflow, info: info2 } = params;
   if (workflow.kind === "refused") {
     info2(
-      `Sift: no declared job graph \u2014 ${workflow.reason}. The diff still runs; aggregator rows do not fold.`
+      `Tamys: no declared job graph \u2014 ${workflow.reason}. The diff still runs; aggregator rows do not fold.`
     );
     return null;
   }
@@ -66820,13 +66820,13 @@ async function resolveChangedJobGraph(params) {
   } catch (error2) {
     const message = error2 instanceof Error ? error2.message : String(error2);
     info2(
-      `Sift: no declared job graph \u2014 could not read ${path9} at ${sha} (${message}). The diff still runs; aggregator rows do not fold.`
+      `Tamys: no declared job graph \u2014 could not read ${path9} at ${sha} (${message}). The diff still runs; aggregator rows do not fold.`
     );
     return null;
   }
   const edgeCount = declared.reduce((sum, job) => sum + job.needs.length, 0);
   info2(
-    `Sift: declared job graph read from ${path9} at ${sha} (GITHUB_WORKFLOW_SHA, the commit this run executed): ${declared.length} jobs, ${edgeCount} \`needs:\` edges.`
+    `Tamys: declared job graph read from ${path9} at ${sha} (GITHUB_WORKFLOW_SHA, the commit this run executed): ${declared.length} jobs, ${edgeCount} \`needs:\` edges.`
   );
   try {
     const jobs = await octokit.paginate(octokit.rest.actions.listJobsForWorkflowRun, {
@@ -66837,7 +66837,7 @@ async function resolveChangedJobGraph(params) {
     });
     return joinDeclaredJobs(declared, jobs.map(listingRow));
   } catch (error2) {
-    info2(`Sift: no declared job graph \u2014 ${listingFailure(error2)}.`);
+    info2(`Tamys: no declared job graph \u2014 ${listingFailure(error2)}.`);
     return null;
   }
 }
@@ -66871,7 +66871,7 @@ async function resolveBaselineJobGraph(params) {
   const { octokit, owner, repo, baselineRunId, info: info2 } = params;
   const absent = (reason) => {
     info2(
-      `Sift: no baseline job graph \u2014 ${reason}. The diff still runs; a step banner carrying a value is not matched to its declared step across the two runs.`
+      `Tamys: no baseline job graph \u2014 ${reason}. The diff still runs; a step banner carrying a value is not matched to its declared step across the two runs.`
     );
     return null;
   };
@@ -66901,7 +66901,7 @@ async function resolveBaselineJobGraph(params) {
     return absent(`could not read ${run2.path} at ${run2.head_sha} (${message})`);
   }
   info2(
-    `Sift: baseline job graph read from ${run2.path} at ${run2.head_sha} (the commit baseline run ${baselineRunId}, a \`${run2.event}\` run, executed): ${declared.length} jobs, listing at attempt ${run2.run_attempt}.`
+    `Tamys: baseline job graph read from ${run2.path} at ${run2.head_sha} (the commit baseline run ${baselineRunId}, a \`${run2.event}\` run, executed): ${declared.length} jobs, listing at attempt ${run2.run_attempt}.`
   );
   try {
     const jobs = await octokit.paginate(octokit.rest.actions.listJobsForWorkflowRunAttempt, {
@@ -66952,17 +66952,17 @@ function polarityGlyph(polarity) {
 }
 
 // src/frame.ts
-var STICKY_MARKER = "<!-- sift:pr-comment -->";
+var STICKY_MARKER = "<!-- tamys:pr-comment -->";
 function stickyMarker(tag) {
-  return tag ? `<!-- sift:pr-comment:${tag} -->` : STICKY_MARKER;
+  return tag ? `<!-- tamys:pr-comment:${tag} -->` : STICKY_MARKER;
 }
-var HEADER = "### \u{1F52C} Sift \u2014 structural diff of your CI logs";
-var SIFT_URL = "https://coderoast.fr/sift";
+var HEADER = "### \u{1F52C} Tamys \u2014 structural diff of your CI logs";
+var TAMYS_URL = "https://coderoast.fr/tamys";
 var MAX_INLINE_ROWS = 20;
 var MAX_SUMMARY_DISPLAY_BYTES = 1024;
 var MAX_WHERE_DISPLAY_BYTES = 256;
 var MAX_TEMPLATE_ID_DISPLAY_BYTES = 64;
-var CLAIM_BOUNDARY = "Sift compares exactly two runs and keeps no history. On two successful runs, Drift means the logs differ, not that this change caused the difference: a line that comes and goes between your workflow's successful runs reads as Drift, because Sift has never seen those runs.";
+var CLAIM_BOUNDARY = "Tamys compares exactly two runs and keeps no history. On two successful runs, Drift means the logs differ, not that this change caused the difference: a line that comes and goes between your workflow's successful runs reads as Drift, because Tamys has never seen those runs.";
 function ngramRefusalLine(report) {
   const sides = [report.inputs.baseline.ngram_refusals ?? [], report.inputs.changed.ngram_refusals ?? []];
   const windows = sides[0].length + sides[1].length;
@@ -67092,7 +67092,7 @@ function declaredReportLine(report, context5) {
 }
 function coldStartBody(context5) {
   const source = context5.baseline_source ?? `the last green run on \`${context5.base_branch}\``;
-  return `\u{1F52C} No baseline yet. Sift diffs each run against ${source}.
+  return `\u{1F52C} No baseline yet. Tamys diffs each run against ${source}.
 Once one lands, every PR gets a structural diff here \u2014 nothing to compare this time.`;
 }
 function cleanBody(report) {
@@ -67104,7 +67104,7 @@ function cleanBody(report) {
     return headline;
   }
   return `${headline}
-Sift weighed ${groupThousands(total)} surface diffs and found no structural change worth a look among them.`;
+Tamys weighed ${groupThousands(total)} surface diffs and found no structural change worth a look among them.`;
 }
 function changedRunSucceeded(report) {
   return report.summary.changed_outcome === "SUCCESS";
@@ -67153,7 +67153,7 @@ ${rows}${renderDetails(report, context5, details)}`;
 function footer(context5) {
   const parts = [
     "Deterministic \u2014 same inputs, same comment. Runs in your CI; your logs never leave it.",
-    `[What is this?](${SIFT_URL})`
+    `[What is this?](${TAMYS_URL})`
   ];
   if (context5.baseline) {
     parts.push(baselineFootnote(context5.baseline));
@@ -67242,7 +67242,7 @@ function renderComment(report, context5) {
 
 // src/comment.ts
 function markerOf(body3) {
-  const match = body3.match(/^<!-- sift:pr-comment[^>]*? -->/);
+  const match = body3.match(/^<!-- tamys:pr-comment[^>]*? -->/);
   return match ? match[0] : STICKY_MARKER;
 }
 async function upsertStickyComment(params) {
@@ -102519,12 +102519,12 @@ async function publishBaselineLog(logPath, outcomeToken, transport, name = BASEL
   });
 }
 async function publishReport(reportJsonPath, markdown, name, client2 = new DefaultArtifactClient()) {
-  const dir = await fs9.mkdtemp(path5.join(path5.dirname(reportJsonPath), "sift-report-"));
-  const jsonPath = path5.join(dir, SIFT_REPORT_JSON_FILE);
+  const dir = await fs9.mkdtemp(path5.join(path5.dirname(reportJsonPath), "tamys-report-"));
+  const jsonPath = path5.join(dir, TAMYS_REPORT_JSON_FILE);
   await fs9.copyFile(reportJsonPath, jsonPath);
   const files = [jsonPath];
   if (markdown !== void 0) {
-    const markdownPath = path5.join(dir, SIFT_REPORT_MARKDOWN_FILE);
+    const markdownPath = path5.join(dir, TAMYS_REPORT_MARKDOWN_FILE);
     await fs9.writeFile(markdownPath, markdown, "utf8");
     files.push(markdownPath);
   }
@@ -102551,16 +102551,16 @@ async function downloadRenderedComment(params) {
   };
   let artifact;
   try {
-    ({ artifact } = await client2.getArtifact(SIFT_COMMENT_ARTIFACT_NAME, { findBy }));
+    ({ artifact } = await client2.getArtifact(TAMYS_COMMENT_ARTIFACT_NAME, { findBy }));
   } catch {
     info(
-      `Sift poster: no "${SIFT_COMMENT_ARTIFACT_NAME}" artifact on run ${workflowRunId} \u2014 nothing to post.`
+      `Tamys poster: no "${TAMYS_COMMENT_ARTIFACT_NAME}" artifact on run ${workflowRunId} \u2014 nothing to post.`
     );
     return null;
   }
   if (artifact.size !== void 0 && artifact.size > MAX_RENDERED_ARTIFACT_BYTES) {
     warning(
-      `Sift poster: rendered artifact is ${artifact.size}B (compressed), over the ${MAX_RENDERED_ARTIFACT_BYTES}B cap \u2014 refusing to download.`
+      `Tamys poster: rendered artifact is ${artifact.size}B (compressed), over the ${MAX_RENDERED_ARTIFACT_BYTES}B cap \u2014 refusing to download.`
     );
     return null;
   }
@@ -102570,13 +102570,13 @@ async function downloadRenderedComment(params) {
     findBy
   });
   if (digestMismatch) {
-    warning("Sift poster: rendered artifact digest mismatch \u2014 refusing to post.");
+    warning("Tamys poster: rendered artifact digest mismatch \u2014 refusing to post.");
     return null;
   }
   const body3 = await fs9.readFile(path5.join(destDir, RENDERED_BODY_FILE), "utf8");
   if (Buffer.byteLength(body3, "utf8") > MAX_RENDERED_BODY_BYTES) {
     warning(
-      `Sift poster: rendered body exceeds GitHub's ${MAX_RENDERED_BODY_BYTES}-char comment limit \u2014 refusing to post.`
+      `Tamys poster: rendered body exceeds GitHub's ${MAX_RENDERED_BODY_BYTES}-char comment limit \u2014 refusing to post.`
     );
     return null;
   }
@@ -102600,12 +102600,12 @@ function selectPrNumber(prs, headSha) {
 }
 function triggeringRunIsTrusted(wr, expectedWorkflow) {
   if (wr.event !== "pull_request") {
-    info(`Sift poster: triggering run event is "${wr.event}", not pull_request \u2014 skipping.`);
+    info(`Tamys poster: triggering run event is "${wr.event}", not pull_request \u2014 skipping.`);
     return false;
   }
   if (!expectedWorkflow) {
     info(
-      "Sift poster: no `build-workflow` input \u2014 relying on the workflow_run trigger filter for workflow identity. Set `build-workflow` for an in-code double-check."
+      "Tamys poster: no `build-workflow` input \u2014 relying on the workflow_run trigger filter for workflow identity. Set `build-workflow` for an in-code double-check."
     );
     return true;
   }
@@ -102613,7 +102613,7 @@ function triggeringRunIsTrusted(wr, expectedWorkflow) {
   const matches = wr.name === expectedWorkflow || fileName === expectedWorkflow || wr.path === expectedWorkflow;
   if (!matches) {
     info(
-      `Sift poster: triggering workflow "${wr.name ?? wr.path ?? "?"}" is not the expected "${expectedWorkflow}" \u2014 skipping.`
+      `Tamys poster: triggering workflow "${wr.name ?? wr.path ?? "?"}" is not the expected "${expectedWorkflow}" \u2014 skipping.`
     );
     return false;
   }
@@ -102634,7 +102634,7 @@ async function runPoster() {
   const { owner, repo } = context2.repo;
   const wr = readWorkflowRun();
   if (!wr) {
-    setFailed("Sift `mode: post` must run on a `workflow_run` event.");
+    setFailed("Tamys `mode: post` must run on a `workflow_run` event.");
     return;
   }
   if (!triggeringRunIsTrusted(wr, expectedWorkflow)) {
@@ -102644,10 +102644,10 @@ async function runPoster() {
   const runIdInput = getInput("run-id");
   const workflowRunId = runIdInput ? Number(runIdInput) : wr.id;
   if (!Number.isInteger(workflowRunId) || workflowRunId <= 0) {
-    setFailed(`Sift poster: invalid run-id "${runIdInput}".`);
+    setFailed(`Tamys poster: invalid run-id "${runIdInput}".`);
     return;
   }
-  const destDir = await fs10.mkdtemp(path6.join(os7.tmpdir(), "sift-poster-"));
+  const destDir = await fs10.mkdtemp(path6.join(os7.tmpdir(), "tamys-poster-"));
   const rendered = await downloadRenderedComment({
     token,
     owner,
@@ -102660,41 +102660,41 @@ async function runPoster() {
   }
   if (!rendered.shouldPost) {
     info(
-      "Sift poster: render verdict is below the pr-comment threshold \u2014 nothing to post."
+      "Tamys poster: render verdict is below the pr-comment threshold \u2014 nothing to post."
     );
     return;
   }
   if (rendered.headSha !== headSha) {
     warning(
-      `Sift poster: artifact head_sha (${rendered.headSha}) disagrees with the workflow_run event (${headSha}) \u2014 refusing to post.`
+      `Tamys poster: artifact head_sha (${rendered.headSha}) disagrees with the workflow_run event (${headSha}) \u2014 refusing to post.`
     );
     return;
   }
   const prNumber = await resolvePrNumber(octokit, owner, repo, headSha);
   if (prNumber === null) {
-    info(`Sift poster: no PR found for ${headSha} \u2014 nothing to post.`);
+    info(`Tamys poster: no PR found for ${headSha} \u2014 nothing to post.`);
     return;
   }
   const id = await upsertStickyComment({ octokit, owner, repo, prNumber, body: rendered.body });
-  info(`Sift poster: upserted sticky comment ${id} on PR #${prNumber}.`);
+  info(`Tamys poster: upserted sticky comment ${id} on PR #${prNumber}.`);
 }
 
-// src/resolve-sift.ts
+// src/resolve-tamys.ts
 var exec = __toESM(require_exec(), 1);
 import * as crypto5 from "crypto";
 import { promises as fs11 } from "fs";
 import * as path7 from "path";
 
-// src/sift-version.ts
-var SIFT_VERSION = "1.10.11";
+// src/tamys-version.ts
+var TAMYS_VERSION = "1.10.11";
 
-// src/resolve-sift.ts
+// src/resolve-tamys.ts
 var RELEASE_REPO = "CodeRoasted/sift-action";
 var ASSET = "sift-linux-x64";
 async function download(url2, dest) {
   const code = await exec.exec("curl", ["-fsSL", url2, "-o", dest], { ignoreReturnCode: true });
   if (code !== 0) {
-    throw new Error(`Sift: failed to download ${url2} (curl exit ${code}).`);
+    throw new Error(`Tamys: failed to download ${url2} (curl exit ${code}).`);
   }
 }
 var SHA256_HEX = /^[0-9a-f]{64}$/i;
@@ -102702,43 +102702,43 @@ function verifySha256(shaFileContent, contents, label) {
   const expected = shaFileContent.trim().split(/\s+/)[0] ?? "";
   if (!SHA256_HEX.test(expected)) {
     throw new Error(
-      `Sift: malformed checksum file for ${label} \u2014 expected a 64-char hex sha256, got '${expected.slice(0, 80)}'. Refusing to run an unverified binary.`
+      `Tamys: malformed checksum file for ${label} \u2014 expected a 64-char hex sha256, got '${expected.slice(0, 80)}'. Refusing to run an unverified binary.`
     );
   }
   const actual = crypto5.createHash("sha256").update(contents).digest("hex");
   if (expected.toLowerCase() !== actual) {
     throw new Error(
-      `Sift: sha256 mismatch for ${label} \u2014 refusing to run an unverified binary (expected '${expected.toLowerCase()}', got '${actual}').`
+      `Tamys: sha256 mismatch for ${label} \u2014 refusing to run an unverified binary (expected '${expected.toLowerCase()}', got '${actual}').`
     );
   }
   return actual;
 }
-async function resolveSift(override, workDir) {
-  if (override && override !== "sift") {
-    info(`Sift: using provided binary '${override}' (download skipped).`);
+async function resolveTamys(override, workDir) {
+  if (override && override !== "tamys") {
+    info(`Tamys: using provided binary '${override}' (download skipped).`);
     return override;
   }
   if (process.platform !== "linux" || process.arch !== "x64") {
     throw new Error(
-      `This Action downloads the linux-x64 engine asset; this runner is ${process.platform}/${process.arch}. Run the Sift step on a linux x64 runner, or set 'sift-binary:' to a path you provide. On Windows outside Actions, install the published standalone CLI (sift-windows-x64.exe) with install.ps1 \u2014 see the README. arm assets are a fast-follow; macOS is not a supported platform.`
+      `This Action downloads the linux-x64 engine asset; this runner is ${process.platform}/${process.arch}. Run the Tamys step on a linux x64 runner, or set 'tamys-binary:' to a path you provide. On Windows outside Actions, install the published standalone CLI (sift-windows-x64.exe) with install.ps1 \u2014 see the README. arm assets are a fast-follow; macOS is not a supported platform.`
     );
   }
-  const base = `https://github.com/${RELEASE_REPO}/releases/download/engine-v${SIFT_VERSION}`;
-  const bin = path7.join(workDir, "sift");
-  const shaFile = path7.join(workDir, "sift.sha256");
+  const base = `https://github.com/${RELEASE_REPO}/releases/download/engine-v${TAMYS_VERSION}`;
+  const bin = path7.join(workDir, "tamys");
+  const shaFile = path7.join(workDir, "tamys.sha256");
   await download(`${base}/${ASSET}`, bin);
   await download(`${base}/${ASSET}.sha256`, shaFile);
   verifySha256(
     await fs11.readFile(shaFile, "utf8"),
     await fs11.readFile(bin),
-    `${ASSET} (engine v${SIFT_VERSION})`
+    `${ASSET} (engine v${TAMYS_VERSION})`
   );
   await fs11.chmod(bin, 493);
-  info(`Sift: downloaded + sha256-verified ${ASSET} (engine v${SIFT_VERSION}).`);
+  info(`Tamys: downloaded + sha256-verified ${ASSET} (engine v${TAMYS_VERSION}).`);
   return bin;
 }
 
-// src/sift.ts
+// src/tamys.ts
 var exec3 = __toESM(require_exec(), 1);
 import { spawn } from "node:child_process";
 import { promises as fs12 } from "fs";
@@ -102751,33 +102751,33 @@ function parseFailOn(raw) {
   }
   return failOn;
 }
-var SIFT_EXIT = {
+var TAMYS_EXIT = {
   SUCCESS: 0,
   USAGE_ERROR: 1,
   GATE_TRIPPED: 2,
   INPUT_TOO_LARGE: 3,
   INTERNAL_ERROR: 4
 };
-var SiftEngineError = class extends Error {
+var TamysEngineError = class extends Error {
   constructor(message, exitCode) {
     super(message);
     this.exitCode = exitCode;
-    this.name = "SiftEngineError";
+    this.name = "TamysEngineError";
   }
 };
 function engineFailureMessage(exitCode) {
   switch (exitCode) {
-    case SIFT_EXIT.SUCCESS:
-    case SIFT_EXIT.GATE_TRIPPED:
+    case TAMYS_EXIT.SUCCESS:
+    case TAMYS_EXIT.GATE_TRIPPED:
       return null;
-    case SIFT_EXIT.USAGE_ERROR:
-      return "Sift could not read one of the logs, could not write its report, or was called with bad arguments (engine exit 1). Check the `log:` path, the runner's free disk space, or the `target-job` name if you use zero-plumbing sourcing \u2014 the engine's own message is in the step log above.";
-    case SIFT_EXIT.INPUT_TOO_LARGE:
-      return `Sift refused this run: one of the logs is over the engine ceiling of ${MAX_CHANGED_LOG_BYTES} bytes / 1000000 lines per input, or has a line over ${MAX_ENGINE_LINE_BYTES} bytes per line, or the two logs need more than ${MAX_ENGINE_ALIGNMENT_CELLS} step-alignment cells (baseline steps x changed steps, summed over every job they share) (engine exit 3). Check with \`wc -lc\` on the log, and find long lines with \`LC_ALL=C awk 'length($0) > ${MAX_ENGINE_LINE_BYTES}' <log>\`; the engine's own message in the step log above names the bound it hit. This is a declared limit, not a crash \u2014 the engine will not diff a truncated window, because that answers a different question without saying so. Narrow what you compare with the SIFT_CAPTURE markers (see the \`capture\` input) and Sift will run on the sections you mark.`;
-    case SIFT_EXIT.INTERNAL_ERROR:
-      return "The Sift engine hit an internal error (exit 4). This is a bug \u2014 please report it at https://github.com/CodeRoasted/sift-action/issues with the engine message from the step log above and the output of `wc -lc` on both logs.";
+    case TAMYS_EXIT.USAGE_ERROR:
+      return "Tamys could not read one of the logs, could not write its report, or was called with bad arguments (engine exit 1). Check the `log:` path, the runner's free disk space, or the `target-job` name if you use zero-plumbing sourcing \u2014 the engine's own message is in the step log above.";
+    case TAMYS_EXIT.INPUT_TOO_LARGE:
+      return `Tamys refused this run: one of the logs is over the engine ceiling of ${MAX_CHANGED_LOG_BYTES} bytes / 1000000 lines per input, or has a line over ${MAX_ENGINE_LINE_BYTES} bytes per line, or the two logs need more than ${MAX_ENGINE_ALIGNMENT_CELLS} step-alignment cells (baseline steps x changed steps, summed over every job they share) (engine exit 3). Check with \`wc -lc\` on the log, and find long lines with \`LC_ALL=C awk 'length($0) > ${MAX_ENGINE_LINE_BYTES}' <log>\`; the engine's own message in the step log above names the bound it hit. This is a declared limit, not a crash \u2014 the engine will not diff a truncated window, because that answers a different question without saying so. Narrow what you compare with the TAMYS_CAPTURE markers (see the \`capture\` input) and Tamys will run on the sections you mark.`;
+    case TAMYS_EXIT.INTERNAL_ERROR:
+      return "The Tamys engine hit an internal error (exit 4). This is a bug \u2014 please report it at https://github.com/CodeRoasted/sift-action/issues with the engine message from the step log above and the output of `wc -lc` on both logs.";
     default:
-      return `The Sift engine exited with an unexpected status (${exitCode}). ` + (exitCode > 128 ? `That is a signal (${exitCode - 128}), so the engine was killed rather than returning \u2014 a runner out-of-memory kill is the usual cause. ` : "") + "This is a bug \u2014 please report it with the step log and `wc -lc` on both logs.";
+      return `The Tamys engine exited with an unexpected status (${exitCode}). ` + (exitCode > 128 ? `That is a signal (${exitCode - 128}), so the engine was killed rather than returning \u2014 a runner out-of-memory kill is the usual cause. ` : "") + "This is a bug \u2014 please report it with the step log and `wc -lc` on both logs.";
   }
 }
 var CONTROL_BYTE_CEILING = 32;
@@ -102863,15 +102863,15 @@ function unreadableReportMessage(outputPath, exitCode, facts, defect) {
       break;
     }
   }
-  return `The Sift ENGINE wrote an unreadable report. It exited ${exitCode} (a report-bearing code) and the file at ${outputPath} EXISTS, but ${broken}. This is a defect in the engine that produced the artefact \u2014 not a missing report, and not a problem with your log, your workflow inputs, or your permissions. Measured on the artefact: ${facts.reportBytes} bytes, ${measured}. The Action FAILS here rather than posting nothing, because a Sift comment that silently does not appear is indistinguishable from "Sift found nothing to report" \u2014 and a false all-clear is the one outcome a precision-first tool cannot ship. Please report it at https://github.com/CodeRoasted/sift-action/issues with this message and the engine version.`;
+  return `The Tamys ENGINE wrote an unreadable report. It exited ${exitCode} (a report-bearing code) and the file at ${outputPath} EXISTS, but ${broken}. This is a defect in the engine that produced the artefact \u2014 not a missing report, and not a problem with your log, your workflow inputs, or your permissions. Measured on the artefact: ${facts.reportBytes} bytes, ${measured}. The Action FAILS here rather than posting nothing, because a Tamys comment that silently does not appear is indistinguishable from "Tamys found nothing to report" \u2014 and a false all-clear is the one outcome a precision-first tool cannot ship. Please report it at https://github.com/CodeRoasted/sift-action/issues with this message and the engine version.`;
 }
-var SiftReportUnreadableError = class extends Error {
+var TamysReportUnreadableError = class extends Error {
   constructor(message, exitCode, facts, defect) {
     super(message);
     this.exitCode = exitCode;
     this.facts = facts;
     this.defect = defect;
-    this.name = "SiftReportUnreadableError";
+    this.name = "TamysReportUnreadableError";
   }
 };
 function firstIllFormedOffset(bytes) {
@@ -102903,7 +102903,7 @@ function firstIllFormedOffset(bytes) {
 function readReport(bytes, outputPath, exitCode) {
   const refuse = (defect) => {
     const facts = measureUnreadableReport(bytes);
-    throw new SiftReportUnreadableError(
+    throw new TamysReportUnreadableError(
       unreadableReportMessage(outputPath, exitCode, facts, defect),
       exitCode,
       facts,
@@ -102945,7 +102945,7 @@ function engineEnv() {
 function transportToken(stack) {
   return stack.length === 0 ? "none" : stack.join(",");
 }
-function siftArgs(invocation) {
+function tamysArgs(invocation) {
   const args = [
     invocation.baselineLog,
     invocation.changedLog,
@@ -102964,7 +102964,7 @@ function siftArgs(invocation) {
     // line starting with a bare `Run ` is ordinary prose.
     //
     // Unconditional, not an input: it is a fact about how this Action acquires logs, not a knob a
-    // workflow author could know better than we do. Without it sift fails closed on DEPTH
+    // workflow author could know better than we do. Without it tamys fails closed on DEPTH
     // (ADR-22.D5) and would compare these logs without claiming step structure; WITH it,
     // and before the coordinate existed, the bare `Run ` row fired on that prose and minted
     // phantom Step quanta — measured on 9.05% of 22030 real annotated logs, i.e. exactly the
@@ -103020,19 +103020,19 @@ function siftArgs(invocation) {
   }
   return args;
 }
-async function runSift(invocation) {
+async function runTamys(invocation) {
   for (const graph of [invocation.changedJobGraph, invocation.baselineJobGraph]) {
     if (graph) {
       await fs12.writeFile(graph.path, JSON.stringify(graph.jobs));
     }
   }
-  const exitCode = await exec3.exec(invocation.siftBin, siftArgs(invocation), {
+  const exitCode = await exec3.exec(invocation.tamysBin, tamysArgs(invocation), {
     ignoreReturnCode: true,
     env: engineEnv()
   });
   const failure = engineFailureMessage(exitCode);
   if (failure !== null) {
-    throw new SiftEngineError(failure, exitCode);
+    throw new TamysEngineError(failure, exitCode);
   }
   const bytes = await fs12.readFile(invocation.outputPath);
   return { report: readReport(bytes, invocation.outputPath, exitCode), exitCode };
@@ -103053,10 +103053,10 @@ function killExplainSetupGroup(child, signal) {
     }
   }
 }
-async function runExplainSetup(siftBin, timeoutMs = EXPLAIN_SETUP_TIMEOUT_MS) {
+async function runExplainSetup(tamysBin, timeoutMs = EXPLAIN_SETUP_TIMEOUT_MS) {
   return new Promise((resolve2) => {
-    info(`[command]${siftBin} explain-setup`);
-    const child = spawn(siftBin, ["explain-setup"], {
+    info(`[command]${tamysBin} explain-setup`);
+    const child = spawn(tamysBin, ["explain-setup"], {
       env: engineEnv(),
       detached: true,
       // own process group — see killExplainSetupGroup
@@ -103145,12 +103145,12 @@ function baselineSourceLabel(spec) {
       return void 0;
   }
 }
-async function provisionExplain(siftBin) {
-  const result = await runExplainSetup(siftBin);
+async function provisionExplain(tamysBin) {
+  const result = await runExplainSetup(tamysBin);
   if (result.ok) return;
   if (result.timedOutAfterMs !== void 0) {
     warning(
-      `explain: model/server provisioning (\`sift explain-setup\`, a ~2.4 GB download) ${result.detail}. The run CONTINUES: the deterministic report and the advisory gate are unaffected \u2014 only the AI narrative is omitted. A cold download on a slow runner is the usual cause; cache the model across runs with a one-line actions/cache step on ~/.cache/coderoast (see the README explain example).`
+      `explain: model/server provisioning (\`tamys explain-setup\`, a ~2.4 GB download) ${result.detail}. The run CONTINUES: the deterministic report and the advisory gate are unaffected \u2014 only the AI narrative is omitted. A cold download on a slow runner is the usual cause; cache the model across runs with a one-line actions/cache step on ~/.cache/coderoast (see the README explain example).`
     );
     return;
   }
@@ -103158,7 +103158,7 @@ async function provisionExplain(siftBin) {
     `explain: model/server provisioning ${result.detail}; emitting the deterministic report without a narrative.`
   );
 }
-function setSiftOutputs(state3, report) {
+function setTamysOutputs(state3, report) {
   setOutput("state", state3);
   setOutput("total-changes", report?.summary.total_changes ?? 0);
   setOutput("significant-changes", report?.summary.significant_changes ?? 0);
@@ -103177,7 +103177,7 @@ async function tryWrite(label, write) {
   } catch (error2) {
     const message = error2 instanceof Error ? error2.message : String(error2);
     warning(
-      `Sift: could not ${label} (${message}). Likely a fork PR's read-only token or a missing scope (contract \xA7 6) \u2014 the advisory gate still applies; the comment/baseline did not update.`
+      `Tamys: could not ${label} (${message}). Likely a fork PR's read-only token or a missing scope (contract \xA7 6) \u2014 the advisory gate still applies; the comment/baseline did not update.`
     );
   }
 }
@@ -103191,7 +103191,7 @@ async function run() {
   const logInput = getInput("log");
   if (!targetJob && !logInput) {
     setFailed(
-      "Sift needs a log to diff: set `target-job: <job name>` (zero-plumbing \u2014 run Sift in a job that `needs:` it) or `log: <file>` (a log you captured yourself)."
+      "Tamys needs a log to diff: set `target-job: <job name>` (zero-plumbing \u2014 run Tamys in a job that `needs:` it) or `log: <file>` (a log you captured yourself)."
     );
     return;
   }
@@ -103203,7 +103203,7 @@ async function run() {
   const token = getInput("github-token") || process.env.GITHUB_TOKEN || "";
   const octokit = getOctokit(token);
   const { owner, repo } = context2.repo;
-  const workDir = await fs13.mkdtemp(path8.join(os8.tmpdir(), "sift-"));
+  const workDir = await fs13.mkdtemp(path8.join(os8.tmpdir(), "tamys-"));
   const changedLog = path8.join(workDir, "changed.log");
   let changedOutcome = rawChangedOutcome === "auto" ? "" : rawChangedOutcome;
   let grain;
@@ -103226,14 +103226,14 @@ async function run() {
       changedOutcome = jobLog.conclusion ?? "";
     }
     info(
-      `Sift: sourced the log from job "${targetJob}" (capture: ${capture}, changed-outcome: ${changedOutcome || "(none)"}).`
+      `Tamys: sourced the log from job "${targetJob}" (capture: ${capture}, changed-outcome: ${changedOutcome || "(none)"}).`
     );
     grain = { kind: "job", jobName: jobLog.jobName, runJobCount: jobLog.runJobCount };
   } else {
     const logStat = await fs13.stat(logInput);
     if (logStat.size > MAX_CHANGED_LOG_BYTES) {
       setFailed(
-        `Sift: the \`log:\` input "${logInput}" is ${logStat.size} bytes, over the ${MAX_CHANGED_LOG_BYTES} byte per-input ceiling. Check it with \`wc -lc\` (the engine also enforces a 1000000-line ceiling and a ${MAX_ENGINE_LINE_BYTES}-byte per-line ceiling). Capture less: tee only the part of the build you want compared, or use \`target-job\` with the SIFT_CAPTURE markers.`
+        `Tamys: the \`log:\` input "${logInput}" is ${logStat.size} bytes, over the ${MAX_CHANGED_LOG_BYTES} byte per-input ceiling. Check it with \`wc -lc\` (the engine also enforces a 1000000-line ceiling and a ${MAX_ENGINE_LINE_BYTES}-byte per-line ceiling). Capture less: tee only the part of the build you want compared, or use \`target-job\` with the TAMYS_CAPTURE markers.`
       );
       return;
     }
@@ -103269,7 +103269,7 @@ async function run() {
     warning(staleBaselineWarning(baseline.meta, ageHours, maxAgeRaw, baselineName));
   } else if (maxAgeHours != null && baseline && ageHours == null) {
     warning(
-      `Sift: baseline-max-age=${maxAgeRaw} is set but the resolved baseline carries no created_at stamp (a \`path=\` baseline or a pre-sidecar artifact) \u2014 the bound cannot be checked. The age is UNKNOWN, not fresh.`
+      `Tamys: baseline-max-age=${maxAgeRaw} is set but the resolved baseline carries no created_at stamp (a \`path=\` baseline or a pre-sidecar artifact) \u2014 the bound cannot be checked. The age is UNKNOWN, not fresh.`
     );
   }
   const context5 = {
@@ -103288,11 +103288,11 @@ async function run() {
   let report = null;
   const reportJsonPath = path8.join(workDir, "report.json");
   if (baseline) {
-    const siftBin = await resolveSift(getInput("sift-binary"), workDir);
+    const tamysBin = await resolveTamys(getInput("tamys-binary"), workDir);
     const explain = getBooleanInput("explain");
     const explainModel = getInput("explain-model") || void 0;
     if (explain) {
-      await provisionExplain(siftBin);
+      await provisionExplain(tamysBin);
     }
     const changedJobGraph = await resolveChangedJobGraph({
       octokit,
@@ -103307,10 +103307,10 @@ async function run() {
     if (baseline.meta.kind !== "path" && Number.isSafeInteger(baselineRunId) && baselineRunId > 0) {
       baselineJobGraph = await resolveBaselineJobGraph({ octokit, owner, repo, baselineRunId, info });
     } else {
-      info("Sift: no baseline job graph \u2014 the baseline names no run it was published by.");
+      info("Tamys: no baseline job graph \u2014 the baseline names no run it was published by.");
     }
-    const result = await runSift({
-      siftBin,
+    const result = await runTamys({
+      tamysBin,
       baselineLog: baseline.logPath,
       changedLog,
       baselineLabel: baseline.meta.sha.slice(0, 7),
@@ -103330,7 +103330,7 @@ async function run() {
     gateExit = result.exitCode;
     report = result.report;
   } else {
-    info(`Sift: cold start \u2014 no baseline on \`${baseBranch}\` yet.`);
+    info(`Tamys: cold start \u2014 no baseline on \`${baseBranch}\` yet.`);
   }
   let reportArtifact;
   if (report) {
@@ -103341,22 +103341,22 @@ async function run() {
         name,
         run_url: `${context2.serverUrl}/${owner}/${repo}/actions/runs/${context2.runId}`
       };
-      info(`Sift: uploaded the full report as the \`${name}\` artifact.`);
+      info(`Tamys: uploaded the full report as the \`${name}\` artifact.`);
     } catch (error2) {
       const message = error2 instanceof Error ? error2.message : String(error2);
       warning(
-        `Sift: could not upload the \`${name}\` report artifact (${message}). The comment does not point at it; the full report is still this step's \`report-path\` output.`
+        `Tamys: could not upload the \`${name}\` report artifact (${message}). The comment does not point at it; the full report is still this step's \`report-path\` output.`
       );
     }
   }
   const body3 = renderComment(report, { ...context5, report_artifact: reportArtifact });
   const state3 = selectState(report);
   await summary.addRaw(body3).write();
-  setSiftOutputs(state3, report);
+  setTamysOutputs(state3, report);
   setBaselineAgeOutputs(ageHours, baselineStale);
   let reportPathOut = "";
   if (report) {
-    reportPathOut = path8.join(process.env.RUNNER_TEMP || os8.tmpdir(), "sift-report.json");
+    reportPathOut = path8.join(process.env.RUNNER_TEMP || os8.tmpdir(), "tamys-report.json");
     await fs13.copyFile(reportJsonPath, reportPathOut);
   }
   setOutput("report-path", reportPathOut);
@@ -103371,16 +103371,16 @@ async function run() {
   if (mode === "render") {
     const shouldPost = shouldComment(state3, prComment);
     const runnerTemp = process.env.RUNNER_TEMP || os8.tmpdir();
-    const commentDir = path8.join(runnerTemp, SIFT_COMMENT_DIR);
+    const commentDir = path8.join(runnerTemp, TAMYS_COMMENT_DIR);
     await writeRenderedComment(body3, headSha, commentDir, shouldPost);
-    info(`Sift: render mode \u2014 wrote the comment body (pr-comment=${prComment} \u21D2 post=${shouldPost}); the workflow uploads it.`);
+    info(`Tamys: render mode \u2014 wrote the comment body (pr-comment=${prComment} \u21D2 post=${shouldPost}); the workflow uploads it.`);
     if (shouldSeed) {
       await tryWrite(
         "publish the baseline artifact",
         () => publishBaselineLog(changedLog, changedOutcome, changedTransport, baselineName)
       );
     } else {
-      info(`Sift: publish-baseline=${publishMode}${runOutcomeBad ? " (run verdict not SUCCESS)" : ""} \u2014 did not re-seed \`${baselineName}\`.`);
+      info(`Tamys: publish-baseline=${publishMode}${runOutcomeBad ? " (run verdict not SUCCESS)" : ""} \u2014 did not re-seed \`${baselineName}\`.`);
     }
     return;
   }
@@ -103391,16 +103391,16 @@ async function run() {
         () => upsertStickyComment({ octokit, owner, repo, prNumber: pr.number, body: body3 })
       );
     } else {
-      info(`Sift: pr-comment=${prComment} \u2014 verdict ${state3} below threshold, no comment (result in the job summary).`);
+      info(`Tamys: pr-comment=${prComment} \u2014 verdict ${state3} below threshold, no comment (result in the job summary).`);
     }
   } else if (shouldComment(state3, commitComment)) {
     await tryWrite(
       "post the commit comment (needs contents: write)",
       () => upsertCommitComment({ octokit, owner, repo, commitSha: headSha, body: body3 })
     );
-    info(`Sift: push \u2014 commit comment upserted on ${headSha.slice(0, 7)} (commit-comment: ${commitComment}).`);
+    info(`Tamys: push \u2014 commit comment upserted on ${headSha.slice(0, 7)} (commit-comment: ${commitComment}).`);
   } else {
-    info(`Sift: push \u2014 commit-comment=${commitComment}, verdict ${state3} below threshold (result in the job summary).`);
+    info(`Tamys: push \u2014 commit-comment=${commitComment}, verdict ${state3} below threshold (result in the job summary).`);
   }
   if (shouldSeed) {
     await tryWrite(
@@ -103408,10 +103408,10 @@ async function run() {
       () => publishBaselineLog(changedLog, changedOutcome, changedTransport, baselineName)
     );
   } else {
-    info(`Sift: publish-baseline=${publishMode}${runOutcomeBad ? " (run verdict not SUCCESS)" : ""} \u2014 kept the previous \`${baselineName}\` baseline (did not re-seed).`);
+    info(`Tamys: publish-baseline=${publishMode}${runOutcomeBad ? " (run verdict not SUCCESS)" : ""} \u2014 kept the previous \`${baselineName}\` baseline (did not re-seed).`);
   }
   if (gateExit !== 0) {
-    setFailed(`Sift gate (--fail-on ${failOn}) tripped \u2014 see the comment / job summary for what changed.`);
+    setFailed(`Tamys gate (--fail-on ${failOn}) tripped \u2014 see the comment / job summary for what changed.`);
   }
 }
 run().catch((error2) => {

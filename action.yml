@@ -1,4 +1,4 @@
-name: 'Sift — structural CI-log diff'
+name: 'Tamys — structural CI-log diff'
 description: 'Diffs one job''s CI log against the last green run on the base branch; posts one sticky PR comment + an advisory gate.'
 author: 'CodeRoast'
 branding:
@@ -8,8 +8,8 @@ branding:
 inputs:
   target-job:
     description: >-
-      Zero-plumbing log sourcing: the NAME of a finished job in this run whose log Sift diffs — no
-      tee/capture shell needed in the build job. Run Sift in a separate job that `needs:` the target
+      Zero-plumbing log sourcing: the NAME of a finished job in this run whose log Tamys diffs — no
+      tee/capture shell needed in the build job. Run Tamys in a separate job that `needs:` the target
       (the API serves logs for completed jobs only; the target's own conclusion then also gives you
       `changed-outcome` for free). The log is diffed as the bytes GitHub serves, its byte-order mark
       and per-line timestamps declared to the engine, which peels them; `capture` selects marked
@@ -23,9 +23,9 @@ inputs:
   capture:
     description: >-
       With `target-job`: which part of the job log to diff. `auto` (default) — if the log contains
-      SIFT_CAPTURE sections use them all, else the whole job log. `off` — the whole job log always.
-      `<name>` — only the sections opened with `SIFT_CAPTURE <name>` (absent ⇒ the run fails: config
-      error). Sections are plain echoed lines: `echo "SIFT_CAPTURE ci"` … `echo "SIFT_CAPTURE_END"`.
+      TAMYS_CAPTURE sections use them all, else the whole job log. `off` — the whole job log always.
+      `<name>` — only the sections opened with `TAMYS_CAPTURE <name>` (absent ⇒ the run fails: config
+      error). Sections are plain echoed lines: `echo "TAMYS_CAPTURE ci"` … `echo "TAMYS_CAPTURE_END"`.
     required: false
     default: 'auto'
   log:
@@ -38,14 +38,14 @@ inputs:
       only when the file holds several jobs' logs.
     required: false
     # Override only. By default the Action downloads + sha256-verifies the
-    # version-pinned `sift-linux-x64` release asset (resolve-sift.ts). Set this to
+    # version-pinned `sift-linux-x64` release asset (resolve-tamys.ts). Set this to
     # a path for a self-hosted runner / in-image build / Docker-bundle packaging.
-  sift-binary:
-    description: 'Override path to a `sift` binary. Default: download + verify the version-pinned linux-x64 release asset.'
+  tamys-binary:
+    description: 'Override path to a `tamys` binary. Default: download + verify the version-pinned linux-x64 release asset.'
     required: false
-    default: 'sift'
+    default: 'tamys'
   fail-on:
-    description: 'Fail this step when Sift reports a change that got worse at this severity or above: none (default, never fails) | medium | high | critical. Any other value fails the run (config error).'
+    description: 'Fail this step when Tamys reports a change that got worse at this severity or above: none (default, never fails) | medium | high | critical. Any other value fails the run (config error).'
     required: false
     default: 'none'
   baseline:
@@ -57,7 +57,7 @@ inputs:
       newest non-expired artifact with that exact name, repo-wide, established by reading every
       artifact of that name (100 per request, at most 1000; past that, or if the listing changes
       while it is read, a cold start that says why): NAMED baselines (a main-seeded
-      `sift-baseline-main-build`, a per-PR `sift-baseline-build-pr-123`) resolve from ANY event — tags
+      `tamys-baseline-main-build`, a per-PR `tamys-baseline-build-pr-123`) resolve from ANY event — tags
       and PRs included, no need for this workflow to have run on that branch. `path=<file>` — a local
       file (self-hosted / bring-your-own). `none` — forced cold start (seed-only runs). A malformed
       value fails the run (config error), never falls back silently.
@@ -67,9 +67,9 @@ inputs:
     description: >-
       The artifact name this run PUBLISHES its ingested log under (the `create_baseline` half), and
       the artifact name the `auto`/`branch=` resolvers look for on the resolved run. Compose per-job /
-      per-PR names with expressions, e.g. `sift-baseline-build-pr-123`.
+      per-PR names with expressions, e.g. `tamys-baseline-build-pr-123`.
     required: false
-    default: 'sift-baseline-log'
+    default: 'tamys-baseline-log'
   publish-baseline:
     description: >-
       When this run publishes `baseline-name`: `auto` (default — PRs always seed; pushes/tags are
@@ -93,7 +93,7 @@ inputs:
   comment-tag:
     description: >-
       Optional namespace for the sticky PR comment (appended to the hidden marker and the title), so
-      two sift invocations in one job — e.g. vs-main and vs-previous-run — each keep their own
+      two tamys invocations in one job — e.g. vs-main and vs-previous-run — each keep their own
       comment. Leave unset for the single-comment default.
     required: false
     default: ''
@@ -101,7 +101,7 @@ inputs:
     description: >-
       Opt-in AI narrative header (false default | true). When true, the Action provisions a pinned,
       checksum-verified LOCAL model + inference server (no credential, fork-safe — nothing leaves the
-      runner) and asks sift for a short plain-English story over the deterministic report. Adds a
+      runner) and asks tamys for a short plain-English story over the deterministic report. Adds a
       ~2.4 GB model download (cache it across runs with a one-line `actions/cache` step on
       `~/.cache/coderoast` — see the README explain example) + a few seconds of CPU inference; the
       deterministic report is ALWAYS produced regardless (the narrative is advisory and fail-soft — never
@@ -112,7 +112,7 @@ inputs:
     required: false
     default: 'false'
   explain-model:
-    description: 'Advanced: override the pinned recommended model name passed to `sift --explain`. Leave unset for the default (the only model the Action auto-provisions).'
+    description: 'Advanced: override the pinned recommended model name passed to `tamys --explain`. Leave unset for the default (the only model the Action auto-provisions).'
     required: false
     default: ''
   changed-outcome:
@@ -164,15 +164,15 @@ inputs:
     description: >-
       comment (default) — render + post the sticky comment inline (same-repo PRs,
       the proven path). render — render the escaped comment body to
-      $RUNNER_TEMP/sift-comment/ WITHOUT posting (the unprivileged fork build job;
-      the workflow uploads it as the `sift-comment` artifact). post — run no engine;
+      $RUNNER_TEMP/tamys-comment/ WITHOUT posting (the unprivileged fork build job;
+      the workflow uploads it as the `tamys-comment` artifact). post — run no engine;
       download that artifact off the triggering run and post the comment (the
       privileged workflow_run job). See examples/fork-safe/. Leave unset (comment)
       unless you have wired the fork-comment topology.
     required: false
     default: 'comment'
   run-id:
-    description: 'mode=post only: the triggering run id whose `sift-comment` artifact to post — the workflow_run event''s run id (see examples/fork-safe).'
+    description: 'mode=post only: the triggering run id whose `tamys-comment` artifact to post — the workflow_run event''s run id (see examples/fork-safe).'
     required: false
     default: ''
   build-workflow:
@@ -181,7 +181,7 @@ inputs:
     default: ''
 
 # Machine-readable verdict — set on EVERY run regardless of the comment config, so a later step can
-# branch on Sift's result (e.g. `if: steps.sift.outputs.state == 'regression'`) without parsing text.
+# branch on Tamys's result (e.g. `if: steps.tamys.outputs.state == 'regression'`) without parsing text.
 outputs:
   state:
     description: 'Verdict: cold-start | clean | drift | regression.'
@@ -204,18 +204,18 @@ outputs:
   report-path:
     description: >-
       Filesystem path to this run's deterministic report.json on a stable, cross-step
-      location ($RUNNER_TEMP/sift-report.json). Empty on cold start (no baseline ⇒ no
+      location ($RUNNER_TEMP/tamys-report.json). Empty on cold start (no baseline ⇒ no
       report). A later step on the SAME runner can narrate it with
-      `sift explain --report <path>` — the same content already in the comment/summary;
+      `tamys explain --report <path>` — the same content already in the comment/summary;
       no credential (contract § 3.6). The same report is also uploaded on every run that has one
-      as the `sift-report` workflow artifact (`sift-report-<comment-tag>` when tagged), which the
+      as the `tamys-report` workflow artifact (`tamys-report-<comment-tag>` when tagged), which the
       comment points at wherever it shows a row or the full report cut to GitHub's size limit.
 
 # Permissions the caller workflow must grant (contract § 6):
 #   actions: read       — resolve the base branch's last green run + its artifact
 #   pull-requests: write — post/update the sticky comment (PR runs)
 #   actions: write      — upload this run's baseline-log artifact
-# The `sift-report` artifact is uploaded through the same @actions/artifact client as the
+# The `tamys-report` artifact is uploaded through the same @actions/artifact client as the
 # baseline-log artifact (the runner's runtime token, not `github-token`), in the fork
 # `render` job too.
 #   contents: write     — ONLY if commit-comment is set (push-mode commit comments); else omit

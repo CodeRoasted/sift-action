@@ -1,23 +1,23 @@
-// The Sift Action's type surface.
+// The Tamys Action's type surface.
 //
-// Two halves, mirroring the render boundary (bibles/sift_action.md § 1):
-//   • `SiftReport`         — the ENGINE's content. A structural subset of the
+// Two halves, mirroring the render boundary (bibles/tamys_action.md § 1):
+//   • `TamysReport`         — the ENGINE's content. A structural subset of the
 //                            `ChangeReport` JSON (insight-eidos
-//                            sift/api/sift.api-report.cppm) — only the
+//                            tamys/api/tamys.api-report.cppm) — only the
 //                            fields the frame reads. The engine owns these.
-//   • `SiftCommentContext` — the CI/git/GitHub envelope the ENGINE cannot know
+//   • `TamysCommentContext` — the CI/git/GitHub envelope the ENGINE cannot know
 //                            (contract § 2.2). The Action assembles it.
 //
 // The comment body is a pure function of (report, context); see `frame.ts`.
 
 // ── Engine side: the report JSON (content) ──────────────────────────────────
 
-// Mirrors `dto::RankedChange` (sift/src/report/change_report_serialize.cpp). `severity`
+// Mirrors `dto::RankedChange` (tamys/src/report/change_report_serialize.cpp). `severity`
 // is lowercase on the wire ("low"|"medium"|"high"|"critical"); `polarity` is
 // omitted when Neutral (only "regression"|"recovery" appear). Rows are surfaced
 // verbatim up to the comment's declared display caps (frame.ts), past which a
 // frame-controlled marker names what was left out; the full row is verbatim in the
-// `sift-report` artifact. The Action never re-authors `summary`/`evidence` (contract § 1).
+// `tamys-report` artifact. The Action never re-authors `summary`/`evidence` (contract § 1).
 export interface RankedChange {
     kind: string;
     severity: string;
@@ -26,7 +26,7 @@ export interface RankedChange {
     polarity?: 'regression' | 'recovery';
     template_id?: string;
     phase?: string;
-    // WHERE attribution (F-SRC-insight-eidos:sift.api-change.cppm:Where): the finding's functional location (canon
+    // WHERE attribution (F-SRC-insight-eidos:tamys.api-change.cppm:Where): the finding's functional location (canon
     // `component`, e.g. "src/auth"). Omitted when the window carried no admissible
     // location. Engine CONTENT — escaped per surface (escapeInline / encodeCommandData).
     where?: string;
@@ -73,7 +73,7 @@ export interface InputProvenance {
     lines_observed: number;
     ngram_refusals?: NgramRefusal[];
     // Omitted by the engine when the path did not measure it — the aligned path, which is the
-    // one the Action's `sift a.log b.log` invocation takes, never counts whole-log templates.
+    // one the Action's `tamys a.log b.log` invocation takes, never counts whole-log templates.
     // Optional here also keeps an older engine's always-present key readable.
     unique_templates?: number;
 }
@@ -81,7 +81,7 @@ export interface InputProvenance {
 // The engine's `--format both` output: the structured report plus the
 // pre-rendered markdown body as a top-level sibling (`markdown`). The frame
 // reads the structured fields and embeds `markdown` verbatim in the <details>.
-export interface SiftReport {
+export interface TamysReport {
     report_version: string;
     summary: ReportSummary;
     ranked_changes: RankedChange[];
@@ -103,7 +103,7 @@ export interface BaselineProvenance {
     label?: string;
 }
 
-// Where this run's full report lives: the `sift-report` workflow artifact the Action uploaded,
+// Where this run's full report lives: the `tamys-report` workflow artifact the Action uploaded,
 // on the run page at `run_url`. Set only once the upload succeeded, so the comment never points
 // at an artifact that does not exist.
 export interface ReportArtifact {
@@ -114,9 +114,9 @@ export interface ReportArtifact {
 // Versioned envelope handed to the frame renderer alongside the report. When
 // `baseline` is absent the run is a cold start (state ①) and no report exists.
 // `baseline_source` is the human label of the CONFIGURED source (cold-start copy);
-// `comment_tag` namespaces the sticky marker + title so two sift invocations in
+// `comment_tag` namespaces the sticky marker + title so two tamys invocations in
 // one job (e.g. vs-main and vs-previous) can hold two distinct comments.
-export interface SiftCommentContext {
+export interface TamysCommentContext {
     context_version: string;
     head_sha: string;
     pr_number?: number;         // absent on a PUSH (trunk commit) — there is no PR (contract § 3)
@@ -144,14 +144,14 @@ export const CONTEXT_VERSION = '0.3.0';
 // The self-published baseline store (contract § 3): every run uploads its ingested
 // log under this name; a PR resolves its baseline by pulling the same-named
 // artifact off the base branch's last green run. One name, both sides.
-export const BASELINE_ARTIFACT_NAME = 'sift-baseline-log';
+export const BASELINE_ARTIFACT_NAME = 'tamys-baseline-log';
 
 // The baseline artifact's stamped provenance sidecar (ADR-17.D5): the publishing
 // run stamps its NATIVE CI verdict token (verbatim — the adapter never translates) so
 // the next run can forward it as `--baseline-outcome`. Absent sidecar /
 // empty token ⇒ no flag ⇒ the engine's run-outcome ladder (ADR-17.D5) falls to the console
 // tail, then Unknown — absence is the designed degenerate path, never an error.
-export const BASELINE_META_FILE = 'sift-baseline-meta.json';
+export const BASELINE_META_FILE = 'tamys-baseline-meta.json';
 export interface BaselineMeta {
     context_version: string;
     /** The publishing run's native CI verdict token, verbatim (e.g. "success"). */
@@ -177,26 +177,26 @@ export const TRANSPORT_CATALOGUE: readonly string[] = [
 // The full report, uploaded on every run that has one (report.json as the engine wrote it, and
 // its markdown as report.md). The comment is a bounded projection of it; this artifact is where
 // a row the comment could not show in full is read whole. A `comment-tag` suffixes the name, so
-// two tagged Sift steps in one job upload two artifacts instead of colliding on one.
-export const SIFT_REPORT_ARTIFACT_NAME = 'sift-report';
-export const SIFT_REPORT_JSON_FILE = 'report.json';
-export const SIFT_REPORT_MARKDOWN_FILE = 'report.md';
+// two tagged Tamys steps in one job upload two artifacts instead of colliding on one.
+export const TAMYS_REPORT_ARTIFACT_NAME = 'tamys-report';
+export const TAMYS_REPORT_JSON_FILE = 'report.json';
+export const TAMYS_REPORT_MARKDOWN_FILE = 'report.md';
 export function reportArtifactName(tag?: string): string {
-    return tag ? `${SIFT_REPORT_ARTIFACT_NAME}-${tag}` : SIFT_REPORT_ARTIFACT_NAME;
+    return tag ? `${TAMYS_REPORT_ARTIFACT_NAME}-${tag}` : TAMYS_REPORT_ARTIFACT_NAME;
 }
 
 // ── Fork-PR render → workflow_run post boundary (contract § 6.1) ─────────────
 //
 // `render` mode writes the (already Gate-B-escaped) comment body + head_sha meta
-// into $RUNNER_TEMP/sift-comment/; the consumer's workflow uploads that directory
-// as the `sift-comment` artifact (examples/fork-safe/build.yml). `post` mode
+// into $RUNNER_TEMP/tamys-comment/; the consumer's workflow uploads that directory
+// as the `tamys-comment` artifact (examples/fork-safe/build.yml). `post` mode
 // downloads that artifact off the triggering run and upserts the comment. The
 // body is INERT (escapeInline/escapeHtml) — the escape IS the trust boundary, so
 // the poster never parses a log or runs the engine. `pr_number` is deliberately
 // NOT carried: the poster re-derives it from the TRUSTED `workflow_run` head_sha
 // via the PRs API, never a fork-supplied value.
-export const SIFT_COMMENT_ARTIFACT_NAME = 'sift-comment';
-export const SIFT_COMMENT_DIR = 'sift-comment'; // under $RUNNER_TEMP (consumer uploads it)
+export const TAMYS_COMMENT_ARTIFACT_NAME = 'tamys-comment';
+export const TAMYS_COMMENT_DIR = 'tamys-comment'; // under $RUNNER_TEMP (consumer uploads it)
 export const RENDERED_BODY_FILE = 'comment-body.md';
 export const RENDERED_META_FILE = 'comment-meta.json';
 
@@ -240,7 +240,7 @@ export const MAX_BASELINE_UNPACKED_BYTES = 256 * 1024 * 1024; // 256 MiB, DECOMP
 // changed log is the one that grows — it is the log of the run happening right now.
 //
 // WHY THIS EXACT NUMBER, AND WHY IT IS NOT A SECOND OPINION: it is the ENGINE's declared
-// per-input byte ceiling (`sift --help` § Input ceiling), restated at the boundary that can
+// per-input byte ceiling (`tamys --help` § Input ceiling), restated at the boundary that can
 // refuse earlier and say more. There is deliberately ONE published ceiling: a wrapper cap
 // tighter than the engine's would silently shrink the product's documented limit, and a looser
 // one would be decoration. If they ever disagree, the engine wins by construction — it exits 3

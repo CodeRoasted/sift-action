@@ -5,7 +5,7 @@
 // `polarity == "regression"`, and the engine-resolved run-verdict pair
 // (`summary.outcome_regressed`, ADR-17.D5). No I/O.
 
-import type { RunOutcome, SiftReport } from './types.js';
+import type { RunOutcome, TamysReport } from './types.js';
 
 // The four frame states (PRD-6 § "The four states"). `ColdStart` is rendered
 // without a report (the engine is not invoked when no baseline exists).
@@ -21,7 +21,7 @@ export enum State {
 // Success < Unstable < Failure, the incomplete ABORTED/CANCELLED and Unknown excluded). One canonical pair the
 // headline, the rows, and the gate all agree on — a SUCCESS→UNSTABLE run with no
 // new structural row is still loud (UNSTABLE never folds, ADR-17.D5).
-export function hasRegression(report: SiftReport): boolean {
+export function hasRegression(report: TamysReport): boolean {
     return (
         report.summary.outcome_regressed === true ||
         report.ranked_changes.some((row) => row.polarity === 'regression')
@@ -57,7 +57,7 @@ export function resolvedOutcomeBlocksSeeding(outcome: RunOutcome | undefined): b
 // Regression is checked BEFORE Clean: a verdict regression (SUCCESS→UNSTABLE) can
 // arrive with zero significant structural rows — steady templates, worse verdict —
 // and must not render as "✅ no structural change".
-export function selectState(report: SiftReport | null): State {
+export function selectState(report: TamysReport | null): State {
     if (report === null) {
         return State.ColdStart;
     }
@@ -80,7 +80,7 @@ export function selectState(report: SiftReport | null): State {
 //   drift       — drift OR regression
 //   always      — every state, incl. clean's "✅ no change" reassurance and cold start
 // The job summary + outputs are written regardless; this only gates the comment. The ladder
-// answers WHEN SIFT SPEAKS; `fail-on` answers when it blocks, a separate question (DN-132.D2).
+// answers WHEN TAMYS SPEAKS; `fail-on` answers when it blocks, a separate question (DN-132.D2).
 export const COMMENT_LEVELS = ['never', 'regression', 'drift', 'always'] as const;
 export type CommentLevel = (typeof COMMENT_LEVELS)[number];
 

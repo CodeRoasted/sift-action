@@ -25,16 +25,16 @@ jobs:
   #
   # `checks`: the runtime we prove on IS the runtime we ship on (`--selftest` proves the
   # extractors have teeth; `npm run runtime-coherence` is the same entry point a developer uses
-  # pre-push). `logged`: what Sift diffs. `post-checks`: dist/ in sync with src/, the engine pin
+  # pre-push). `logged`: what Tamys diffs. `post-checks`: dist/ in sync with src/, the engine pin
   # PUBLISHED, and the preflight — the vector we BUILD runs on the engine we PIN (the pin can be
   # published and still reject a token we forward: measured three times, every other gate green).
-  # `sift: local` dogfoods THIS checkout's action, with the advisory SIFT-WALLTIME record (input
+  # `tamys: local` dogfoods THIS checkout's action, with the advisory TAMYS-WALLTIME record (input
   # bytes, wall time, change counts; never a gate — CI wall time on a shared runner is noise).
   build:
     permissions:
       contents: write
-      pull-requests: write   # Sift dogfood: comment on same-repo PRs + seed on push; fork PRs skipped (read-only token anyway)
-      actions: write         # Sift dogfood: upload the baseline-log artifact (+ read for last-green resolution)
+      pull-requests: write   # Tamys dogfood: comment on same-repo PRs + seed on push; fork PRs skipped (read-only token anyway)
+      actions: write         # Tamys dogfood: upload the baseline-log artifact (+ read for last-green resolution)
     uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-node-ci.yml@de70630eaaf3772c3307573f232c0716638aa4ea
     with:
       node-version: '24'
@@ -48,7 +48,7 @@ jobs:
         bash scripts/dist_in_sync.sh
         bash scripts/engine_pin_published.sh
         npm run preflight
-      sift: local
+      tamys: local
       walltime-record: true
 
   # actionlint over this repository's workflows: malf's `coderoast-lint.yml` with every C++ gate off
@@ -87,7 +87,7 @@ jobs:
   release:
     # THE MARKETPLACE MECHANISM. A Marketplace listing can only be republished from a
     # RELEASE — never from a tag. This repo had NO release job at all, and the cut
-    # runbook's Sift wave (`OPS-1.S11`) pushed `main` and stopped, so twelve wrapper tags
+    # runbook's Tamys wave (`OPS-1.S11`) pushed `main` and stopped, so twelve wrapper tags
     # shipped against exactly ONE Release (`v1.0.0`, 3 June) and the listing never moved.
     # The step was ABSENT, not silently failing: there was nothing to fail.
     #
@@ -119,7 +119,7 @@ jobs:
           fetch-depth: 0
 
       - name: The tag and the manifest must declare the same version
-        # `package.json` is the Action's own consumer-version declaration (`src/sift-version.ts`
+        # `package.json` is the Action's own consumer-version declaration (`src/tamys-version.ts`
         # documents the two independent lines and which one moves when). The workspace pin gate
         # holds it against `package-lock.json` (INV-9) and NOTHING has ever held it against the
         # tag. Measured 2026-08-19 across the wrapper series: `v1.5.0`…`v1.8.0` each shipped with
@@ -166,7 +166,7 @@ jobs:
               echo "::error::tag $TAG carries no message — it would publish an empty Marketplace entry. Force-MOVE the tag with 'git tag -f -a $TAG -m \"…\"' (never delete: a delete orphans the Release to a draft)."; exit 1; }
             printf '%s\n' "$msg" > "$RUNNER_TEMP/notes.md"
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --latest \
-              --title "Sift Action $TAG" --notes-file "$RUNNER_TEMP/notes.md"
+              --title "Tamys Action $TAG" --notes-file "$RUNNER_TEMP/notes.md"
           fi
           # Assert the state, never assume it — a draft Release reads as success to the creator
           # and as "not found" to everyone else.
@@ -204,7 +204,7 @@ jobs:
           # Derived from `action.yml`'s `name:` by GitHub, so it is not independently
           # discoverable. Pinned here rather than reconstructed, and the repo-identity
           # assertion below is what catches it if the name (and therefore the slug) ever moves.
-          SLUG: sift-structural-ci-log-diff
+          SLUG: tamys-structural-ci-log-diff
         run: |
           set -euo pipefail
           url="https://github.com/marketplace/actions/$SLUG"

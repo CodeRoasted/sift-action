@@ -1,11 +1,11 @@
 // DN-127 slice S1 at the Action's producer (jobgraph.ts): the matrix species is read from the
 // workflow file and travels on the ADR-22.D13 wire, and the one containment predicate gains arms M
-// and T. These are the crawl producer's arms (insight-eidos sift/tests/crawl/job_graph_matrix_test.cpp)
+// and T. These are the crawl producer's arms (insight-eidos tamys/tests/crawl/job_graph_matrix_test.cpp)
 // over the SAME workflow and listing — a divergence between the two producers is a fork of one wire.
 //
 // L10, producer half: every KEYED entry carries `declares_matrix`, true exactly when the job body
 // declares `strategy.matrix` (a literal or an expression value alike), and no KEYLESS rendering
-// carries it. The engine refuses either violation, naming the entry (sift_cli_matrix_leg_test.cpp).
+// carries it. The engine refuses either violation, naming the entry (tamys_cli_matrix_leg_test.cpp).
 // L2, S1 half: arm M admits `<anchor> (` and never parses the rest; arm T reads the declared
 // `name:` as a glob template, each `${{ … }}` span matching any bytes; an anchor made only of
 // expressions claims nothing; a rendering byte-equal to the anchor joins by arm E. Amended

@@ -1,6 +1,6 @@
-# Sift Action
+# Tamys Action
 
-Structural diff of your CI logs, on every PR. Sift diffs one job's log against
+Structural diff of your CI logs, on every PR. Tamys diffs one job's log against
 that job's log from the **last green run on your base branch** and posts **one
 sticky comment** — ranked by what matters, with the noise suppressed — plus an
 optional advisory gate. Deterministic; runs entirely in your CI (your logs never
@@ -9,13 +9,13 @@ leave it).
 The whole integration:
 
 ```yaml
-- name: Sift Log Diff
+- name: Tamys Log Diff
   uses: CodeRoasted/sift-action@v2
   with:
     target-job: build
 ```
 
-Your build job stays untouched — Sift pulls its log straight off the GitHub API,
+Your build job stays untouched — Tamys pulls its log straight off the GitHub API,
 forwards the job's own verdict to the engine (SUCCESS / FAILURE / UNSTABLE /
 ABORTED / CANCELLED), diffs, comments, and seeds the next baseline. Full hello
 world: [`examples/simple/ci.yml`](examples/simple/ci.yml).
@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v5
       - run: make ci    # your build — untouched, nothing to capture
 
-  sift:
+  tamys:
     needs: build
     if: ${{ !cancelled() }}   # still diff when the build went red — that's the point
     runs-on: ubuntu-latest
@@ -40,7 +40,7 @@ jobs:
       actions: write          # read the build job's log + baselines; upload this run's baseline
       pull-requests: write    # post/update the sticky comment
     steps:
-      - name: Sift Log Diff
+      - name: Tamys Log Diff
         uses: CodeRoasted/sift-action@v2
         with:
           target-job: build
@@ -50,13 +50,13 @@ The first green run on the base branch seeds the baseline; every PR gets a diff
 automatically thereafter (self-bootstrapping). No prior green run ⇒ an honest
 "no baseline yet" comment.
 
-**Sift diffs one job today, not the whole run.** With `target-job`, each Sift step
+**Tamys diffs one job today, not the whole run.** With `target-job`, each Tamys step
 compares the log of that one job with the same job's log from the baseline run; the
 logs of the run's other jobs are not read. With `log:`, it compares exactly what the
 file holds. Diffing the whole run is what comes next: every job in one comparison, so a
 job added or removed, or a failure that moves from one job to another, reads as
 one structural change.
-Every Sift step's log says which grain it acquired, e.g. `Sift: grain — acquired 1
+Every Tamys step's log says which grain it acquired, e.g. `Tamys: grain — acquired 1
 job of the 7 this run lists ("build")`.
 
 **The declared job graph, and what it gives one job.** The Action reads the workflow file
@@ -89,13 +89,13 @@ Every default is overridable — the annotated tour (all knobs optional):
 - uses: CodeRoasted/sift-action@v2
   with:
     # ── Log sourcing ─────────────────────────────────────────────────────
-    target-job: build                # diff a finished job's log (run Sift in a job that `needs:` it)
-    capture: ci                      # auto (SIFT_CAPTURE sections if any, else whole log) | off | <name>
+    target-job: build                # diff a finished job's log (run Tamys in a job that `needs:` it)
+    capture: ci                      # auto (TAMYS_CAPTURE sections if any, else whole log) | off | <name>
     # log: build.log                 # OR a file you captured yourself (tee) — see "Capturing the log"
 
     # ── Baseline — you are King ──────────────────────────────────────────
-    baseline: artifact=sift-baseline-main-ci   # auto | branch=<name> | artifact=<name> | path=<file> | none
-    baseline-name: sift-baseline-main-ci       # the artifact name THIS run publishes its log under
+    baseline: artifact=tamys-baseline-main-ci   # auto | branch=<name> | artifact=<name> | path=<file> | none
+    baseline-name: tamys-baseline-main-ci       # the artifact name THIS run publishes its log under
     publish-baseline: auto                     # auto (PRs always; pushes/tags verdict-gated) | always | never
 
     # ── Verdict surfaces (each its own level: never|regression|drift|always) ──
@@ -112,7 +112,7 @@ Every default is overridable — the annotated tour (all knobs optional):
     # ── Extras ───────────────────────────────────────────────────────────
     explain: false                   # opt-in local-model AI narrative (~2.4 GB, fail-soft) — see "Explain"
     # explain-model: <name>          # advanced: override the pinned model
-    # sift-binary: /path/to/sift     # self-hosted/in-image override (default: pinned, sha256-verified download)
+    # tamys-binary: /path/to/sift     # self-hosted/in-image override (default: pinned, sha256-verified download)
     github-token: ${{ github.token }}
 ```
 
@@ -124,7 +124,7 @@ The fork-safe two-workflow topology adds `mode` / `run-id` / `build-workflow`
 
 ## On a push vs a PR
 
-Sift works whether you use PRs or push straight to `main`. **The diff is always written to the run's
+Tamys works whether you use PRs or push straight to `main`. **The diff is always written to the run's
 job summary (`$GITHUB_STEP_SUMMARY`) and to step outputs** — that's the result, retrievable no matter
 how you configure comments. Comments are an optional overlay on top, each surface with its own level:
 
@@ -140,16 +140,16 @@ staying silent on routine pushes. `fail-on` is a separate axis — it gates the 
 not the comment. A value outside a surface's list fails the run as a configuration error, rather than
 quietly switching the surface on or off. The first run on a fresh branch is a cold start (seed only); every run after diffs.
 
-**What Drift means on two green runs.** Sift compares exactly two runs and keeps no history. On two
+**What Drift means on two green runs.** Tamys compares exactly two runs and keeps no history. On two
 successful runs, Drift means the logs differ, not that this change caused the difference: a line that
-comes and goes between your workflow's successful runs reads as Drift, because Sift has never seen
+comes and goes between your workflow's successful runs reads as Drift, because Tamys has never seen
 those runs. Measured on 21 264 pairs of successful runs from public repositories, 12 357 (58.1 %)
 read Drift. (Measured with the Sift 1.10.6 engine. Every report states the first two sentences under
 its inputs, and the PR comment states them above its footer, whatever its state.)
 
 ## Choosing the baseline — you are King
 
-By default (`baseline: auto`) Sift diffs against the last green run of **this workflow** on the PR's
+By default (`baseline: auto`) Tamys diffs against the last green run of **this workflow** on the PR's
 base branch (push: the pushed branch; **tag: the repo's default branch** — so a tag build diffs
 against `main`'s last green out of the box). *Last* means the newest green run by when it was
 created: re-running an older run does not make it newer. `auto` reads that one branch's runs
@@ -187,7 +187,7 @@ the newest stored baseline repo-wide. Every part of that is overridable:
   the PR's previous run) each keep their own comment.
 
 Named baselines decouple the diff from "this workflow ran on that branch": a `push`-to-`main` job
-seeds `sift-baseline-main-build`; PRs and tag builds resolve it by name from any event. The
+seeds `tamys-baseline-main-build`; PRs and tag builds resolve it by name from any event. The
 canonical topology — main/tag runs diff vs the main baseline and re-seed it; PR runs diff vs main
 **and** vs their own previous run — is in
 [`examples/baselines/ci.yml`](examples/baselines/ci.yml).
@@ -200,7 +200,7 @@ at the end:
 
 - **Each row's text is shown up to 1,024 bytes**, and its `where` location up to 256 bytes, both
   counted after escaping. A longer row ends in a marker saying how much was left out and which
-  template it is, e.g. `` … [+68,976 B not shown; template h:7f3a…, full text in the `sift-report` artifact] ``.
+  template it is, e.g. `` … [+68,976 B not shown; template h:7f3a…, full text in the `tamys-report` artifact] ``.
   A row within the cap is shown whole, with no marker.
 - **The full report is embedded in the collapsed block only when the whole comment then fits.**
   Otherwise the block holds one line giving the report's size and pointing at the artifact. It is
@@ -208,8 +208,8 @@ at the end:
   two-run claim boundary on every comment, and, when an n-gram window hit its key limit, the
   report's line saying so on a comment that does not embed the report (the Clean comment has no
   collapsed block).
-- **The full report is uploaded on every run that has one** as the **`sift-report`** workflow
-  artifact (`sift-report-<comment-tag>` with a `comment-tag`): `report.json` exactly as the engine
+- **The full report is uploaded on every run that has one** as the **`tamys-report`** workflow
+  artifact (`tamys-report-<comment-tag>` with a `comment-tag`): `report.json` exactly as the engine
   wrote it, and `report.md`, its markdown. The comment footer links to it. It is the content the
   comment already shows, so the fork `render` job uploads it too. If the upload fails, the step
   warns and the comment does not point at it; `report-path` still holds the report.
@@ -218,7 +218,7 @@ The report itself caps nothing: every row is written whole, in the artifact.
 
 ## Inline annotations
 
-Sift can also emit the significant rows as native **check-run annotations** (`::error` / `::warning` /
+Tamys can also emit the significant rows as native **check-run annotations** (`::error` / `::warning` /
 `::notice`) — they show in the **Checks** tab and the PR "checks were not successful" strip, inline with
 the run. **They are OFF by default** (`annotations: never`) — the PR comment and the job summary already
 render the same result, and an annotation competes with the compiler's own in the gutter where a real
@@ -231,7 +231,7 @@ build error must stay findable. Opt in and the surface is whole: `annotations` t
 
 They **fire on a green build** too — exactly where GitHub's own "Explain error" is silent (it only fires
 on a *red* check). The message is the engine's ranked `summary` + its first evidence line, **verbatim**;
-there is **no `file:line` anchor** — Sift diffs *logs*, not source, so it never guesses a source location
+there is **no `file:line` anchor** — Tamys diffs *logs*, not source, so it never guesses a source location
 (the full report stays in the PR comment + `<details>`). A clean run has no significant rows, so even
 `drift` stays quiet on a green, unchanged build.
 
@@ -244,7 +244,7 @@ or break an annotation (`src/annotations.ts`).
 
 ## Capturing the log
 
-**The default (`target-job`) needs no capture at all** — Sift downloads the finished
+**The default (`target-job`) needs no capture at all** — Tamys downloads the finished
 job's log from the GitHub API as the bytes GitHub serves, and declares to the engine the
 two delivery layers those bytes carry (a byte-order mark at the head of the job's log, and
 the timestamp the API stamps on every line); the engine peels them, so no byte of a line is
@@ -253,14 +253,14 @@ markers — plain echoed lines in any step:
 
 ```yaml
 - run: |
-    echo "SIFT_CAPTURE ci"     # optional — no markers ⇒ the whole job log
+    echo "TAMYS_CAPTURE ci"     # optional — no markers ⇒ the whole job log
     make ci
-    echo "SIFT_CAPTURE_END"
+    echo "TAMYS_CAPTURE_END"
 ```
 
 `capture:` selects `auto` (marked sections if any, else the whole log) | `off` | a
-section name — several named sections (`SIFT_CAPTURE ci`, `SIFT_CAPTURE release`) give
-independent diffs/lineages from one job, one Sift step each, each with its own
+section name — several named sections (`TAMYS_CAPTURE ci`, `TAMYS_CAPTURE release`) give
+independent diffs/lineages from one job, one Tamys step each, each with its own
 `baseline-name` (+ `comment-tag`). A marker is recognised behind the line's timestamp; the
 lines a section selects reach the engine byte for byte, and the marker lines themselves do not.
 
@@ -270,7 +270,7 @@ against: that run is a cold start whose warning says so, and it re-seeds the lin
 start per baseline lineage, once.
 
 **The in-job way** (`log:`) — a file holding the output you want diffed, captured
-however fits your job; Sift then runs as a step of the build job itself. Always with
+however fits your job; Tamys then runs as a step of the build job itself. Always with
 `set -o pipefail` (a bare `… | tee` masks the build's real exit code), and set
 `changed-outcome` explicitly (there is no target job to derive it from):
 
@@ -296,7 +296,7 @@ however fits your job; Sift then runs as a step of the build job itself. Always 
     run: truncate --size 0 "$GITHUB_WORKSPACE/build.log"
   - run: cmake --build build   2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
   - run: ctest --test-dir build 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
-  # … then point Sift at it:
+  # … then point Tamys at it:
   #   with: { log: build.log, changed-outcome: "${{ steps.build.outcome }}" }
   ```
 
@@ -317,7 +317,7 @@ standard step — the engine caches under `~/.cache/coderoast`:
       - uses: actions/cache@v4
         with:
           path: ~/.cache/coderoast          # the pinned model + server (~2.4 GB)
-          key: sift-explain-${{ runner.os }}-v<ENGINE_VERSION>   # bump with the Sift engine version
+          key: tamys-explain-${{ runner.os }}-v<ENGINE_VERSION>   # bump with the Tamys engine version
       - uses: CodeRoasted/sift-action@v2
         with:
           log: build.log
@@ -346,7 +346,7 @@ same gate, just without the narrative. If you ever see it on a cold run, the cac
 - **Binary distribution:** the Action downloads the **version-pinned**
   `sift-linux-x64` release asset and **verifies its sha256** before executing it —
   a checksum mismatch is fatal (the asset is a supply-chain surface: the Action
-  runs it). The pinned version is fixed per Action release. Set `sift-binary:` only
+  runs it). The pinned version is fixed per Action release. Set `tamys-binary:` only
   to override with your own build (self-hosted runner / in-image).
 
 ## Fork PRs
@@ -361,7 +361,7 @@ can keep a visible structural signal even without the two-workflow pattern. Safe
 To actually **post comments on fork PRs**, use the two-workflow pattern (the secure
 alternative to `pull_request_target`) — see [`examples/fork-safe/`](examples/fork-safe/):
 
-1. **`build.yml`** (`on: pull_request`, **read-only**) builds the PR and runs Sift in
+1. **`build.yml`** (`on: pull_request`, **read-only**) builds the PR and runs Tamys in
    `mode: render` → uploads the comment body (stamped with the `pr-comment` verdict) as an
    artifact. Fork code runs here, but the token can't post or touch anything privileged.
 2. **`post.yml`** (`on: workflow_run`, **`pull-requests: write`**) downloads that artifact and
@@ -379,7 +379,7 @@ engine's release train.
 
 ## Other CI / Jenkins
 
-This Action is a thin adapter over a **CI-agnostic substrate**: the `sift` engine ships as
+This Action is a thin adapter over a **CI-agnostic substrate**: the `tamys` engine ships as
 **public, unauthenticated, checksummed** release assets — `sift-linux-x64` and `sift-windows-x64.exe`
 (each with a `.sha256`) on this repo's releases. Any CI with `curl` + `sha256sum` is just another client.
 
@@ -392,7 +392,7 @@ run months apart installs the same bytes; `latest` is available but must be **as
 curl -fsSL https://raw.githubusercontent.com/CodeRoasted/sift-action/main/install.sh | sh
 # a different version:    ...install.sh | sh -s -- <X.Y.Z>
 # the moving target:      ...install.sh | sh -s -- latest      # not reproducible, and it says so
-# choose the location:    SIFT_INSTALL_DIR="$HOME/bin"  (default: /usr/local/bin, else ~/.local/bin)
+# choose the location:    TAMYS_INSTALL_DIR="$HOME/bin"  (default: /usr/local/bin, else ~/.local/bin)
 ```
 
 ```powershell
@@ -400,10 +400,10 @@ curl -fsSL https://raw.githubusercontent.com/CodeRoasted/sift-action/main/instal
 irm https://raw.githubusercontent.com/CodeRoasted/sift-action/main/install.ps1 | iex
 # a different version: & ([scriptblock]::Create((irm .../install.ps1))) -Version <X.Y.Z>
 # the moving target:   & ([scriptblock]::Create((irm .../install.ps1))) -Version latest
-# choose location: $env:SIFT_INSTALL_DIR = 'C:\tools\sift'  (default: %LOCALAPPDATA%\Programs\sift)
+# choose location: $env:TAMYS_INSTALL_DIR = 'C:\tools\tamys'  (default: %LOCALAPPDATA%\Programs\tamys)
 ```
 
-Then `sift <baseline.log> <changed.log>` in any CI or locally. The download URLs are **stable** — only
+Then `tamys <baseline.log> <changed.log>` in any CI or locally. The download URLs are **stable** — only
 the version tag varies, the asset names are fixed (the engine binaries ride a distinct `engine-v…` tag):
 
 ```
@@ -413,28 +413,28 @@ https://github.com/CodeRoasted/sift-action/releases/download/engine-v<VERSION>/s
 
 **Jenkins** has a ready, **doc-only** Tier-0 recipe: [`examples/jenkins/Jenkinsfile`](examples/jenkins/Jenkinsfile).
 It reproduces the Action's advisory-first posture with zero new code — `--fail-on medium` is the
-gate; the archived `sift-report.json` + build status are the surface. The baseline is **user-wired**
+gate; the archived `tamys-report.json` + build status are the surface. The baseline is **user-wired**
 (last green build's archived log via the Copy Artifact plugin, or a committed known-good log);
 base-branch-aware "last green" resolution and a native PR/MR comment are platform-specific Tier-1 work
-(see `bibles/sift_action.md` § 9). The same curl-verify-run pattern ports to GitLab CI, Buildkite, or
+(see `bibles/tamys_action.md` § 9). The same curl-verify-run pattern ports to GitLab CI, Buildkite, or
 a local shell.
 
 ## Inputs
 
 | Input | Required | Default | Notes |
 |---|---|---|---|
-| `target-job` | no | _(none)_ | Zero-plumbing sourcing: diff the log of this finished job (run Sift in a job that `needs:` it). Wins over `log`. See [Capturing the log](#capturing-the-log). |
-| `capture` | no | `auto` | With `target-job`: `auto` (SIFT_CAPTURE sections if any, else whole log) \| `off` \| `<name>` (that section only; absent ⇒ the run fails). |
+| `target-job` | no | _(none)_ | Zero-plumbing sourcing: diff the log of this finished job (run Tamys in a job that `needs:` it). Wins over `log`. See [Capturing the log](#capturing-the-log). |
+| `capture` | no | `auto` | With `target-job`: `auto` (TAMYS_CAPTURE sections if any, else whole log) \| `off` \| `<name>` (that section only; absent ⇒ the run fails). |
 | `log` | unless `target-job` | — | Path to the captured current-run log to diff. The only source on which the required-check fold can fire, when the file holds several jobs' logs (see [the required-check fold](#usage)). |
-| `sift-binary` | no | _(auto)_ | Override path to a `sift` binary. Default: download + sha256-verify the version-pinned `sift-linux-x64` release asset. |
-| `fail-on` | no | `none` | `none` \| `medium` \| `high` \| `critical` — fail this step when Sift reports a change that got worse at this severity or above (a listed row with polarity regression), or when the run's declared verdict got worse (read as critical, so it trips at every value). `none` never fails. Advisory: exit code only; the comment never says "blocked". Any other value fails the run. |
+| `tamys-binary` | no | _(auto)_ | Override path to a `sift` binary. Default: download + sha256-verify the version-pinned `sift-linux-x64` release asset. |
+| `fail-on` | no | `none` | `none` \| `medium` \| `high` \| `critical` — fail this step when Tamys reports a change that got worse at this severity or above (a listed row with polarity regression), or when the run's declared verdict got worse (read as critical, so it trips at every value). `none` never fails. Advisory: exit code only; the comment never says "blocked". Any other value fails the run. |
 | `explain` | no | `false` | `true` opts into an AI narrative header: the Action provisions a pinned, checksum-verified **local** model + server (no credential, fork-safe — nothing leaves the runner) and adds a short plain-English story. Advisory + fail-soft — never blocks or changes the gate, and provisioning is bounded at 15 minutes so it cannot stall your run. Adds a ~2.4 GB model download (cache it — see [Explain](#explain-opt-in-ai-narrative)) + a few seconds of CPU. |
-| `explain-model` | no | _(pinned)_ | Advanced: override the model name passed to `sift --explain`. Leave unset for the auto-provisioned default. |
+| `explain-model` | no | _(pinned)_ | Advanced: override the model name passed to `tamys --explain`. Leave unset for the auto-provisioned default. |
 | `baseline` | no | `auto` | Baseline **selection**: `auto` \| `branch=<name>` \| `artifact=<name>` (named baseline, repo-wide) \| `path=<file>` \| `none`. Malformed values fail the run — never a silent fallback. See [Choosing the baseline](#choosing-the-baseline--you-are-king). |
-| `baseline-name` | no | `sift-baseline-log` | Artifact name this run **publishes** its log under (and what `auto`/`branch=` resolvers look for). |
+| `baseline-name` | no | `tamys-baseline-log` | Artifact name this run **publishes** its log under (and what `auto`/`branch=` resolvers look for). |
 | `publish-baseline` | no | `auto` | `auto` (PRs always seed; pushes/tags verdict-gated: FAILURE/UNSTABLE/ABORTED/CANCELLED never re-seeds) \| `always` \| `never`. |
 | `baseline-max-age` | no | `72h` | Staleness bound on the resolved baseline (`<n>h` \| `<n>d`; empty disables it). Exceeded ⇒ stale banner + warning annotation, **never a failed step** (still diffs, posts, seeds). Malformed values fail the run. See [Choosing the baseline](#choosing-the-baseline--you-are-king). |
-| `comment-tag` | no | _(none)_ | Namespaces the sticky comment (marker + title) so two sift invocations in one job keep separate comments. |
+| `comment-tag` | no | _(none)_ | Namespaces the sticky comment (marker + title) so two tamys invocations in one job keep separate comments. |
 | `changed-outcome` | no | `auto` | This run's **native** CI verdict token, forwarded verbatim to the engine (class-aware: UNSTABLE is never folded into FAILURE). `auto` = `target-job`'s own conclusion; set `${{ needs.<job>.result }}` when sourcing via `log:`, else the engine reads the log's console tail / no verdict. |
 | `pr-comment` | no | `always` | `never` \| `regression` \| `drift` \| `always` — sticky PR comment at/above this verdict. Any other value fails the run. |
 | `commit-comment` | no | `never` | `never` \| `regression` \| `drift` \| `always` — commit comment on push at/above this verdict (needs `contents: write`). Any other value fails the run. |
@@ -444,7 +444,7 @@ a local shell.
 ## Outputs
 
 Set on **every** run, whatever the comment config — branch on them in a later step
-(`if: steps.sift.outputs.state == 'regression'`):
+(`if: steps.tamys.outputs.state == 'regression'`):
 
 | Output | Description |
 |---|---|
@@ -457,11 +457,11 @@ Set on **every** run, whatever the comment config — branch on them in a later 
 | `outcome-regressed` | `true` when the run verdict got strictly worse (`Success < Unstable < Failure`; Aborted/Cancelled/Unknown excluded). |
 | `baseline-age-hours` | Resolved baseline's age in whole hours, from when its artifact was stored; empty when unknown (cold start, `path=` baseline, pre-sidecar artifact) — never 0-for-unknown. |
 | `baseline-stale` | `true` when a `baseline-max-age` bound is in force and the resolved baseline exceeds it, else `false`. Advisory — it never fails the step. |
-| `report-path` | Path to this run's `report.json` on a stable, cross-step location (empty on cold start). A later step on the **same runner** can narrate it with `sift explain --report <path>` — same content as the comment; no credential. The same report is the run's `sift-report` artifact ([The comment and the full report](#the-comment-and-the-full-report)). |
+| `report-path` | Path to this run's `report.json` on a stable, cross-step location (empty on cold start). A later step on the **same runner** can narrate it with `tamys explain --report <path>` — same content as the comment; no credential. The same report is the run's `tamys-report` artifact ([The comment and the full report](#the-comment-and-the-full-report)). |
 
 ## Architecture
 
-The **engine** (`sift`, C++) owns all content — the ranked rows (`summary`) and
+The **engine** (`tamys`, C++) owns all content — the ranked rows (`summary`) and
 the full report body. The **Action** (this, TS) owns only the *frame* (header,
 verdict headline, state selection, footer) and the GitHub transport (sticky
 comment, baseline artifact, check status). A bad row is an engine fix at the
@@ -478,10 +478,10 @@ root — never re-authored here.
 - `src/annotations.ts` — the pure check-run annotation builder + the workflow-command encoder (the stdout-surface trust boundary, the `escapeInline` analogue).
 - `src/verdict.ts` — the four-state machine (cold-start / clean / drift / regression).
 - `src/baseline.ts` — baseline source selection (auto / branch= / artifact= / path= / none) via the GitHub API.
-- `src/joblog.ts` — `target-job` log sourcing: job lookup, the job log as served bytes and their declared delivery stack, SIFT_CAPTURE selection of whole lines, the native-conclusion token for `changed-outcome: auto`.
+- `src/joblog.ts` — `target-job` log sourcing: job lookup, the job log as served bytes and their declared delivery stack, TAMYS_CAPTURE selection of whole lines, the native-conclusion token for `changed-outcome: auto`.
 - `src/jobgraph.ts` — the run's declared job graph: the workflow's declared jobs, read at the commit the runner names as executed (`GITHUB_WORKFLOW_SHA`), joined with the run's jobs listing (each job's conclusion, id, attempt and listed steps).
-- `src/sift.ts` — engine invocation (`--format both`, `--fail-on`).
-- `src/comment.ts` — sticky-comment upsert. `src/artifact.ts` — baseline publish, the `sift-report` upload, and the fork render/post transport.
+- `src/tamys.ts` — engine invocation (`--format both`, `--fail-on`).
+- `src/comment.ts` — sticky-comment upsert. `src/artifact.ts` — baseline publish, the `tamys-report` upload, and the fork render/post transport.
 - `src/main.ts` — orchestration.
 
 ## Develop
@@ -498,7 +498,7 @@ toolchain (core@3 / github@9 / artifact@6) and octokit@7 are ESM-only, so `dist/
 is an ESM bundle built by esbuild (ncc only emits CJS). `dist/licenses.txt` is regenerated
 from the build metafile (the exact bundled set) on every package.
 
-> Packaging (final bundling to `dist/`, the `sift` release-asset publish, the home
+> Packaging (final bundling to `dist/`, the `tamys` release-asset publish, the home
 > repo, token/fork-PR posture) is the DevOps lane — see contract § 6–7.
 
 ## License
@@ -506,11 +506,11 @@ from the build metafile (the exact bundled set) on every package.
 This Action wrapper is **MIT** (see [LICENSE](LICENSE)) — commodity glue: resolve
 the baseline, fetch + verify the binary, run it, render the comment frame.
 
-It downloads and runs the `sift` engine binary at runtime: a version-pinned,
+It downloads and runs the `tamys` engine binary at runtime: a version-pinned,
 checksum-verified release asset that is **© 2026 Emmanuel Prunet (CodeRoast), proprietary**
 (free to run for any purpose incl. commercial; binary only; no redistribution or
 reverse-engineering) and **not covered by this repository's MIT license**. The
 binary is never vendored here — see [NOTICE](NOTICE). Bundled third-party
 dependencies in `dist/` keep their own licenses (`dist/licenses.txt`).
 
-"Sift" and "CodeRoast" are trademarks of Emmanuel Prunet (CodeRoast) — separate from the code license.
+"Tamys" and "CodeRoast" are trademarks of Emmanuel Prunet (CodeRoast) — separate from the code license.

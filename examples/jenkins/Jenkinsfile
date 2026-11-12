@@ -1,6 +1,6 @@
-// Sift on Jenkins — Tier-0, doc-only recipe (bibles/sift_action.md § 9.3).
+// Tamys on Jenkins — Tier-0, doc-only recipe (bibles/tamys_action.md § 9.3).
 //
-// The GitHub Action is a thin adapter over a CI-AGNOSTIC substrate: the `sift`
+// The GitHub Action is a thin adapter over a CI-AGNOSTIC substrate: the `tamys`
 // engine ships as a PUBLIC, unauthenticated, checksummed release asset
 // (`sift-linux-x64` + `.sha256`) on CodeRoasted/sift-action. Jenkins — or any CI
 // with `curl` + `sha256sum` — is just another client of that asset. This pipeline
@@ -8,23 +8,23 @@
 //   • `--fail-on medium` is the gate (advisory: it sets the build result) — it trips
 //     when the build's declared verdict got worse (SUCCESS → UNSTABLE counts) or a
 //     change got worse at medium severity or above;
-//   • the archived `sift-report.json` + build status are the surface (a PR comment
+//   • the archived `tamys-report.json` + build status are the surface (a PR comment
 //     is GitHub-only until a Tier-1 SCM-plugin adapter wires it — § 9.4);
 //   • the baseline is USER-wired here (last green build's archived log via the Copy
 //     Artifact plugin, or a committed known-good log). Base-branch-aware "last green"
-//     resolution is Tier-1 / Sift v2, not a per-CI adapter's job.
+//     resolution is Tier-1 / Tamys v2, not a per-CI adapter's job.
 //
 // RUN VERDICT (four-class, ADR-17.D5): the pipeline forwards Jenkins's NATIVE verdict
 // (`currentBuild.currentResult` — SUCCESS | FAILURE | UNSTABLE | ABORTED) to the
 // engine via `--changed-outcome`; the engine's Jenkins vocabulary maps it, keeping
 // UNSTABLE distinct from FAILURE at the diff layer. TIMING MATTERS: the verdict is
-// only FINAL after every stage has run, so Sift is invoked in the pipeline-level
+// only FINAL after every stage has run, so Tamys is invoked in the pipeline-level
 // `post { }` block below — inside a stage, `currentResult` still reads SUCCESS even
 // when a later stage is about to fail. The baseline's verdict rides the
-// `sift-outcome.txt` sidecar each build archives next to its log.
+// `tamys-outcome.txt` sidecar each build archives next to its log.
 //
 // Asset URL (stable, unauthenticated): the only varying segment is the version tag;
-// the asset names are fixed. Pin SIFT_VERSION to a PUBLISHED release tag.
+// the asset names are fixed. Pin TAMYS_VERSION to a PUBLISHED release tag.
 //   https://github.com/CodeRoasted/sift-action/releases/download/engine-v<VERSION>/sift-linux-x64
 //
 // Prereqs: a Linux agent with curl + sha256sum; the Copy Artifact plugin (optional,
@@ -32,7 +32,7 @@
 
 pipeline {
   agent any
-  environment { SIFT_VERSION = '1.10.11' }                 // pin the engine version (kept in lock-step with the Action's src/sift-version.ts by ./bump.sh; ci.yml fails if they drift)
+  environment { TAMYS_VERSION = '1.10.11' }                 // pin the engine version (kept in lock-step with the Action's src/tamys-version.ts by ./bump.sh; ci.yml fails if they drift)
   stages {
     // … your build/test stages here — capture the log you want diffed as changed.log …
     stage('Build') {
@@ -41,16 +41,16 @@ pipeline {
       }
     }
   }
-  // Sift lives in the pipeline-level post block: this is the ONE place
+  // Tamys lives in the pipeline-level post block: this is the ONE place
   // `currentBuild.currentResult` is the run's final verdict (§ timing above).
   post {
     always {
       // baseline.log + its verdict sidecar = the last green build's archived pair.
       copyArtifacts(projectName: env.JOB_NAME, selector: lastSuccessful(),
-                    filter: 'changed.log, sift-outcome.txt', target: 'baseline', optional: true)
+                    filter: 'changed.log, tamys-outcome.txt', target: 'baseline', optional: true)
       sh '''
         set -euo pipefail
-        base="https://github.com/CodeRoasted/sift-action/releases/download/engine-v${SIFT_VERSION}"
+        base="https://github.com/CodeRoasted/sift-action/releases/download/engine-v${TAMYS_VERSION}"
         curl -fsSL "$base/sift-linux-x64"        -o sift-linux-x64
         curl -fsSL "$base/sift-linux-x64.sha256" -o sift-linux-x64.sha256
         sha256sum -c sift-linux-x64.sha256                # FATAL on mismatch
@@ -60,25 +60,25 @@ pipeline {
       // (baseline sidecar absent ⇒ omit the flag: console-tail / Unknown fallback).
       sh """
         set -euo pipefail
-        echo "${currentBuild.currentResult}" > sift-outcome.txt
+        echo "${currentBuild.currentResult}" > tamys-outcome.txt
         if [ -f baseline/changed.log ]; then
           baseline_outcome_flag=""
-          if [ -f baseline/sift-outcome.txt ]; then
-            baseline_outcome_flag="--baseline-outcome \$(cat baseline/sift-outcome.txt)"
+          if [ -f baseline/tamys-outcome.txt ]; then
+            baseline_outcome_flag="--baseline-outcome \$(cat baseline/tamys-outcome.txt)"
           fi
           ./sift-linux-x64 baseline/changed.log changed.log \
-            --format both -o sift-report.json \
+            --format both -o tamys-report.json \
             --changed-outcome "${currentBuild.currentResult}" \
             \$baseline_outcome_flag \
             --fail-on medium                                # advisory gate
         else
-          echo "Sift: no prior green build to diff against — cold start, skipping."
+          echo "Tamys: no prior green build to diff against — cold start, skipping."
         fi
       """
       // The log + verdict sidecar seed the NEXT build's baseline; lastSuccessful()
       // keeps the selection green-gated (an UNSTABLE/FAILURE/ABORTED build is
       // never selected as a baseline — the four-class refinement of "last green").
-      archiveArtifacts artifacts: 'changed.log, sift-outcome.txt, sift-report.json',
+      archiveArtifacts artifacts: 'changed.log, tamys-outcome.txt, tamys-report.json',
                        fingerprint: true, allowEmptyArchive: true
       // optional: publishHTML the markdown body (HTML Publisher plugin) as the report surface
     }

@@ -1,4 +1,4 @@
-// The `post`-mode poster (bibles/sift_action.md § 6.1, job 2) — the privileged
+// The `post`-mode poster (bibles/tamys_action.md § 6.1, job 2) — the privileged
 // half of the credential-free fork-comment topology. main.ts dispatches to
 // runPoster() when `mode: post`; this module is side-effect-free at import so its
 // security predicates are unit-testable.
@@ -63,7 +63,7 @@ export function selectPrNumber(prs: AssociatedPr[], headSha: string): number | n
 // warns when it is not (a weaker perimeter — the consumer template should set it).
 export function triggeringRunIsTrusted(wr: WorkflowRunPayload, expectedWorkflow: string): boolean {
     if (wr.event !== 'pull_request') {
-        core.info(`Sift poster: triggering run event is "${wr.event}", not pull_request — skipping.`);
+        core.info(`Tamys poster: triggering run event is "${wr.event}", not pull_request — skipping.`);
         return false;
     }
     if (!expectedWorkflow) {
@@ -71,7 +71,7 @@ export function triggeringRunIsTrusted(wr: WorkflowRunPayload, expectedWorkflow:
         // pins the upstream workflow identity (examples/fork-safe/post.yml); the
         // optional `build-workflow` input is belt-and-suspenders on top of it.
         core.info(
-            'Sift poster: no `build-workflow` input — relying on the workflow_run trigger filter ' +
+            'Tamys poster: no `build-workflow` input — relying on the workflow_run trigger filter ' +
                 'for workflow identity. Set `build-workflow` for an in-code double-check.',
         );
         return true;
@@ -80,7 +80,7 @@ export function triggeringRunIsTrusted(wr: WorkflowRunPayload, expectedWorkflow:
     const matches = wr.name === expectedWorkflow || fileName === expectedWorkflow || wr.path === expectedWorkflow;
     if (!matches) {
         core.info(
-            `Sift poster: triggering workflow "${wr.name ?? wr.path ?? '?'}" is not the expected ` +
+            `Tamys poster: triggering workflow "${wr.name ?? wr.path ?? '?'}" is not the expected ` +
                 `"${expectedWorkflow}" — skipping.`,
         );
         return false;
@@ -112,7 +112,7 @@ export async function runPoster(): Promise<void> {
 
     const wr = readWorkflowRun();
     if (!wr) {
-        core.setFailed('Sift `mode: post` must run on a `workflow_run` event.');
+        core.setFailed('Tamys `mode: post` must run on a `workflow_run` event.');
         return;
     }
     if (!triggeringRunIsTrusted(wr, expectedWorkflow)) {
@@ -126,12 +126,12 @@ export async function runPoster(): Promise<void> {
     const runIdInput = core.getInput('run-id');
     const workflowRunId = runIdInput ? Number(runIdInput) : wr.id;
     if (!Number.isInteger(workflowRunId) || workflowRunId <= 0) {
-        core.setFailed(`Sift poster: invalid run-id "${runIdInput}".`);
+        core.setFailed(`Tamys poster: invalid run-id "${runIdInput}".`);
         return;
     }
 
     // (c) Download the rendered body off the triggering run (size-bounded).
-    const destDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-poster-'));
+    const destDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-poster-'));
     const rendered = await downloadRenderedComment({
         token,
         owner,
@@ -148,7 +148,7 @@ export async function runPoster(): Promise<void> {
     // in the build run's job summary + outputs.
     if (!rendered.shouldPost) {
         core.info(
-            'Sift poster: render verdict is below the pr-comment threshold — nothing to post.',
+            'Tamys poster: render verdict is below the pr-comment threshold — nothing to post.',
         );
         return;
     }
@@ -157,7 +157,7 @@ export async function runPoster(): Promise<void> {
     // event head_sha. A mismatch means a confused or forged artifact — refuse.
     if (rendered.headSha !== headSha) {
         core.warning(
-            `Sift poster: artifact head_sha (${rendered.headSha}) disagrees with the workflow_run ` +
+            `Tamys poster: artifact head_sha (${rendered.headSha}) disagrees with the workflow_run ` +
                 `event (${headSha}) — refusing to post.`,
         );
         return;
@@ -165,10 +165,10 @@ export async function runPoster(): Promise<void> {
 
     const prNumber = await resolvePrNumber(octokit, owner, repo, headSha);
     if (prNumber === null) {
-        core.info(`Sift poster: no PR found for ${headSha} — nothing to post.`);
+        core.info(`Tamys poster: no PR found for ${headSha} — nothing to post.`);
         return;
     }
 
     const id = await upsertStickyComment({ octokit, owner, repo, prNumber, body: rendered.body });
-    core.info(`Sift poster: upserted sticky comment ${id} on PR #${prNumber}.`);
+    core.info(`Tamys poster: upserted sticky comment ${id} on PR #${prNumber}.`);
 }

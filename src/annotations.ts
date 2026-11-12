@@ -1,5 +1,5 @@
 // Inline check-run annotations — the 4th Action output surface
-// (bibles/sift_action.md § B / sift_conversion_surface.md § B.3).
+// (bibles/tamys_action.md § B / sift_conversion_surface.md § B.3).
 //
 // GitHub `::error|warning|notice::` workflow commands surface in the Checks tab
 // and the PR "checks were not successful" strip. They are written to STDOUT and
@@ -13,12 +13,12 @@
 // The Action never re-authors a row: the message is the engine's `summary` (+
 // first `evidence` line) VERBATIM, only transport-encoded (contract § 1).
 
-import type { RankedChange, SiftReport } from './types.js';
+import type { RankedChange, TamysReport } from './types.js';
 import { selectState, shouldComment, type CommentLevel } from './verdict.js';
 
 // Defensive cap on emitted annotations: the top significant rows, aligned to
 // GitHub's 10-per-severity-per-step display sweet spot (§ B.3.7). The FULL set
-// always lives in the PR comment + <details>, so this never hides signal — Sift's
+// always lives in the PR comment + <details>, so this never hides signal — Tamys's
 // "3 that matter" pitch sits far below it. Mirrors frame.ts's MAX_INLINE_ROWS:
 // a structural bound, not a product limit.
 export const MAX_ANNOTATIONS = 10;
@@ -63,7 +63,7 @@ function mapKind(polarity: RankedChange['polarity']): AnnotationKind {
 }
 
 // One ranked row → one encoded check-level workflow command. NO `file=`/`line=`
-// anchor: Sift diffs LOGS, not source, so there is no honest source `file:line`
+// anchor: Tamys diffs LOGS, not source, so there is no honest source `file:line`
 // to pin to — a guessed anchor would violate precision-first (§ B.3.2,
 // ADR-9.D2). The message is the engine's `summary` plus its first `evidence`
 // line (the deterministic "here's the line"), surfaced verbatim, then encoded.
@@ -92,7 +92,7 @@ function annotationCommand(row: RankedChange): string {
 // so `drift ≡ always ≡ zero annotations` on clean. Cold start (report null)
 // ⇒ no rows ⇒ empty. Rows are already ranked (regressions first) and are the
 // significant set; the cap is a defensive tail-bound.
-export function buildAnnotationCommands(report: SiftReport | null, level: CommentLevel): string[] {
+export function buildAnnotationCommands(report: TamysReport | null, level: CommentLevel): string[] {
     if (report === null) {
         return [];
     }

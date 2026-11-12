@@ -3,7 +3,7 @@
 // retrievable whatever the comment config), then posts to the configured surface (PR
 // sticky comment / push commit comment, each level-gated) and seeds the next baseline.
 // Orchestration only; all content is the engine's and all copy is the frame's
-// (bibles/sift_action.md § 2.2 / § 3 / § 8).
+// (bibles/tamys_action.md § 2.2 / § 3 / § 8).
 
 import * as core from '@actions/core';
 import * as github from '@actions/github';
@@ -31,8 +31,8 @@ import { upsertStickyComment, upsertCommitComment } from './comment.js';
 import { publishBaselineLog, publishReport, writeRenderedComment } from './artifact.js';
 import { renderComment } from './frame.js';
 import { runPoster } from './poster.js';
-import { resolveSift } from './resolve-sift.js';
-import { parseFailOn, runSift, runExplainSetup } from './sift.js';
+import { resolveTamys } from './resolve-tamys.js';
+import { parseFailOn, runTamys, runExplainSetup } from './tamys.js';
 import {
     parseCommentLevel,
     resolvedOutcomeBlocksSeeding,
@@ -46,17 +46,17 @@ import {
     CONTEXT_VERSION,
     MAX_CHANGED_LOG_BYTES,
     MAX_ENGINE_LINE_BYTES,
-    SIFT_COMMENT_DIR,
+    TAMYS_COMMENT_DIR,
     reportArtifactName,
     type ReportArtifact,
-    type SiftCommentContext,
-    type SiftReport,
+    type TamysCommentContext,
+    type TamysReport,
 } from './types.js';
 
 // Three modes (contract § 6.1):
 //   comment (default) — render + post the sticky comment inline. Same-repo PRs and
 //                       the proven path; the advisory gate fails the build.
-//   render            — render the escaped body to $RUNNER_TEMP/sift-comment/ and
+//   render            — render the escaped body to $RUNNER_TEMP/tamys-comment/ and
 //                       NEVER post (no write token, untrusted-parse context). The
 //                       consumer's workflow uploads it; the gate does NOT fail the
 //                       build (else the upload step is skipped and the comment is
@@ -101,7 +101,7 @@ function readPublishMode(): PublishMode {
 }
 
 // The human label of a non-default configured source, for the cold-start copy
-// ("Sift diffs each run against <source>"). Undefined for auto — the frame's
+// ("Tamys diffs each run against <source>"). Undefined for auto — the frame's
 // default base-branch copy stays.
 function baselineSourceLabel(spec: BaselineSpec): string | undefined {
     switch (spec.kind) {
@@ -119,7 +119,7 @@ function baselineSourceLabel(spec: BaselineSpec): string | undefined {
 // Opt-in `--explain` provisioning (ADR-13.D5). Runs the engine's idempotent `explain-setup`:
 // download + SHA-256-verify the pinned model + inference server from the public CodeRoasted/sift-explain-model HF
 // repo (NO credential — anonymous, fork-safe). Best-effort + fail-soft: a provisioning failure is a
-// WARNING, never an Action failure — `sift --explain` then degrades to no-narrative on the non-TTY CI
+// WARNING, never an Action failure — `tamys --explain` then degrades to no-narrative on the non-TTY CI
 // run and the deterministic report + gate are unaffected. Cross-run caching of the ~2.4 GB asset dir
 // (`${XDG_CACHE_HOME:-~/.cache}/coderoast`) is the caller's one-line `actions/cache` step — see the
 // README explain example. (Deliberately NOT a bundled @actions/cache: it pulls a heavy SDK + extra
@@ -131,12 +131,12 @@ function baselineSourceLabel(spec: BaselineSpec): string | undefined {
 // step and mark the run FAILED — turning an opt-in, explicitly advisory narrative into a
 // hard build failure, which is strictly worse for the consumer than the hang it replaces.
 // An in-process bound is the only placement that can be caught and degraded.
-async function provisionExplain(siftBin: string): Promise<void> {
-    const result = await runExplainSetup(siftBin);
+async function provisionExplain(tamysBin: string): Promise<void> {
+    const result = await runExplainSetup(tamysBin);
     if (result.ok) return;
     if (result.timedOutAfterMs !== undefined) {
         core.warning(
-            `explain: model/server provisioning (\`sift explain-setup\`, a ~2.4 GB download) ` +
+            `explain: model/server provisioning (\`tamys explain-setup\`, a ~2.4 GB download) ` +
                 `${result.detail}. The run CONTINUES: the deterministic report and the advisory gate ` +
                 `are unaffected — only the AI narrative is omitted. A cold download on a slow runner ` +
                 `is the usual cause; cache the model across runs with a one-line actions/cache step on ` +
@@ -150,10 +150,10 @@ async function provisionExplain(siftBin: string): Promise<void> {
 }
 
 // Machine-readable verdict — set on EVERY run (PR or push), before any comment decision, so a
-// later step can branch on Sift's result without parsing a comment (contract § 3). The run
+// later step can branch on Tamys's result without parsing a comment (contract § 3). The run
 // verdicts are the engine-resolved class pair (UNKNOWN when unresolved) + the §6.1
 // strictly-worse predicate — the same canonical fields the frame and the gate read.
-function setSiftOutputs(state: State, report: SiftReport | null): void {
+function setTamysOutputs(state: State, report: TamysReport | null): void {
     core.setOutput('state', state); // cold-start | clean | drift | regression
     core.setOutput('total-changes', report?.summary.total_changes ?? 0);
     core.setOutput('significant-changes', report?.summary.significant_changes ?? 0);
@@ -179,7 +179,7 @@ async function tryWrite(label: string, write: () => Promise<unknown>): Promise<v
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         core.warning(
-            `Sift: could not ${label} (${message}). Likely a fork PR's read-only token or a missing ` +
+            `Tamys: could not ${label} (${message}). Likely a fork PR's read-only token or a missing ` +
                 `scope (contract § 6) — the advisory gate still applies; the comment/baseline did not update.`,
         );
     }
@@ -198,7 +198,7 @@ async function run(): Promise<void> {
     const logInput = core.getInput('log');
     if (!targetJob && !logInput) {
         core.setFailed(
-            'Sift needs a log to diff: set `target-job: <job name>` (zero-plumbing — run Sift in a ' +
+            'Tamys needs a log to diff: set `target-job: <job name>` (zero-plumbing — run Tamys in a ' +
                 'job that `needs:` it) or `log: <file>` (a log you captured yourself).',
         );
         return;
@@ -216,7 +216,7 @@ async function run(): Promise<void> {
     const octokit = github.getOctokit(token);
     const { owner, repo } = github.context.repo;
 
-    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-'));
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-'));
     const changedLog = path.join(workDir, 'changed.log');
     // The native verdict token this run forwards to the engine ('' = none — the
     // engine's run-outcome ladder (ADR-17.D5) falls to the console tail, then Unknown).
@@ -232,7 +232,7 @@ async function run(): Promise<void> {
     let changedLogProvenance: { jobId: number; attempt: number | null } | undefined;
     if (targetJob) {
         // Zero-plumbing sourcing: pull the finished build job's log off the API as
-        // BYTES (run Sift in a job that `needs:` it), its delivery stack declared,
+        // BYTES (run Tamys in a job that `needs:` it), its delivery stack declared,
         // capture sections selected. Load-bearing — a failure here fails the step (the
         // caller's continue-on-error keeps the advisory guarantee).
         const capture = core.getInput('capture') || 'auto';
@@ -251,7 +251,7 @@ async function run(): Promise<void> {
             changedOutcome = jobLog.conclusion ?? ''; // GitHub's native token, verbatim
         }
         core.info(
-            `Sift: sourced the log from job "${targetJob}" (capture: ${capture}, changed-outcome: ${changedOutcome || '(none)'}).`,
+            `Tamys: sourced the log from job "${targetJob}" (capture: ${capture}, changed-outcome: ${changedOutcome || '(none)'}).`,
         );
         grain = { kind: 'job', jobName: jobLog.jobName, runJobCount: jobLog.runJobCount };
     } else {
@@ -262,12 +262,12 @@ async function run(): Promise<void> {
         const logStat = await fs.stat(logInput);
         if (logStat.size > MAX_CHANGED_LOG_BYTES) {
             core.setFailed(
-                `Sift: the \`log:\` input "${logInput}" is ${logStat.size} bytes, over the ` +
+                `Tamys: the \`log:\` input "${logInput}" is ${logStat.size} bytes, over the ` +
                     `${MAX_CHANGED_LOG_BYTES} byte per-input ceiling. Check it with \`wc -lc\` ` +
                     '(the engine also enforces a 1000000-line ceiling and a ' +
                     `${MAX_ENGINE_LINE_BYTES}-byte per-line ceiling). Capture less: ` +
                     'tee only the part of the build you want compared, or use `target-job` with ' +
-                    'the SIFT_CAPTURE markers.',
+                    'the TAMYS_CAPTURE markers.',
             );
             return;
         }
@@ -333,13 +333,13 @@ async function run(): Promise<void> {
         core.warning(staleBaselineWarning(baseline.meta, ageHours, maxAgeRaw, baselineName));
     } else if (maxAgeHours != null && baseline && ageHours == null) {
         core.warning(
-            `Sift: baseline-max-age=${maxAgeRaw} is set but the resolved baseline carries no ` +
+            `Tamys: baseline-max-age=${maxAgeRaw} is set but the resolved baseline carries no ` +
                 'created_at stamp (a `path=` baseline or a pre-sidecar artifact) — the bound cannot be ' +
                 'checked. The age is UNKNOWN, not fresh.',
         );
     }
 
-    const context: SiftCommentContext = {
+    const context: TamysCommentContext = {
         context_version: CONTEXT_VERSION,
         head_sha: headSha,
         pr_number: pr ? (pr.number as number) : undefined,
@@ -354,14 +354,14 @@ async function run(): Promise<void> {
 
     // Diff — or cold start (contract § 3): no baseline ⇒ the engine is NOT invoked.
     let gateExit = 0;
-    let report: SiftReport | null = null;
+    let report: TamysReport | null = null;
     const reportJsonPath = path.join(workDir, 'report.json');
     if (baseline) {
-        const siftBin = await resolveSift(core.getInput('sift-binary'), workDir);
+        const tamysBin = await resolveTamys(core.getInput('tamys-binary'), workDir);
         const explain = core.getBooleanInput('explain');
         const explainModel = core.getInput('explain-model') || undefined;
         if (explain) {
-            await provisionExplain(siftBin);
+            await provisionExplain(tamysBin);
         }
         // The CHANGED run's declared job graph (jobgraph.ts — the ADR-22.D13 wire), read at every
         // grain. Each job's declared conclusion frames the rows of that job (DN-89.D15), and a
@@ -392,10 +392,10 @@ async function run(): Promise<void> {
         if (baseline.meta.kind !== 'path' && Number.isSafeInteger(baselineRunId) && baselineRunId > 0) {
             baselineJobGraph = await resolveBaselineJobGraph({ octokit, owner, repo, baselineRunId, info: core.info });
         } else {
-            core.info('Sift: no baseline job graph — the baseline names no run it was published by.');
+            core.info('Tamys: no baseline job graph — the baseline names no run it was published by.');
         }
-        const result = await runSift({
-            siftBin,
+        const result = await runTamys({
+            tamysBin,
             baselineLog: baseline.logPath,
             changedLog,
             baselineLabel: baseline.meta.sha.slice(0, 7),
@@ -419,7 +419,7 @@ async function run(): Promise<void> {
         gateExit = result.exitCode;
         report = result.report;
     } else {
-        core.info(`Sift: cold start — no baseline on \`${baseBranch}\` yet.`);
+        core.info(`Tamys: cold start — no baseline on \`${baseBranch}\` yet.`);
     }
     // The full report as this run's artifact, on every run that has one, BEFORE the comment is
     // rendered: the comment names the artifact only once it exists, so a failed upload leaves a
@@ -434,11 +434,11 @@ async function run(): Promise<void> {
                 name,
                 run_url: `${github.context.serverUrl}/${owner}/${repo}/actions/runs/${github.context.runId}`,
             };
-            core.info(`Sift: uploaded the full report as the \`${name}\` artifact.`);
+            core.info(`Tamys: uploaded the full report as the \`${name}\` artifact.`);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             core.warning(
-                `Sift: could not upload the \`${name}\` report artifact (${message}). The comment ` +
+                `Tamys: could not upload the \`${name}\` report artifact (${message}). The comment ` +
                     'does not point at it; the full report is still this step\'s `report-path` output.',
             );
         }
@@ -449,23 +449,23 @@ async function run(): Promise<void> {
     // ALWAYS retrievable: the job summary + machine-readable outputs are written every run,
     // before any comment decision — so the result is in the job info whatever the comment config.
     await core.summary.addRaw(body).write();
-    setSiftOutputs(state, report);
+    setTamysOutputs(state, report);
     setBaselineAgeOutputs(ageHours, baselineStale);
 
     // Expose the deterministic report.json on a STABLE, cross-step path (workDir is an
     // mkdtemp that's gone after this step). A later step on the SAME runner can then
-    // narrate it via `sift explain --report` — so the narrative explains THIS run's real
+    // narrate it via `tamys explain --report` — so the narrative explains THIS run's real
     // diff, not a re-diff against an empty baseline (the §3.6 decoupled-narration seam).
     // §3.6-safe: report.json is exactly the content already in the comment/summary — no
     // credential, no courtesy. Empty `report-path` on cold start (no report produced).
     let reportPathOut = '';
     if (report) {
-        reportPathOut = path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'sift-report.json');
+        reportPathOut = path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'tamys-report.json');
         await fs.copyFile(reportJsonPath, reportPathOut);
     }
     core.setOutput('report-path', reportPathOut);
 
-    // Inline check-run annotations (contract § B / sift_conversion_surface § B.3): emit the
+    // Inline check-run annotations (contract § B / tamys_conversion_surface § B.3): emit the
     // level-gated `::error|warning|notice::` workflow commands on stdout. They carry no write
     // token, so this fires in BOTH the inline `comment` job and the UNPRIVILEGED fork `render`
     // job (mode=post returned at the top — no report), surfacing drift on a fork PR's checks
@@ -503,15 +503,15 @@ async function run(): Promise<void> {
         // errors — the poster simply skips when the flag is false).
         const shouldPost = shouldComment(state, prComment);
         const runnerTemp = process.env.RUNNER_TEMP || os.tmpdir();
-        const commentDir = path.join(runnerTemp, SIFT_COMMENT_DIR);
+        const commentDir = path.join(runnerTemp, TAMYS_COMMENT_DIR);
         await writeRenderedComment(body, headSha, commentDir, shouldPost);
-        core.info(`Sift: render mode — wrote the comment body (pr-comment=${prComment} ⇒ post=${shouldPost}); the workflow uploads it.`);
+        core.info(`Tamys: render mode — wrote the comment body (pr-comment=${prComment} ⇒ post=${shouldPost}); the workflow uploads it.`);
         if (shouldSeed) {
             await tryWrite('publish the baseline artifact', () =>
                 publishBaselineLog(changedLog, changedOutcome, changedTransport, baselineName),
             );
         } else {
-            core.info(`Sift: publish-baseline=${publishMode}${runOutcomeBad ? ' (run verdict not SUCCESS)' : ''} — did not re-seed \`${baselineName}\`.`);
+            core.info(`Tamys: publish-baseline=${publishMode}${runOutcomeBad ? ' (run verdict not SUCCESS)' : ''} — did not re-seed \`${baselineName}\`.`);
         }
         return;
     }
@@ -524,15 +524,15 @@ async function run(): Promise<void> {
                 upsertStickyComment({ octokit, owner, repo, prNumber: pr.number as number, body }),
             );
         } else {
-            core.info(`Sift: pr-comment=${prComment} — verdict ${state} below threshold, no comment (result in the job summary).`);
+            core.info(`Tamys: pr-comment=${prComment} — verdict ${state} below threshold, no comment (result in the job summary).`);
         }
     } else if (shouldComment(state, commitComment)) {
         await tryWrite('post the commit comment (needs contents: write)', () =>
             upsertCommitComment({ octokit, owner, repo, commitSha: headSha, body }),
         );
-        core.info(`Sift: push — commit comment upserted on ${headSha.slice(0, 7)} (commit-comment: ${commitComment}).`);
+        core.info(`Tamys: push — commit comment upserted on ${headSha.slice(0, 7)} (commit-comment: ${commitComment}).`);
     } else {
-        core.info(`Sift: push — commit-comment=${commitComment}, verdict ${state} below threshold (result in the job summary).`);
+        core.info(`Tamys: push — commit-comment=${commitComment}, verdict ${state} below threshold (result in the job summary).`);
     }
 
     // Seed the next baseline under `baseline-name` (rule computed above).
@@ -541,14 +541,14 @@ async function run(): Promise<void> {
             publishBaselineLog(changedLog, changedOutcome, changedTransport, baselineName),
         );
     } else {
-        core.info(`Sift: publish-baseline=${publishMode}${runOutcomeBad ? ' (run verdict not SUCCESS)' : ''} — kept the previous \`${baselineName}\` baseline (did not re-seed).`);
+        core.info(`Tamys: publish-baseline=${publishMode}${runOutcomeBad ? ' (run verdict not SUCCESS)' : ''} — kept the previous \`${baselineName}\` baseline (did not re-seed).`);
     }
 
     // Advisory gate (contract § 8): the exit code carries the verdict; the comment never says "we
     // blocked your merge". Applies to PR and push alike; render mode returned above (failing it
     // would skip the consumer's artifact upload, losing the rendered comment).
     if (gateExit !== 0) {
-        core.setFailed(`Sift gate (--fail-on ${failOn}) tripped — see the comment / job summary for what changed.`);
+        core.setFailed(`Tamys gate (--fail-on ${failOn}) tripped — see the comment / job summary for what changed.`);
     }
 }
 

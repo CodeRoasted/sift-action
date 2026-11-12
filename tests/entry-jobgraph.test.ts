@@ -45,7 +45,7 @@ const HEAD_SHA = 'd'.repeat(40);
 const BASELINE_RUN_ID = 3131;
 const BASELINE_RUN_SHA = 'c'.repeat(40);
 const BASELINE_RUN_ATTEMPT = 2;
-const BASELINE_ARTIFACT = 'sift-baseline-main';
+const BASELINE_ARTIFACT = 'tamys-baseline-main';
 
 // The re-wired aggregator: the base declares `gate` needs `a`; the PR re-wires it to `b`.
 const WORKFLOW_AT: Record<string, string> = {
@@ -190,11 +190,11 @@ function serve(recorded: RecordedRequest[]) {
 // One entry run under a `pull_request` event.
 async function runEntry(options: EntryOptions): Promise<EntryRun> {
     const { source, workflowSha } = options;
-    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'sift-entry-'));
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'tamys-entry-'));
     const captured = path.join(dir, 'captured-graph.json');
     const capturedBaseline = path.join(dir, 'captured-baseline-graph.json');
     const capturedArgv = path.join(dir, 'captured-argv.json');
-    const engine = path.join(dir, 'fake-sift');
+    const engine = path.join(dir, 'fake-tamys');
     await fsp.writeFile(
         engine,
         [
@@ -246,7 +246,7 @@ async function runEntry(options: EntryOptions): Promise<EntryRun> {
         GITHUB_WORKFLOW_REF: `${OWNER}/${REPO}/${WORKFLOW_PATH}@refs/pull/7/merge`,
         'INPUT_GITHUB-TOKEN': 'stand-in-token',
         INPUT_BASELINE: options.baseline === 'artifact' ? `artifact=${BASELINE_ARTIFACT}` : `path=${log}`,
-        'INPUT_SIFT-BINARY': engine,
+        'INPUT_TAMYS-BINARY': engine,
         INPUT_EXPLAIN: 'false',
     };
     if (source === 'log') env.INPUT_LOG = log;

@@ -17,7 +17,7 @@ function params(octokit: unknown, over: Partial<ResolveParams> = {}): ResolvePar
         runId: 1,
         spec: { kind: 'auto' },
         contextBranch: 'main',
-        artifactName: 'sift-baseline-log',
+        artifactName: 'tamys-baseline-log',
         workDir: '/tmp',
         ...over,
     };
@@ -87,9 +87,9 @@ test('parseBaselineSpec: the full grammar parses; malformed input THROWS (config
     assert.deepEqual(parseBaselineSpec('auto'), { kind: 'auto' });
     assert.deepEqual(parseBaselineSpec('none'), { kind: 'none' });
     assert.deepEqual(parseBaselineSpec('branch=develop'), { kind: 'branch', branch: 'develop' });
-    assert.deepEqual(parseBaselineSpec('artifact=sift-baseline-main-build'), {
+    assert.deepEqual(parseBaselineSpec('artifact=tamys-baseline-main-build'), {
         kind: 'artifact',
-        name: 'sift-baseline-main-build',
+        name: 'tamys-baseline-main-build',
     });
     assert.deepEqual(parseBaselineSpec('path=/tmp/base.log'), { kind: 'path', file: '/tmp/base.log' });
     assert.throws(() => parseBaselineSpec('previous-run'));
@@ -153,7 +153,7 @@ function baselineZip(
     const zip = new AdmZip();
     zip.addFile('baseline.log', typeof content === 'string' ? Buffer.from(content, 'utf8') : content);
     if (sidecar !== 'absent') {
-        zip.addFile('sift-baseline-meta.json', Buffer.from(JSON.stringify(sidecar), 'utf8'));
+        zip.addFile('tamys-baseline-meta.json', Buffer.from(JSON.stringify(sidecar), 'utf8'));
     }
     // `Buffer.buffer` is `ArrayBufferLike`, so slicing it yields `ArrayBuffer | SharedArrayBuffer`
     // — adm-zip 0.6.0's own types surface that honestly where the 0.5.x DefinitelyTyped stub did
@@ -165,7 +165,7 @@ function baselineZip(
 }
 
 test('artifact=<name>: newest live artifact resolves repo-wide; expired + own-run artifacts are skipped', async () => {
-    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-test-'));
     const octokit = {
         rest: {
             actions: {
@@ -173,7 +173,7 @@ test('artifact=<name>: newest live artifact resolves repo-wide; expired + own-ru
                 listWorkflowRuns: unreached,
                 listWorkflowRunArtifacts: unreached,
                 listArtifactsForRepo: async (args: { name: string }) => {
-                    assert.equal(args.name, 'sift-baseline-main-build');
+                    assert.equal(args.name, 'tamys-baseline-main-build');
                     return {
                         data: {
                             total_count: 3,
@@ -200,18 +200,18 @@ test('artifact=<name>: newest live artifact resolves repo-wide; expired + own-ru
         },
     };
     const resolved = await resolveBaseline(
-        params(octokit, { spec: { kind: 'artifact', name: 'sift-baseline-main-build' }, workDir }),
+        params(octokit, { spec: { kind: 'artifact', name: 'tamys-baseline-main-build' }, workDir }),
     );
     assert.ok(resolved);
     assert.equal(resolved.meta.kind, 'artifact');
-    assert.equal(resolved.meta.label, 'sift-baseline-main-build');
+    assert.equal(resolved.meta.label, 'tamys-baseline-main-build');
     assert.equal(resolved.meta.sha, 'abc1234def');
     assert.equal(await fs.readFile(resolved.logPath, 'utf8'), 'hello baseline\n');
     assert.equal(resolved.outcomeToken, '', 'a sidecar recording an empty token resolves with NO token — the ladder falls to the console tail');
 });
 
 test('the stamped sidecar rides back: outcome token verbatim, log entry selected past the sidecar', async () => {
-    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-test-'));
     const octokit = {
         rest: {
             actions: {
@@ -236,7 +236,7 @@ test('the stamped sidecar rides back: outcome token verbatim, log entry selected
         },
     };
     const resolved = await resolveBaseline(
-        params(octokit, { spec: { kind: 'artifact', name: 'sift-baseline-main-build' }, workDir }),
+        params(octokit, { spec: { kind: 'artifact', name: 'tamys-baseline-main-build' }, workDir }),
     );
     assert.ok(resolved);
     assert.equal(resolved.outcomeToken, 'success', 'the native token must ride back verbatim');
@@ -266,7 +266,7 @@ test('artifact=<name>: no live artifact is a normal cold start (null)', async ()
 });
 
 test('path=<file>: local baseline resolves with path provenance; a MISSING file throws (config error)', async () => {
-    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-test-'));
     const file = path.join(workDir, 'my-baseline.log');
     await fs.writeFile(file, 'local\n');
     const octokit = { rest: { actions: {} } };
@@ -363,7 +363,7 @@ function octokitWith(artifact: Record<string, unknown>, download: () => Promise<
 
 const liveArtifact = (over: Record<string, unknown> = {}) => ({
     id: 9,
-    name: 'sift-baseline-log',
+    name: 'tamys-baseline-log',
     expired: false,
     created_at: '2026-01-01T00:00:00Z',
     ...over,
@@ -451,7 +451,7 @@ function runsOctokit(pages: { workflow_runs: StubRun[]; total_count: number }[])
 }
 
 test('a REORDERED page still resolves the newest green run by creation, not position 0', async () => {
-    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-test-'));
     const { octokit, calls } = runsOctokit([
         {
             total_count: 3,
@@ -476,7 +476,7 @@ test('a REORDERED page still resolves the newest green run by creation, not posi
 });
 
 test('equal created_at stamps break on the run id, so the pick is deterministic', async () => {
-    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-test-'));
     const { octokit } = runsOctokit([
         {
             total_count: 2,
@@ -489,7 +489,7 @@ test('equal created_at stamps break on the run id, so the pick is deterministic'
 });
 
 test('this very run is never its own baseline, whatever its position and stamp', async () => {
-    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-test-'));
     const { octokit } = runsOctokit([
         {
             total_count: 2,
@@ -502,7 +502,7 @@ test('this very run is never its own baseline, whatever its position and stamp',
 });
 
 test('more green runs than one page: a created>= window proves the newest, and it is picked', async () => {
-    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-test-'));
     // Page 1 is a partial view (total_count 250) whose own newest is 2026-09-24T10:00:00Z; the
     // true newest (run 990) is NOT on it. The window "created >= that stamp" must contain it.
     const { octokit, calls } = runsOctokit([
@@ -598,10 +598,10 @@ function artifactsOctokit(pages: { total_count: number; artifacts: StubArtifact[
     return { octokit: octokit as unknown as ResolveParams['octokit'], calls, downloads };
 }
 
-const namedSpec = { kind: 'artifact', name: 'sift-baseline-main-build' } as const;
+const namedSpec = { kind: 'artifact', name: 'tamys-baseline-main-build' } as const;
 
 test('artifact=<name>: a page served OLDEST first still resolves the newest live artifact', async () => {
-    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-test-'));
     const { octokit, calls, downloads } = artifactsOctokit([
         {
             total_count: 3,
@@ -618,11 +618,11 @@ test('artifact=<name>: a page served OLDEST first still resolves the newest live
     assert.equal(resolved.meta.created_at, '2026-09-26T08:00:00Z');
     assert.equal(calls.length, 1, `one page holds every artifact, made ${calls.length} calls`);
     assert.equal(calls[0]?.per_page, 100, `asked per_page=${String(calls[0]?.per_page)}`);
-    assert.equal(calls[0]?.name, 'sift-baseline-main-build');
+    assert.equal(calls[0]?.name, 'tamys-baseline-main-build');
 });
 
 test('artifact=<name>: equal created_at stamps break on the larger id', async () => {
-    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-test-'));
     const { octokit, downloads } = artifactsOctokit([
         { total_count: 2, artifacts: [named(21, '2026-09-26T08:00:00Z'), named(22, '2026-09-26T08:00:00Z')] },
     ]);
@@ -631,7 +631,7 @@ test('artifact=<name>: equal created_at stamps break on the larger id', async ()
 });
 
 test('artifact=<name>: 150 artifacts with the newest on page 2 — both pages read, the newest picked', async () => {
-    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-test-'));
     const pageOne = Array.from({ length: 100 }, (_, i) =>
         named(1_000 + i, `2026-08-${String(1 + (i % 28)).padStart(2, '0')}T08:00:00Z`),
     );
@@ -662,11 +662,11 @@ test('artifact=<name>: 1 001 artifacts is past the 10-page ceiling — refused, 
     assert.deepEqual(downloads, [], `no artifact may be read as the baseline, read ${downloads.join(',')}`);
     assert.equal(calls.length, 1, `the ceiling is known from page 1's total_count; made ${calls.length} calls`);
     assert.equal(MAX_ARTIFACT_PAGES, 10);
-    const scan = await newestNamedArtifact(artifactsOctokit([{ total_count: 1_001, artifacts: [] }]).octokit, 'o', 'r', 'sift-baseline-main-build', 1);
+    const scan = await newestNamedArtifact(artifactsOctokit([{ total_count: 1_001, artifacts: [] }]).octokit, 'o', 'r', 'tamys-baseline-main-build', 1);
     assert.equal(scan.kind, 'refused', `scan was ${scan.kind}`);
     assert.match(
         scan.kind === 'refused' ? scan.reason : '',
-        /^1001 artifacts named `sift-baseline-main-build`; the Action reads at most 1000 to establish the newest\. .*`branch=<name>`$/,
+        /^1001 artifacts named `tamys-baseline-main-build`; the Action reads at most 1000 to establish the newest\. .*`branch=<name>`$/,
     );
 });
 
@@ -792,7 +792,7 @@ function oneArtifactOctokit(zip: () => { data: ArrayBuffer }) {
 
 test('A6: a published sidecar records context 0.3.0, the verdict token and the ordered stack', async () => {
     for (const transport of [JOB_LOG_STACK, []]) {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-baseline-publish-'));
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-baseline-publish-'));
         const logPath = path.join(dir, 'changed.log');
         await fs.writeFile(logPath, STORED_WIRE_BYTES);
         const uploads: { name: string; files: Record<string, Buffer> }[] = [];
@@ -804,14 +804,14 @@ test('A6: a published sidecar records context 0.3.0, the verdict token and the o
                 return { id: 1, size: 0 };
             },
         };
-        await publishBaselineLog(logPath, 'success', transport, 'sift-baseline-log', client);
+        await publishBaselineLog(logPath, 'success', transport, 'tamys-baseline-log', client);
         assert.equal(uploads.length, 1, `uploads: ${uploads.length}`);
         const files = uploads[0]?.files ?? {};
         assert.ok(
             files['changed.log']?.equals(STORED_WIRE_BYTES),
             `the stored log must be the bytes the run diffed, byte for byte; got ${files['changed.log']?.toString('hex')}`,
         );
-        const sidecar = files['sift-baseline-meta.json'];
+        const sidecar = files['tamys-baseline-meta.json'];
         assert.ok(sidecar, `no sidecar uploaded; files: ${Object.keys(files).join(', ')}`);
         assert.deepEqual(JSON.parse(sidecar.toString('utf8')), {
             context_version: '0.3.0',
@@ -822,7 +822,7 @@ test('A6: a published sidecar records context 0.3.0, the verdict token and the o
 });
 
 test('A6: a recorded stack rides back verbatim and in order, and the stored bytes untouched', async () => {
-    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-test-'));
     // Not the canonical order: a stack is ordered, and the Action must not sort or re-derive it.
     const recorded = ['api-rfc3339-line-prefix', 'utf8-bom-line-prefix'];
     const { octokit } = oneArtifactOctokit(() => baselineZip(STORED_WIRE_BYTES, recordedSidecar('success', recorded)));
@@ -866,7 +866,7 @@ const COLD_START_CELLS: ReadonlyArray<{
 
 for (const cell of COLD_START_CELLS) {
     test(`A6: ${cell.name} is a cold start with its reason, never a failed check`, async () => {
-        const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+        const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-test-'));
         const { octokit, downloads } = oneArtifactOctokit(() => baselineZip('old baseline\n', cell.sidecar));
         const { value, warnings } = await warningsDuring(() =>
             resolveBaseline(params(octokit, { spec: namedSpec, workDir })),
@@ -895,7 +895,7 @@ for (const cell of COLD_START_CELLS) {
 // diffed, artifact 12920659191, was stored at 18:11:58Z — 210h.)
 
 test("auto/branch: the baseline age stamp is the stored artifact's created_at, not the run's", async () => {
-    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-test-'));
     const runCreated = '2026-09-20T08:00:00Z';
     const storedAt = '2026-09-24T17:30:00Z'; // a re-run of run 77 stored this snapshot four days later
     const octokit = {
@@ -924,7 +924,7 @@ test("auto/branch: the baseline age stamp is the stored artifact's created_at, n
 });
 
 test("auto/branch: an artifact with no created_at stamp yields an UNKNOWN age, never the run's stamp", async () => {
-    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-test-'));
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-test-'));
     const octokit = {
         rest: {
             actions: {
@@ -954,7 +954,7 @@ test("auto/branch: an artifact with no created_at stamp yields an UNKNOWN age, n
 // seeds)" whatever the selector. Under `auto`/`branch=` that is a claim the resolver never
 // measured: it reads ONE branch's runs of this workflow. insight-eidos run 42366548948 (a
 // candidate dispatched on a tag, so `auto` resolved `main`) printed it while four candidate runs
-// had stored `sift-baseline-log` 32h to 42h earlier, on tag refs the resolver does not read — and
+// had stored `tamys-baseline-log` 32h to 42h earlier, on tag refs the resolver does not read — and
 // the reader concluded the baseline was not being updated. The warning names the scope it
 // searched and what that scope leaves out.
 
@@ -965,12 +965,12 @@ test('STALE warning, run-resolved: names the run and branch searched, and the re
         { kind: 'run', sha: 'abc', run_id: '40914562578', run_url: 'u', branch: 'main', created_at: 'x' },
         210,
         '72h',
-        'sift-baseline-log',
+        'tamys-baseline-log',
     );
-    assert.ok(text.startsWith('Sift: STALE baseline — 210h old, past the 72h bound.'), text);
+    assert.ok(text.startsWith('Tamys: STALE baseline — 210h old, past the 72h bound.'), text);
     assert.ok(text.includes('run 40914562578'), `the resolved run is named: ${text}`);
     assert.ok(text.includes('newest green run of this workflow on `main`'), `the searched scope is named: ${text}`);
-    assert.ok(text.includes('`baseline: artifact=sift-baseline-log`'), `the repo-wide selector is named: ${text}`);
+    assert.ok(text.includes('`baseline: artifact=tamys-baseline-log`'), `the repo-wide selector is named: ${text}`);
     assert.ok(!text.includes('No run inside the bound'), `the unmeasured repo-wide claim is gone: ${text}`);
 });
 
@@ -983,14 +983,14 @@ test('STALE warning, artifact-resolved: the repo-wide claim IS measured there, a
             run_url: 'u',
             branch: 'b',
             created_at: 'x',
-            label: 'sift-baseline-main',
+            label: 'tamys-baseline-main',
         },
         100,
         '72h',
-        'sift-baseline-log',
+        'tamys-baseline-log',
     );
-    assert.ok(text.startsWith('Sift: STALE baseline — 100h old, past the 72h bound.'), text);
-    assert.ok(text.includes('newest live `sift-baseline-main` artifact in the repository'), text);
+    assert.ok(text.startsWith('Tamys: STALE baseline — 100h old, past the 72h bound.'), text);
+    assert.ok(text.includes('newest live `tamys-baseline-main` artifact in the repository'), text);
     assert.ok(text.includes('run 9'), text);
     assert.ok(text.includes('no run has stored a newer one'), text);
 });

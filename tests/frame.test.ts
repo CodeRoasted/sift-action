@@ -1,9 +1,9 @@
 // Integration tests for the frame renderer: fixture report.json + a
-// SiftCommentContext → the expected comment markdown (bibles/sift_action.md
+// TamysCommentContext → the expected comment markdown (bibles/tamys_action.md
 // § 8 / handoff). Covers all four states AND both verdict variants of the hero
 // headlines — the "green" predicate is the ENGINE-resolved `summary.changed_outcome`
 // (ADR-17.D5), never a context flag. The governed-copy lines are asserted VERBATIM
-// against PRD-6 § "Surface: Sift PR comment"; rows are asserted to appear
+// against PRD-6 § "Surface: Tamys PR comment"; rows are asserted to appear
 // VERBATIM from the engine fixture (never re-authored).
 
 import { test } from 'node:test';
@@ -22,19 +22,19 @@ import {
     shouldComment,
     State,
 } from '../src/verdict.js';
-import type { RankedChange, RunOutcome, SiftCommentContext, SiftReport } from '../src/types.js';
+import type { RankedChange, RunOutcome, TamysCommentContext, TamysReport } from '../src/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.join(__dirname, '..', '..', 'tests', 'fixtures');
 
-function load(name: string): SiftReport {
-    return JSON.parse(readFileSync(path.join(FIXTURES, name), 'utf8')) as SiftReport;
+function load(name: string): TamysReport {
+    return JSON.parse(readFileSync(path.join(FIXTURES, name), 'utf8')) as TamysReport;
 }
 
 const HEAD_SHA = 'abc1234def5678';
 const BASE_SHA = 'def4567abc1234';
 
-function ctx(over: Partial<SiftCommentContext> = {}): SiftCommentContext {
+function ctx(over: Partial<TamysCommentContext> = {}): TamysCommentContext {
     return {
         context_version: '0.2.0',
         head_sha: HEAD_SHA,
@@ -55,13 +55,13 @@ function ctx(over: Partial<SiftCommentContext> = {}): SiftCommentContext {
 // Stamp the engine-resolved run verdicts onto a fixture report (the fixtures are
 // outcome-free = Unknown; the wire omits the fields).
 function withOutcomes(
-    report: SiftReport,
-    outcomes: Partial<Pick<SiftReport['summary'], 'baseline_outcome' | 'changed_outcome' | 'outcome_regressed'>>,
-): SiftReport {
+    report: TamysReport,
+    outcomes: Partial<Pick<TamysReport['summary'], 'baseline_outcome' | 'changed_outcome' | 'outcome_regressed'>>,
+): TamysReport {
     return { ...report, summary: { ...report.summary, ...outcomes } };
 }
 
-const HEADER = '### 🔬 Sift — structural diff of your CI logs';
+const HEADER = '### 🔬 Tamys — structural diff of your CI logs';
 
 // The <details> embed SLOT — the exact span `renderDetails` fills with the engine's
 // body. Extracted rather than searched, for two reasons an `out.includes(...)` cannot
@@ -110,7 +110,7 @@ test('footer carries determinism + privacy + provenance + as-of stamp (verbatim)
     const out = renderComment(load('drift.json'), ctx());
     assert.match(
         out,
-        /<sub>Deterministic — same inputs, same comment\. Runs in your CI; your logs never leave it\. · \[What is this\?\]\(https:\/\/coderoast\.fr\/sift\) · Baseline: last green run on `main` @ \[`def4567`\]\(https:\/\/github\.com\/o\/r\/actions\/runs\/7654321\) · as of `abc1234`<\/sub>/,
+        /<sub>Deterministic — same inputs, same comment\. Runs in your CI; your logs never leave it\. · \[What is this\?\]\(https:\/\/coderoast\.fr\/tamys\) · Baseline: last green run on `main` @ \[`def4567`\]\(https:\/\/github\.com\/o\/r\/actions\/runs\/7654321\) · as of `abc1234`<\/sub>/,
     );
 });
 
@@ -122,7 +122,7 @@ test('① cold start: state, verbatim copy, base branch substituted, no baseline
     const out = renderComment(null, coldCtx);
     assert.ok(
         out.includes(
-            '🔬 No baseline yet. Sift diffs each run against the last green run on `develop`.\n' +
+            '🔬 No baseline yet. Tamys diffs each run against the last green run on `develop`.\n' +
                 'Once one lands, every PR gets a structural diff here — nothing to compare this time.',
         ),
         out,
@@ -140,7 +140,7 @@ test('② clean with suppression: verbatim copy, the 851→0 pitch, no <details>
     assert.ok(out.includes('✅ No structural change. 12,043 → 12,058 log lines, same behaviour.'), out);
     assert.ok(
         out.includes(
-            'Sift weighed 851 surface diffs and found no structural change worth a look among them.',
+            'Tamys weighed 851 surface diffs and found no structural change worth a look among them.',
         ),
         out,
     );
@@ -232,7 +232,7 @@ test('③ drift, verdict SUCCESS: the cache-died hero headline (verbatim)', () =
 // only the last is noise.
 test('③ drift: the census-era total renders literally, grouped, and never as a gap', () => {
     const base = load('drift.json');
-    const at = (total: number, significant: number): SiftReport => ({
+    const at = (total: number, significant: number): TamysReport => ({
         ...base,
         summary: { ...base.summary, total_changes: total, significant_changes: significant },
     });
@@ -316,7 +316,7 @@ test('④ two independent axes, at two altitudes: heat on the SECTION, green cir
 
 // WHERE attribution (LSRC-23): the functional location renders as inline code
 // after the summary, composing with the badge. Engine CONTENT → escapeInline.
-function whereReport(where: string): SiftReport {
+function whereReport(where: string): TamysReport {
     const row: RankedChange = {
         kind: 'new_error_pattern',
         severity: 'high',
@@ -579,7 +579,7 @@ test('a severity outside the ladder gets its OWN section after LOW — never fol
         significance: 0.5,
         summary: 'Frequency shift: "INFO warming pool" 1.0% → 9.0%',
     };
-    const report: SiftReport = { ...base, ranked_changes: [exotic, ...base.ranked_changes] };
+    const report: TamysReport = { ...base, ranked_changes: [exotic, ...base.ranked_changes] };
     const out = renderComment(report, ctx());
     assert.ok(out.includes('<b>BLOCKER</b> — 1 change'), out);
     assert.ok(out.indexOf('<b>LOW</b>') < out.indexOf('<b>BLOCKER</b>'), out);
@@ -657,7 +657,7 @@ test('escapeInline leaves the engine\'s markdown formatting alone', () => {
     // bullets survive intact"), which is what keeps the collapsed report readable.
     // Identity here is a property, not a tautology: it is exactly what fails the day
     // someone reaches for a general-purpose markdown escaper.
-    const formatting = '# Sift\n\n## Significant changes\n\n**bold** _under_ *em*\n\n- item\n1. numbered\n';
+    const formatting = '# Tamys\n\n## Significant changes\n\n**bold** _under_ *em*\n\n- item\n1. numbered\n';
     assert.equal(escapeInline(formatting), formatting, `formatting must pass through: ${JSON.stringify(formatting)}`);
 });
 
@@ -688,7 +688,7 @@ test('escapeInline preserves whitespace runs and the evidence glyphs byte-for-by
 // a markdown link and image (the bot-comment phishing surface, contract §6.1).
 const PHISH_LINK = '[click to verify](https://evil.example/phish)';
 const PHISH_IMAGE = '![](https://tracker.example/p.png)';
-function maliciousReport(): SiftReport {
+function maliciousReport(): TamysReport {
     const attack =
         `New error: "</details><script>alert(1)</script> \`\`\` | x & <host> ${PHISH_LINK} ${PHISH_IMAGE}" — 9.0% of changed`;
     const row: RankedChange = {
@@ -707,7 +707,7 @@ function maliciousReport(): SiftReport {
             changed: { label: 'b', lines_observed: 100, unique_templates: 5 },
         },
         // The engine's own structure (#, **, lists) plus injected breakout content.
-        markdown: `# Sift\n\n## Significant changes\n\n1. **[HIGH · regression]** ${attack}\n\n</details>\n\`\`\`\ntext after an unclosed fence\n`,
+        markdown: `# Tamys\n\n## Significant changes\n\n1. **[HIGH · regression]** ${attack}\n\n</details>\n\`\`\`\ntext after an unclosed fence\n`,
     };
 }
 
@@ -758,7 +758,7 @@ test('safe embedding: markdown link/image syntax is neutralized (no phishing und
     assert.ok(out.includes('https://evil.example/phish'), 'the URL survives as visible, inert text');
     // The frame's OWN links (footer "What is this?" + provenance) are trusted and
     // composed raw, so they stay live — neutralization touches only engine content.
-    assert.ok(out.includes('[What is this?](https://coderoast.fr/sift)'), 'frame links stay live');
+    assert.ok(out.includes('[What is this?](https://coderoast.fr/tamys)'), 'frame links stay live');
 });
 
 // The three arms above assert their entities against the WHOLE comment, and
@@ -778,10 +778,10 @@ const BODY_VECTORS: ReadonlyArray<readonly [raw: string, embedded: string]> = [
 ];
 
 test('safe embedding: the <details> BODY rides escapeInline — every vector, hand-written', () => {
-    const report: SiftReport = {
+    const report: TamysReport = {
         ...load('drift.json'),
         markdown:
-            '# Sift — baseline → changed\n\n## Significant changes\n\n' +
+            '# Tamys — baseline → changed\n\n## Significant changes\n\n' +
             BODY_VECTORS.map(([raw], i) => `${i + 1}. **[HIGH]** log line carrying ${raw}`).join('\n') +
             '\n',
     };
@@ -860,9 +860,9 @@ test('shouldComment honours each level; only `always` fires on clean / cold-star
 
 test('comment-tag: tagged marker + title suffix; untagged marker is NOT a substring of it', () => {
     const out = renderComment(null, ctx({ baseline: undefined, comment_tag: 'vs-prev' }));
-    assert.ok(out.startsWith('<!-- sift:pr-comment:vs-prev -->'));
+    assert.ok(out.startsWith('<!-- tamys:pr-comment:vs-prev -->'));
     assert.ok(out.includes(`${HEADER} (vs-prev)`));
-    assert.ok(!out.includes('<!-- sift:pr-comment -->'));
+    assert.ok(!out.includes('<!-- tamys:pr-comment -->'));
 });
 
 test('artifact provenance: the footnote names the baseline artifact, not a branch run', () => {
@@ -874,19 +874,19 @@ test('artifact provenance: the footnote names the baseline artifact, not a branc
             run_url: 'https://github.com/o/r/actions/runs/80',
             branch: 'main',
             created_at: '2026-07-01T00:00:00Z',
-            label: 'sift-baseline-main-build',
+            label: 'tamys-baseline-main-build',
         },
     }));
-    assert.ok(out.includes('Baseline: artifact `sift-baseline-main-build` @'));
+    assert.ok(out.includes('Baseline: artifact `tamys-baseline-main-build` @'));
     assert.ok(!out.includes('last green run on'));
 });
 
 test('cold start with a configured source: the copy names the source, not the base branch', () => {
     const out = renderComment(null, ctx({
         baseline: undefined,
-        baseline_source: 'the `sift-baseline-main-build` baseline artifact',
+        baseline_source: 'the `tamys-baseline-main-build` baseline artifact',
     }));
-    assert.ok(out.includes('Sift diffs each run against the `sift-baseline-main-build` baseline artifact.'));
+    assert.ok(out.includes('Tamys diffs each run against the `tamys-baseline-main-build` baseline artifact.'));
     assert.ok(!out.includes('last green run on `main`'));
 });
 
@@ -943,14 +943,14 @@ test('stale banner, artifact-resolved: the repo-wide claim is measured there, an
                 run_url: 'https://github.com/o/r/actions/runs/9',
                 branch: 'main',
                 created_at: '2026-06-01T09:12:00Z',
-                label: 'sift-baseline-main',
+                label: 'tamys-baseline-main',
             },
             baseline_age_hours: 100,
             baseline_age_bound: '72h',
             baseline_stale: true,
         }),
     );
-    assert.ok(out.includes('newest live `sift-baseline-main` artifact'), out);
+    assert.ok(out.includes('newest live `tamys-baseline-main` artifact'), out);
     assert.ok(out.includes('no run has stored a newer one'), out);
 });
 
@@ -989,11 +989,11 @@ test('an aged-but-inside-bound baseline renders NO banner (age in the footer onl
 const FOLD_MEMBER = 'the linker refused the release profile';
 const FOLD_NOTICE_COUNT = 'and 7 more';
 
-function reportCarryingEvidence(): SiftReport {
+function reportCarryingEvidence(): TamysReport {
     const base = load('drift.json');
     // The engine body's own shape: a ranked row, then its evidence as indented bullets.
     const markdown =
-        '# Sift — baseline → changed\n\n' +
+        '# Tamys — baseline → changed\n\n' +
         '**7 changes, 2 structurally significant.**\n\n' +
         '## Significant changes\n\n' +
         '1. **[CRITICAL · regression]** Unit changed outcome: "gate" — required by this run\n' +
@@ -1092,7 +1092,7 @@ test('budget: one 70 000 B row posts — the comment fits and names what it left
     // The engine writes the template whole in the row AND in its markdown, so the one
     // long row reaches the body twice; neither may carry it past the limit.
     const long = 'E'.repeat(70_000);
-    const report: SiftReport = {
+    const report: TamysReport = {
         ...base,
         ranked_changes: [rowOf(long)],
         markdown: `${base.markdown ?? ''}\n1. ${long}\n`,
@@ -1115,7 +1115,7 @@ test('budget: 20 rows of 1 MiB of `|` and a 10 MiB report — bounded, every eli
     const rows = Array.from({ length: 20 }, (_, i) =>
         rowOf('|'.repeat(mebibyte), { template_id: `h:${String(i).padStart(32, '0')}` }),
     );
-    const report: SiftReport = { ...base, ranked_changes: rows, markdown: 'M'.repeat(10 * mebibyte) };
+    const report: TamysReport = { ...base, ranked_changes: rows, markdown: 'M'.repeat(10 * mebibyte) };
     const out = renderComment(report, ctx());
     assert.ok(bytesOf(out) <= COMMENT_LIMIT_BYTES, `the composed body is ${bytesOf(out)} B`);
     // `|` escapes to `&#124;` (6 B), so 170 source bytes fill 1 020 of the 1 024 escaped
@@ -1132,7 +1132,7 @@ test('budget: 20 rows of 1 MiB of `|` and a 10 MiB report — bounded, every eli
 
 test('budget: `where` is cut at 256 escaped bytes with the same declared marker, after its code span', () => {
     const base = load('drift.json');
-    const report: SiftReport = { ...base, ranked_changes: [rowOf('short', { where: '/'.repeat(1_000) })] };
+    const report: TamysReport = { ...base, ranked_changes: [rowOf('short', { where: '/'.repeat(1_000) })] };
     const line = rowLine(renderComment(report, ctx()), 1);
     // The marker follows the closing backtick: inside the span its own copy would render as code.
     assert.ok(line.includes(` · in \`${'/'.repeat(WHERE_CAP_BYTES)}\` … [+744 B not shown`), line);
@@ -1143,7 +1143,7 @@ test('budget: the cut ends on a code-point boundary, never inside a multi-byte c
     const base = load('drift.json');
     // `€` is 3 UTF-8 bytes: 341 of them fill 1 023 of the 1 024 bytes, and the 342nd would
     // straddle the cap. 2 000 × 3 − 1 023 = 4 977 source bytes are elided.
-    const report: SiftReport = { ...base, ranked_changes: [rowOf('€'.repeat(2_000))] };
+    const report: TamysReport = { ...base, ranked_changes: [rowOf('€'.repeat(2_000))] };
     const line = rowLine(renderComment(report, ctx()), 1);
     assert.ok(line.startsWith(`1. ${'€'.repeat(341)} … [+4,977 B not shown`), line.slice(0, 1_100));
     assert.ok(!line.includes('�'), 'a split character rendered as U+FFFD');
@@ -1169,7 +1169,7 @@ test('budget: a report whose escaped markdown alone overflows is replaced whole,
     const base = load('drift.json');
     // 20 000 pipes are 20 000 source bytes but 120 000 escaped bytes: the SOURCE fits the
     // limit, the embed does not — the decision is taken on the composed body.
-    const report: SiftReport = { ...base, markdown: '|'.repeat(20_000) };
+    const report: TamysReport = { ...base, markdown: '|'.repeat(20_000) };
     const out = renderComment(report, ctx());
     assert.ok(bytesOf(out) <= COMMENT_LIMIT_BYTES, `${bytesOf(out)} B`);
     assert.equal(
@@ -1191,11 +1191,11 @@ test('budget: a report that fits embeds its markdown whole — the largest body 
     assert.ok(detailsBody(oneOver).startsWith('The full report is '), detailsBody(oneOver).slice(0, 200));
 });
 
-const REPORT_ARTIFACT = { name: 'sift-report', run_url: 'https://github.com/o/r/actions/runs/99' };
+const REPORT_ARTIFACT = { name: 'tamys-report', run_url: 'https://github.com/o/r/actions/runs/99' };
 
 test('budget: with the report uploaded, the marker, the declared line and the footer all point at it', () => {
     const base = load('drift.json');
-    const report: SiftReport = {
+    const report: TamysReport = {
         ...base,
         ranked_changes: [rowOf('E'.repeat(5_000))],
         markdown: 'M'.repeat(70_000),
@@ -1203,24 +1203,24 @@ test('budget: with the report uploaded, the marker, the declared line and the fo
     const out = renderComment(report, ctx({ report_artifact: REPORT_ARTIFACT }));
     assert.ok(
         rowLine(out, 1).endsWith(
-            ' … [+3,976 B not shown; template h:7f3a0c1d2e3f405162738495a6b7c8d9, full text in the `sift-report` artifact]',
+            ' … [+3,976 B not shown; template h:7f3a0c1d2e3f405162738495a6b7c8d9, full text in the `tamys-report` artifact]',
         ),
         rowLine(out, 1).slice(-200),
     );
     assert.equal(
         detailsBody(out),
         "The full report is 70,000 B of markdown, too large to embed in a comment under GitHub's 65,536-character limit. " +
-            "It is this run's [`sift-report` artifact](https://github.com/o/r/actions/runs/99).",
+            "It is this run's [`tamys-report` artifact](https://github.com/o/r/actions/runs/99).",
     );
     assert.match(
         out,
-        / · Full report: \[`sift-report` artifact\]\(https:\/\/github\.com\/o\/r\/actions\/runs\/99\) · as of `abc1234`<\/sub>$/,
+        / · Full report: \[`tamys-report` artifact\]\(https:\/\/github\.com\/o\/r\/actions\/runs\/99\) · as of `abc1234`<\/sub>$/,
     );
 });
 
 test('budget: without an uploaded report, nothing claims an artifact exists', () => {
     const base = load('drift.json');
-    const report: SiftReport = { ...base, ranked_changes: [rowOf('E'.repeat(5_000))], markdown: 'M'.repeat(70_000) };
+    const report: TamysReport = { ...base, ranked_changes: [rowOf('E'.repeat(5_000))], markdown: 'M'.repeat(70_000) };
     const out = renderComment(report, ctx());
     assert.ok(!out.includes('artifact'), out.slice(-1_500));
 });
@@ -1240,7 +1240,7 @@ test('budget: the worst case the frame can meet stays under the limit — the in
             template_id: `h:${'f'.repeat(200)}${i}`,
         }),
     );
-    const report: SiftReport = {
+    const report: TamysReport = {
         ...withOutcomes(base, { changed_outcome: 'SUCCESS' }),
         ranked_changes: [...rows, ...rows],
         markdown: 'M'.repeat(10 * mebibyte),
@@ -1252,7 +1252,7 @@ test('budget: the worst case the frame can meet stays under the limit — the in
             baseline_stale: true,
             baseline_age_hours: 10_000,
             baseline_age_bound: '72h',
-            report_artifact: { name: 'sift-report-vs-previous-run', run_url: 'https://github.com/o/r/actions/runs/99' },
+            report_artifact: { name: 'tamys-report-vs-previous-run', run_url: 'https://github.com/o/r/actions/runs/99' },
         }),
     );
     const size = bytesOf(out);
@@ -1319,7 +1319,7 @@ test('W469: every report state states the claim boundary in its VISIBLE frame, o
 });
 
 test('W469 and W446: a markdown too large to embed keeps the claim boundary and the n-gram line in the visible frame', () => {
-    const report: SiftReport = { ...load('drift.json'), inputs: REFUSING_INPUTS, markdown: 'M'.repeat(70_000) };
+    const report: TamysReport = { ...load('drift.json'), inputs: REFUSING_INPUTS, markdown: 'M'.repeat(70_000) };
     const out = renderComment(report, ctx());
     assert.ok(detailsBody(out).startsWith('The full report is 70,000 B of markdown'), 'precondition: the markdown is replaced');
     const visible = visibleFrame(out);
@@ -1336,7 +1336,7 @@ test('W446: the Clean comment states the n-gram line when a window refused, and 
 });
 
 test('W446: an embedded markdown carries the n-gram line itself, so the visible frame does not repeat it', () => {
-    const report: SiftReport = { ...load('drift.json'), inputs: REFUSING_INPUTS };
+    const report: TamysReport = { ...load('drift.json'), inputs: REFUSING_INPUTS };
     const out = renderComment(report, ctx());
     assert.ok(!visibleFrame(out).includes('N-gram limit'), visibleFrame(out));
 });

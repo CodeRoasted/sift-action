@@ -4,7 +4,7 @@
 # check is fatal by design, so a Windows engine published without it breaks every Windows install;
 # until 2026-10-14 nothing here probed it, so the first to notice would have been a user).
 #
-# The Action downloads engine-v<SIFT_VERSION>/sift-linux-x64 at runtime, so a pin naming an
+# The Action downloads engine-v<TAMYS_VERSION>/sift-linux-x64 at runtime, so a pin naming an
 # unpublished release 404s every consumer — and does it silently, because the download sits
 # behind continue-on-error (that is how the live @v1 came to pin a long-dead engine-v1.4.2 while
 # every run looked green).
@@ -37,7 +37,7 @@ done
 # The Jenkins example is a recipe users copy verbatim; a stale one installs an old engine.
 # bump.sh moves both together (this is what INV-8b used to assert).
 if [ -f examples/jenkins/Jenkinsfile ]; then
-  jver="$(grep -oE "SIFT_VERSION\s*=\s*['\"][0-9.]+['\"]" examples/jenkins/Jenkinsfile \
+  jver="$(grep -oE "TAMYS_VERSION\s*=\s*['\"][0-9.]+['\"]" examples/jenkins/Jenkinsfile \
           | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
   if [ "$jver" != "$ver" ]; then
     echo "::error::examples/jenkins/Jenkinsfile pins $jver but the Action pins $ver — run ./bump.sh, which rewrites both."

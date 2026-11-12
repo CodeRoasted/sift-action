@@ -25,8 +25,8 @@ test('rejects a triggering run whose event is not pull_request', () => {
 test('accepts the expected build workflow on a PR (matched by file name)', () => {
     assert.equal(
         triggeringRunIsTrusted(
-            { id: 1, head_sha: 'a', event: 'pull_request', name: 'Build', path: '.github/workflows/sift.yml' },
-            'sift.yml',
+            { id: 1, head_sha: 'a', event: 'pull_request', name: 'Build', path: '.github/workflows/tamys.yml' },
+            'tamys.yml',
         ),
         true,
     );
@@ -35,7 +35,7 @@ test('accepts the expected build workflow on a PR (matched by file name)', () =>
 test('accepts the expected build workflow on a PR (matched by display name)', () => {
     assert.equal(
         triggeringRunIsTrusted(
-            { id: 1, head_sha: 'a', event: 'pull_request', name: 'Build', path: '.github/workflows/sift.yml' },
+            { id: 1, head_sha: 'a', event: 'pull_request', name: 'Build', path: '.github/workflows/tamys.yml' },
             'Build',
         ),
         true,
@@ -46,7 +46,7 @@ test('rejects a PR-triggered run from a DIFFERENT workflow than expected', () =>
     assert.equal(
         triggeringRunIsTrusted(
             { id: 1, head_sha: 'a', event: 'pull_request', name: 'Release', path: '.github/workflows/release.yml' },
-            'sift.yml',
+            'tamys.yml',
         ),
         false,
     );
@@ -96,7 +96,7 @@ test('a PR with a different head sha is never selected, even if listed first', (
 // ── render → post: pr-comment verdict crosses the boundary via the meta ──────
 
 test('writeRenderedComment stamps should_post so the poster can honour pr-comment on fork PRs', async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-render-'));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-render-'));
     const read = async () =>
         JSON.parse(await fs.readFile(path.join(dir, RENDERED_META_FILE), 'utf8')) as RenderedCommentMeta;
 
@@ -107,12 +107,12 @@ test('writeRenderedComment stamps should_post so the poster can honour pr-commen
     assert.equal((await read()).should_post, true, 'at/above-threshold render must stamp should_post=true');
 });
 
-// ── The `sift-report` artifact (ADR-14.D12): the full report the comment projects ──
+// ── The `tamys-report` artifact (ADR-14.D12): the full report the comment projects ──
 
 import { publishReport } from '../src/artifact.js';
 
 test('publishReport uploads report.json byte-identical to the engine output, plus its markdown', async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-report-test-'));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-report-test-'));
     const reportJsonPath = path.join(dir, 'report.json');
     // Bytes a re-serialisation would not reproduce: key order, spacing, an escaped slash.
     const engineBytes = '{"b":1,  "a":"x\\/y","markdown":"# M\\n"}\n';
@@ -126,18 +126,18 @@ test('publishReport uploads report.json byte-identical to the engine output, plu
             return { id: 1, size: 0 };
         },
     };
-    await publishReport(reportJsonPath, '# M\n', 'sift-report', client);
+    await publishReport(reportJsonPath, '# M\n', 'tamys-report', client);
     assert.equal(uploads.length, 1, `uploads: ${uploads.length}`);
-    assert.equal(uploads[0]?.name, 'sift-report');
+    assert.equal(uploads[0]?.name, 'tamys-report');
     assert.deepEqual(uploads[0]?.files, { 'report.json': engineBytes, 'report.md': '# M\n' });
 });
 
 test('publishReport uploads report.json alone when the report carries no markdown', async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sift-report-test-'));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tamys-report-test-'));
     const reportJsonPath = path.join(dir, 'report.json');
     await fs.writeFile(reportJsonPath, '{}', 'utf8');
     let listed: string[] = [];
-    await publishReport(reportJsonPath, undefined, 'sift-report-vs-prev', {
+    await publishReport(reportJsonPath, undefined, 'tamys-report-vs-prev', {
         uploadArtifact: async (_name: string, files: string[], root: string) => {
             listed = files.map((file) => path.relative(root, file));
             return { id: 1, size: 0 };

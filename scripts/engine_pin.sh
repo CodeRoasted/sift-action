@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Print the ENGINE pin — the `sift` binary version this Action downloads at runtime.
+# Print the ENGINE pin — the `tamys` binary version this Action downloads at runtime.
 #
 # ONE definition, because there are now two readers with different failure modes and a
 # drift between them is silent in both directions:
@@ -11,14 +11,14 @@
 # own regex, and the day the declaration's spelling moves, one reader follows and the other
 # keeps returning a stale version while still exiting 0.
 #
-# src/sift-version.ts is the truth (`./bump.sh` owns the value and refuses to write an
+# src/tamys-version.ts is the truth (`./bump.sh` owns the value and refuses to write an
 # unpublished one). This script only READS it, and fails loudly rather than emitting an
 # empty string: an empty version composes into a URL that 404s, which reports as a missing
 # release instead of as a parse failure and sends the reader hunting the wrong bug.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-src="$here/src/sift-version.ts"
+src="$here/src/tamys-version.ts"
 
 [ -f "$src" ] || { echo "engine_pin: $src not found" >&2; exit 1; }
 
@@ -27,11 +27,11 @@ src="$here/src/sift-version.ts"
 # exiting 1 with no message, which is exactly the silent failure this script exists to
 # prevent. Swallowing the pipeline status hands the decision to the `-z` test below, which
 # names the file and the symbol. Verified by mangling the declaration and reading stderr.
-ver="$(grep -oE "SIFT_VERSION[[:space:]]*=[[:space:]]*['\"][^'\"]+['\"]" "$src" \
+ver="$(grep -oE "TAMYS_VERSION[[:space:]]*=[[:space:]]*['\"][^'\"]+['\"]" "$src" \
        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
 
 if [ -z "$ver" ]; then
-    echo "engine_pin: could not parse SIFT_VERSION from $src" >&2
+    echo "engine_pin: could not parse TAMYS_VERSION from $src" >&2
     exit 1
 fi
 

@@ -1,4 +1,4 @@
-# Sift wall time on a GitHub-HOSTED runner — the measurement behind any public speed claim.
+# Tamys wall time on a GitHub-HOSTED runner — the measurement behind any public speed claim.
 #
 # `workflow_dispatch` ONLY, deliberately. This is a study instrument, not a gate: it answers
 # "how fast is the engine on the hardware a user actually has" once, when someone asks. A

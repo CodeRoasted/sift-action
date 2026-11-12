@@ -8,7 +8,7 @@
 # THERE IS NO EXEMPT CLASS OF src/ EDIT, AND "comments only" IS THE ONE THAT LOOKS EXEMPT.
 # esbuild drops comments everywhere EXCEPT in array/object-literal element position, which it
 # preserves verbatim into the bundle. Measured 2026-08-12: a citation rewrite in the argument
-# array built by `siftArgs()` (src/sift.ts) reached dist/index.js and held main red for five
+# array built by `tamysArgs()` (src/tamys.ts) reached dist/index.js and held main red for five
 # consecutive pushes over three days, because a comment-only diff was read as owing no
 # repackage. Regenerate and look; never reason about whether a change "counts".
 set -euo pipefail

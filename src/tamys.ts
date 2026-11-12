@@ -1,8 +1,8 @@
-// Engine invocation. The Action shells out to the pinned `sift` binary (provided
+// Engine invocation. The Action shells out to the pinned `tamys` binary (provided
 // by Argos's packaging — a downloaded release asset, or in-image for Docker) with
 // `--format both -o report.json`: one file carrying the structured report AND the
 // pre-rendered markdown body (the `markdown` sibling the <details> embeds). The
-// `--fail-on` exit code is the authoritative advisory gate (sift exits 2 when the
+// `--fail-on` exit code is the authoritative advisory gate (tamys exits 2 when the
 // condition holds) — captured here, never recomputed.
 
 import * as core from '@actions/core';
@@ -15,10 +15,10 @@ import {
     MAX_ENGINE_ALIGNMENT_CELLS,
     MAX_ENGINE_LINE_BYTES,
     type RankedChange,
-    type SiftReport,
+    type TamysReport,
 } from './types.js';
 
-// The gate values the PINNED engine parses (`sift --fail-on`, DN-132.D2's single gate since engine
+// The gate values the PINNED engine parses (`tamys --fail-on`, DN-132.D2's single gate since engine
 // 1.10.8: none | medium | high | critical). It trips on the run's declared verdict getting worse, or on
 // a listed row that got worse (polarity Regression) at that severity or above. The Action forwards
 // the value and reads the exit code; it never decides the gate.
@@ -38,8 +38,8 @@ export function parseFailOn(raw: string): FailOn {
     return failOn;
 }
 
-export interface SiftInvocation {
-    siftBin: string;
+export interface TamysInvocation {
+    tamysBin: string;
     baselineLog: string;
     changedLog: string;
     baselineLabel: string;
@@ -66,7 +66,7 @@ export interface SiftInvocation {
     // naming a step rests on the baseline side, so its flags have no reader (DN-140.D9).
     changedLogProvenance?: { jobId: number; attempt: number | null };
     // Opt-in AI narrative (ADR-13.D5). The pinned local model + server are provisioned by
-    // runExplainSetup() before this runs; `sift --explain` then auto-spawns the bundled server,
+    // runExplainSetup() before this runs; `tamys --explain` then auto-spawns the bundled server,
     // narrates additively, and tears it down. Fail-soft: a missing/unreachable model leaves the
     // deterministic report + the gate exit code untouched. No credential — the Action never carries one.
     explain?: boolean;
@@ -75,7 +75,7 @@ export interface SiftInvocation {
     // `--changed-job-graph`), produced by jobgraph.ts. ABSENT (undefined) ⇒ no flag ⇒ the graph's
     // readers are inert; a present-but-empty `jobs` array declares a workflow with zero jobs —
     // different facts, and the engine acts on the difference.
-    // runSift() writes `jobs` to `path` before exec; siftArgs() only names the path.
+    // runTamys() writes `jobs` to `path` before exec; tamysArgs() only names the path.
     changedJobGraph?: { path: string; jobs: DeclaredJobWire[] };
     // The BASELINE run's declared job graph (`--baseline-job-graph`), the same wire, read after the
     // fact by `resolveBaselineJobGraph`. Its one reader is the step-template route: a banner is
@@ -83,23 +83,23 @@ export interface SiftInvocation {
     baselineJobGraph?: { path: string; jobs: DeclaredJobWire[] };
 }
 
-export interface SiftResult {
-    report: SiftReport;
-    exitCode: number; // sift's --fail-on verdict: 0 = pass, 2 = condition held
+export interface TamysResult {
+    report: TamysReport;
+    exitCode: number; // tamys's --fail-on verdict: 0 = pass, 2 = condition held
 }
 
-// The engine's CLOSED exit-code set (`sift --help` § Exit codes). Only SUCCESS and
+// The engine's CLOSED exit-code set (`tamys --help` § Exit codes). Only SUCCESS and
 // GATE_TRIPPED leave a report behind; every other code means there is no file to read, and
 // reading anyway is how a real failure got reported as a filesystem error.
 //
-// This is not a defensive nicety. Before it existed, runSift() read the report file
+// This is not a defensive nicety. Before it existed, runTamys() read the report file
 // unconditionally after `ignoreReturnCode: true`, so an engine that had refused — or, when
 // the log was large enough to exhaust the runner, CRASHED on an uncaught bad_alloc — surfaced
 // to the user as `ENOENT: no such file or directory, open '.../report.json'`. That message
 // names the wrong subject entirely: it points at the Action's own plumbing while the actual
 // event was "your log did not fit", and it is the last message a prospect sees before
 // deciding the tool does not work.
-const SIFT_EXIT = {
+const TAMYS_EXIT = {
     SUCCESS: 0,
     USAGE_ERROR: 1,
     GATE_TRIPPED: 2,
@@ -109,13 +109,13 @@ const SIFT_EXIT = {
 
 // Thrown when the engine produced no report. Carries the exit code so callers can branch
 // without re-parsing a message.
-export class SiftEngineError extends Error {
+export class TamysEngineError extends Error {
     constructor(
         message: string,
         readonly exitCode: number,
     ) {
         super(message);
-        this.name = 'SiftEngineError';
+        this.name = 'TamysEngineError';
     }
 }
 
@@ -124,19 +124,19 @@ export class SiftEngineError extends Error {
 // should be provable without spawning a binary.
 export function engineFailureMessage(exitCode: number): string | null {
     switch (exitCode) {
-        case SIFT_EXIT.SUCCESS:
-        case SIFT_EXIT.GATE_TRIPPED:
+        case TAMYS_EXIT.SUCCESS:
+        case TAMYS_EXIT.GATE_TRIPPED:
             return null;
-        case SIFT_EXIT.USAGE_ERROR:
+        case TAMYS_EXIT.USAGE_ERROR:
             return (
-                'Sift could not read one of the logs, could not write its report, or was called ' +
+                'Tamys could not read one of the logs, could not write its report, or was called ' +
                 'with bad arguments (engine exit 1). Check the `log:` path, the runner\'s free ' +
                 'disk space, or the `target-job` name if you use zero-plumbing sourcing — the ' +
                 "engine's own message is in the step log above."
             );
-        case SIFT_EXIT.INPUT_TOO_LARGE:
+        case TAMYS_EXIT.INPUT_TOO_LARGE:
             return (
-                'Sift refused this run: one of the logs is over the engine ceiling of ' +
+                'Tamys refused this run: one of the logs is over the engine ceiling of ' +
                 `${MAX_CHANGED_LOG_BYTES} bytes / 1000000 lines per input, or has a line over ` +
                 `${MAX_ENGINE_LINE_BYTES} bytes per line, or the two logs need more than ` +
                 `${MAX_ENGINE_ALIGNMENT_CELLS} step-alignment cells (baseline steps x changed ` +
@@ -146,12 +146,12 @@ export function engineFailureMessage(exitCode: number): string | null {
                 "the engine's own message in the step log above names the bound it hit. " +
                 'This is a declared limit, not a crash — the ' +
                 'engine will not diff a truncated window, because that answers a different ' +
-                'question without saying so. Narrow what you compare with the SIFT_CAPTURE ' +
-                'markers (see the `capture` input) and Sift will run on the sections you mark.'
+                'question without saying so. Narrow what you compare with the TAMYS_CAPTURE ' +
+                'markers (see the `capture` input) and Tamys will run on the sections you mark.'
             );
-        case SIFT_EXIT.INTERNAL_ERROR:
+        case TAMYS_EXIT.INTERNAL_ERROR:
             return (
-                'The Sift engine hit an internal error (exit 4). This is a bug — please report ' +
+                'The Tamys engine hit an internal error (exit 4). This is a bug — please report ' +
                 'it at https://github.com/CodeRoasted/sift-action/issues with the engine ' +
                 'message from the step log above and the output of `wc -lc` on both logs.'
             );
@@ -159,7 +159,7 @@ export function engineFailureMessage(exitCode: number): string | null {
             // A code outside the closed set — in practice a signal (128+n; 134 = SIGABRT).
             // Named explicitly because "unknown" is exactly what the old ENOENT path said.
             return (
-                `The Sift engine exited with an unexpected status (${exitCode}). ` +
+                `The Tamys engine exited with an unexpected status (${exitCode}). ` +
                 (exitCode > 128
                     ? `That is a signal (${exitCode - 128}), so the engine was killed rather ` +
                       'than returning — a runner out-of-memory kill is the usual cause. '
@@ -269,7 +269,7 @@ function firstControlUnit(text: string, kind: DisplayText): { codeUnit: number; 
 // rendered `markdown`, whose only control byte is the line feed the renderer writes itself.
 // Identity fields (`phase`, `template_id`, the input labels) are not display text: the engine
 // keeps them faithful, and the Action does not embed them.
-export function displayViolations(report: SiftReport): DisplayViolation[] {
+export function displayViolations(report: TamysReport): DisplayViolation[] {
     const violations: DisplayViolation[] = [];
     const check = (field: string, text: unknown, kind: DisplayText): void => {
         if (typeof text !== 'string') {
@@ -342,25 +342,25 @@ export function unreadableReportMessage(
         }
     }
     return (
-        `The Sift ENGINE wrote an unreadable report. It exited ${exitCode} (a report-bearing ` +
+        `The Tamys ENGINE wrote an unreadable report. It exited ${exitCode} (a report-bearing ` +
         `code) and the file at ${outputPath} EXISTS, but ${broken}. This is a defect ` +
         'in the engine that produced the artefact — not a missing report, and not a problem ' +
         'with your log, your workflow inputs, or your permissions. ' +
         `Measured on the artefact: ${facts.reportBytes} bytes, ${measured}. ` +
-        'The Action FAILS here rather than posting nothing, because a Sift comment that ' +
-        'silently does not appear is indistinguishable from "Sift found nothing to report" — ' +
+        'The Action FAILS here rather than posting nothing, because a Tamys comment that ' +
+        'silently does not appear is indistinguishable from "Tamys found nothing to report" — ' +
         'and a false all-clear is the one outcome a precision-first tool cannot ship. ' +
         'Please report it at https://github.com/CodeRoasted/sift-action/issues with this ' +
         'message and the engine version.'
     );
 }
 
-// Distinct from SiftEngineError, and the distinction is the whole point of the class:
-// SiftEngineError means "the engine produced NO report", this one means "the engine
+// Distinct from TamysEngineError, and the distinction is the whole point of the class:
+// TamysEngineError means "the engine produced NO report", this one means "the engine
 // produced a report and got it WRONG". Collapsing them would send the user hunting for a
 // file that is sitting on disk. Carries the facts typed, so a caller can branch on the
 // shape without re-parsing prose.
-export class SiftReportUnreadableError extends Error {
+export class TamysReportUnreadableError extends Error {
     constructor(
         message: string,
         readonly exitCode: number,
@@ -368,7 +368,7 @@ export class SiftReportUnreadableError extends Error {
         readonly defect: ReportDefect,
     ) {
         super(message);
-        this.name = 'SiftReportUnreadableError';
+        this.name = 'TamysReportUnreadableError';
     }
 }
 
@@ -423,10 +423,10 @@ function firstIllFormedOffset(bytes: Uint8Array): number {
 // soften this: it governs verdicts about the user's code, and exits 1/3/4 already fail
 // irrespective of it — an unreadable report belongs in that set, and only reached this line
 // because the exit code lied.
-export function readReport(bytes: Uint8Array, outputPath: string, exitCode: number): SiftReport {
+export function readReport(bytes: Uint8Array, outputPath: string, exitCode: number): TamysReport {
     const refuse = (defect: ReportDefect): never => {
         const facts = measureUnreadableReport(bytes);
-        throw new SiftReportUnreadableError(
+        throw new TamysReportUnreadableError(
             unreadableReportMessage(outputPath, exitCode, facts, defect),
             exitCode,
             facts,
@@ -439,9 +439,9 @@ export function readReport(bytes: Uint8Array, outputPath: string, exitCode: numb
     } catch {
         return refuse({ kind: 'not-utf8', offset: firstIllFormedOffset(bytes) });
     }
-    let report: SiftReport;
+    let report: TamysReport;
     try {
-        report = JSON.parse(text) as SiftReport;
+        report = JSON.parse(text) as TamysReport;
     } catch (error) {
         return refuse({
             kind: 'not-json',
@@ -489,8 +489,8 @@ function transportToken(stack: readonly string[]): string {
     return stack.length === 0 ? 'none' : stack.join(',');
 }
 
-// Pure: the exact `sift` argv for an invocation (exported so it is unit-testable without spawning).
-export function siftArgs(invocation: SiftInvocation): string[] {
+// Pure: the exact `tamys` argv for an invocation (exported so it is unit-testable without spawning).
+export function tamysArgs(invocation: TamysInvocation): string[] {
     const args = [
         invocation.baselineLog,
         invocation.changedLog,
@@ -509,7 +509,7 @@ export function siftArgs(invocation: SiftInvocation): string[] {
         // line starting with a bare `Run ` is ordinary prose.
         //
         // Unconditional, not an input: it is a fact about how this Action acquires logs, not a knob a
-        // workflow author could know better than we do. Without it sift fails closed on DEPTH
+        // workflow author could know better than we do. Without it tamys fails closed on DEPTH
         // (ADR-22.D5) and would compare these logs without claiming step structure; WITH it,
         // and before the coordinate existed, the bare `Run ` row fired on that prose and minted
         // phantom Step quanta — measured on 9.05% of 22030 real annotated logs, i.e. exactly the
@@ -579,7 +579,7 @@ export function siftArgs(invocation: SiftInvocation): string[] {
     }
     // ADR-22.D13 — the declared `needs:` graph rides as a FILE: `needs` is genuinely nested, and
     // flat flags cannot carry a nesting without inventing a separator convention JSON already
-    // spells. Present ⇒ the flag names the path runSift() writes; absent ⇒ no flag, fold inert.
+    // spells. Present ⇒ the flag names the path runTamys() writes; absent ⇒ no flag, fold inert.
     if (invocation.changedJobGraph) {
         args.push('--changed-job-graph', invocation.changedJobGraph.path);
     }
@@ -590,7 +590,7 @@ export function siftArgs(invocation: SiftInvocation): string[] {
         args.push('--fail-on', invocation.failOn);
     }
     if (invocation.explain) {
-        // Assets are already provisioned (runExplainSetup ran first); `sift --explain` spawns the bundled
+        // Assets are already provisioned (runExplainSetup ran first); `tamys --explain` spawns the bundled
         // local server itself. Fail-soft in the binary: no endpoint reached ⇒ no narrative, report + exit
         // code unchanged. The --fail-on exit code ignores the narrative (engine GateExitCodeIgnoresNarrative).
         args.push('--explain');
@@ -601,9 +601,9 @@ export function siftArgs(invocation: SiftInvocation): string[] {
     return args;
 }
 
-export async function runSift(invocation: SiftInvocation): Promise<SiftResult> {
+export async function runTamys(invocation: TamysInvocation): Promise<TamysResult> {
     // The graph file the vector names — written here, where the other file IO already lives, so
-    // siftArgs stays pure (unit-testable without spawning). All four wire fields always travel:
+    // tamysArgs stays pure (unit-testable without spawning). All four wire fields always travel:
     // the type guarantees presence, and JSON.stringify of the literal-ordered objects is
     // deterministic for a given graph.
     for (const graph of [invocation.changedJobGraph, invocation.baselineJobGraph]) {
@@ -615,7 +615,7 @@ export async function runSift(invocation: SiftInvocation): Promise<SiftResult> {
     // INSPECTED here rather than ignored. The distinction the old code lost: `ignoreReturnCode`
     // means "do not throw on non-zero", not "non-zero carries no information".
     // env: a scrubbed, credential-free environment (see engineEnv).
-    const exitCode = await exec.exec(invocation.siftBin, siftArgs(invocation), {
+    const exitCode = await exec.exec(invocation.tamysBin, tamysArgs(invocation), {
         ignoreReturnCode: true,
         env: engineEnv(),
     });
@@ -623,7 +623,7 @@ export async function runSift(invocation: SiftInvocation): Promise<SiftResult> {
     // file, and reading first turns the engine's actionable message into an ENOENT about ours.
     const failure = engineFailureMessage(exitCode);
     if (failure !== null) {
-        throw new SiftEngineError(failure, exitCode);
+        throw new TamysEngineError(failure, exitCode);
     }
     // The exit-code check above was built for "engine failed, no file". It is DEFEATED by
     // "engine succeeded, bad file": engineFailureMessage() returns null on 0 and 2, so a
@@ -635,7 +635,7 @@ export async function runSift(invocation: SiftInvocation): Promise<SiftResult> {
     return { report: readReport(bytes, invocation.outputPath, exitCode), exitCode };
 }
 
-// The Action-level wall-clock bound on `sift explain-setup` (the Founder, 2026-09-03).
+// The Action-level wall-clock bound on `tamys explain-setup` (the Founder, 2026-09-03).
 //
 // WHY THE ACTION NEEDS ITS OWN BOUND AT ALL. The engine's download is bounded inside
 // insight-eidos (CURLOPT_CONNECTTIMEOUT 30 s + CURLOPT_LOW_SPEED_LIMIT 1 KiB/s over
@@ -694,10 +694,10 @@ function killExplainSetupGroup(child: ChildProcess, signal: NodeJS.Signals): voi
     }
 }
 
-// `sift explain-setup`: download + SHA-256-verify + cache the pinned model + inference server from the
+// `tamys explain-setup`: download + SHA-256-verify + cache the pinned model + inference server from the
 // public CodeRoasted/sift-explain-model HF repo (no credential). Idempotent — a cache hit re-verifies + skips the
 // fetch. Fail-soft: a failure (network / cache service / sha mismatch / the bound above) is a warning,
-// NOT an Action failure — `sift --explain` then degrades to no-narrative on the (non-TTY) CI run.
+// NOT an Action failure — `tamys --explain` then degrades to no-narrative on the (non-TTY) CI run.
 // Secret-free env.
 //
 // This spawns directly instead of using exec.exec, and that is forced rather than
@@ -708,12 +708,12 @@ function killExplainSetupGroup(child: ChildProcess, signal: NodeJS.Signals): voi
 // toolrunner does (`result.env = options.env`), so the credential-free scrub of
 // contract §6.1 item 1 still holds; and the invocation is still echoed to the log.
 export async function runExplainSetup(
-    siftBin: string,
+    tamysBin: string,
     timeoutMs: number = EXPLAIN_SETUP_TIMEOUT_MS,
 ): Promise<ExplainSetupResult> {
     return new Promise<ExplainSetupResult>((resolve) => {
-        core.info(`[command]${siftBin} explain-setup`);
-        const child = spawn(siftBin, ['explain-setup'], {
+        core.info(`[command]${tamysBin} explain-setup`);
+        const child = spawn(tamysBin, ['explain-setup'], {
             env: engineEnv(),
             detached: true, // own process group — see killExplainSetupGroup
             stdio: ['ignore', 'pipe', 'pipe'],
