@@ -28,7 +28,7 @@ export function hasRegression(report: SiftReport): boolean {
     );
 }
 
-// The incomplete predicate (DN-146.D7): the run stopped before its own verdict, so its log is
+// The incomplete predicate (ADR-17.D5): the run stopped before its own verdict, so its log is
 // truncated — ABORTED or CANCELLED. A reader of a truncated run reads this, never one class by
 // name. The switch names every class and has no default, so `tsc` rejects a class it misses.
 export function outcomeIncomplete(outcome: RunOutcome): boolean {

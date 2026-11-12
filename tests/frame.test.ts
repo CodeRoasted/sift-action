@@ -1342,7 +1342,7 @@ test('W446: an embedded markdown carries the n-gram line itself, so the visible 
 });
 
 
-// DN-146.D7: CANCELLED is incomplete as ABORTED is, so the verdict-gated re-seed reads it as it
+// ADR-17.D5: CANCELLED is incomplete as ABORTED is, so the verdict-gated re-seed reads it as it
 // reads ABORTED, and an absent (Unknown) verdict still seeds.
 test('the re-seed gate refuses every incomplete verdict, CANCELLED included', () => {
     const cases: [RunOutcome | undefined, boolean, boolean][] = [
