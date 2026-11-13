@@ -14,8 +14,8 @@
 # never "latest").
 #
 # The Windows mirror of install.sh / resolve-tamys.ts: same engine-v<X.Y.Z> release, same sha256-fatal
-# check. windows-x64 only. Diff works out of the box; `--explain` works via a BYO OpenAI-compatible
-# endpoint (--explain-endpoint / $CODEROAST_LLM_ENDPOINT) — the bundled local-model pull is Linux-only.
+# check. windows-x64 only. Diff works out of the box; `--explain` works via an endpoint you name
+# (--explain-endpoint / $CODEROAST_LLM_ENDPOINT) and a model (--explain-model / $CODEROAST_LLM_MODEL).
 # The download is public — no token.
 param(
     [string]$Version = $env:TAMYS_VERSION

@@ -32,7 +32,8 @@ import { publishBaselineLog, publishReport, writeRenderedComment } from './artif
 import { renderComment } from './frame.js';
 import { runPoster } from './poster.js';
 import { resolveTamys } from './resolve-tamys.js';
-import { parseFailOn, runTamys, runExplainSetup } from './tamys.js';
+import { narrateReport, readNarrationInputs } from './narrate.js';
+import { parseFailOn, runTamys } from './tamys.js';
 import {
     parseCommentLevel,
     resolvedOutcomeBlocksSeeding,
@@ -116,39 +117,6 @@ function baselineSourceLabel(spec: BaselineSpec): string | undefined {
     }
 }
 
-// Opt-in `--explain` provisioning (ADR-13.D5). Runs the engine's idempotent `explain-setup`:
-// download + SHA-256-verify the pinned model + inference server from the public CodeRoasted/sift-explain-model HF
-// repo (NO credential — anonymous, fork-safe). Best-effort + fail-soft: a provisioning failure is a
-// WARNING, never an Action failure — `tamys --explain` then degrades to no-narrative on the non-TTY CI
-// run and the deterministic report + gate are unaffected. Cross-run caching of the ~2.4 GB asset dir
-// (`${XDG_CACHE_HOME:-~/.cache}/coderoast`) is the caller's one-line `actions/cache` step — see the
-// README explain example. (Deliberately NOT a bundled @actions/cache: it pulls a heavy SDK + extra
-// advisories into this fork-reachable Action; the maintained `actions/cache` action is the clean path.)
-// A TIMEOUT IS A PROVISIONING FAILURE AND LANDS WHERE EVERY OTHER ONE LANDS — the same
-// core.warning, never core.setFailed. That is the whole point of bounding this inside the
-// Action rather than around it: a `timeout-minutes:` in the consumer's workflow (this is a
-// `node24` JavaScript action, so it has no steps of its own to carry one) would kill the
-// step and mark the run FAILED — turning an opt-in, explicitly advisory narrative into a
-// hard build failure, which is strictly worse for the consumer than the hang it replaces.
-// An in-process bound is the only placement that can be caught and degraded.
-async function provisionExplain(tamysBin: string): Promise<void> {
-    const result = await runExplainSetup(tamysBin);
-    if (result.ok) return;
-    if (result.timedOutAfterMs !== undefined) {
-        core.warning(
-            `explain: model/server provisioning (\`tamys explain-setup\`, a ~2.4 GB download) ` +
-                `${result.detail}. The run CONTINUES: the deterministic report and the advisory gate ` +
-                `are unaffected — only the AI narrative is omitted. A cold download on a slow runner ` +
-                `is the usual cause; cache the model across runs with a one-line actions/cache step on ` +
-                `~/.cache/coderoast (see the README explain example).`,
-        );
-        return;
-    }
-    core.warning(
-        `explain: model/server provisioning ${result.detail}; emitting the deterministic report without a narrative.`,
-    );
-}
-
 // Machine-readable verdict — set on EVERY run (PR or push), before any comment decision, so a
 // later step can branch on Tamys's result without parsing a comment (contract § 3). The run
 // verdicts are the engine-resolved class pair (UNKNOWN when unresolved) + the §6.1
@@ -212,6 +180,8 @@ async function run(): Promise<void> {
     // The shipped default lives in `action.yml`; this fallback only governs an invocation that
     // bypasses the manifest.
     const annotationsLevel = readCommentLevel('annotations', 'never');
+    // The narration inputs, the key masked as it is read (DN-158.D4).
+    const narrationInputs = readNarrationInputs();
     const token = core.getInput('github-token') || process.env.GITHUB_TOKEN || '';
     const octokit = github.getOctokit(token);
     const { owner, repo } = github.context.repo;
@@ -355,14 +325,10 @@ async function run(): Promise<void> {
     // Diff — or cold start (contract § 3): no baseline ⇒ the engine is NOT invoked.
     let gateExit = 0;
     let report: TamysReport | null = null;
+    let narrationHost: string | undefined;
     const reportJsonPath = path.join(workDir, 'report.json');
     if (baseline) {
         const tamysBin = await resolveTamys(core.getInput('tamys-binary'), workDir);
-        const explain = core.getBooleanInput('explain');
-        const explainModel = core.getInput('explain-model') || undefined;
-        if (explain) {
-            await provisionExplain(tamysBin);
-        }
         // The CHANGED run's declared job graph (jobgraph.ts — the ADR-22.D13 wire), read at every
         // grain. Each job's declared conclusion frames the rows of that job (DN-89.D15), and a
         // listed step the platform declares failed is named on its job's row (DN-140.D5); both are
@@ -407,8 +373,6 @@ async function run(): Promise<void> {
             changedTransport,
             baselineTransport: baseline.transport,
             changedLogProvenance,
-            explain,
-            explainModel,
             changedJobGraph: changedJobGraph
                 ? { path: path.join(workDir, 'changed-job-graph.json'), jobs: changedJobGraph }
                 : undefined,
@@ -417,7 +381,18 @@ async function run(): Promise<void> {
                 : undefined,
         });
         gateExit = result.exitCode;
-        report = result.report;
+        // The optional narrative, drawn by a second process over the report the diff process
+        // just wrote and readReport validated; the key never enters the diff process (DN-158.D4).
+        const narrated = await narrateReport({
+            mode,
+            inputs: narrationInputs,
+            tamysBin,
+            reportPath: reportJsonPath,
+            outputPath: path.join(workDir, 'narrative.md'),
+            report: result.report,
+        });
+        report = narrated.report;
+        narrationHost = narrated.host;
     } else {
         core.info(`Tamys: cold start — no baseline on \`${baseBranch}\` yet.`);
     }
@@ -443,7 +418,7 @@ async function run(): Promise<void> {
             );
         }
     }
-    const body = renderComment(report, { ...context, report_artifact: reportArtifact });
+    const body = renderComment(report, { ...context, report_artifact: reportArtifact, narration_host: narrationHost });
     const state = selectState(report);
 
     // ALWAYS retrievable: the job summary + machine-readable outputs are written every run,

@@ -5,9 +5,7 @@
 // `--fail-on` exit code is the authoritative advisory gate (tamys exits 2 when the
 // condition holds) — captured here, never recomputed.
 
-import * as core from '@actions/core';
 import * as exec from '@actions/exec';
-import { spawn, type ChildProcess } from 'node:child_process';
 import { promises as fs } from 'fs';
 import { statesAJobConclusion, statesAListedStepConclusion, type DeclaredJobWire } from './jobgraph.js';
 import {
@@ -65,12 +63,6 @@ export interface TamysInvocation {
     // file, whose job and attempt the Action does not know. There is no baseline half: no row
     // naming a step rests on the baseline side, so its flags have no reader (DN-140.D9).
     changedLogProvenance?: { jobId: number; attempt: number | null };
-    // Opt-in AI narrative (ADR-13.D5). The pinned local model + server are provisioned by
-    // runExplainSetup() before this runs; `tamys --explain` then auto-spawns the bundled server,
-    // narrates additively, and tears it down. Fail-soft: a missing/unreachable model leaves the
-    // deterministic report + the gate exit code untouched. No credential — the Action never carries one.
-    explain?: boolean;
-    explainModel?: string; // advanced override; default = the auto-provisioned pinned model
     // The CHANGED run's declared job graph (ADR-22.D13 — a JSON file behind
     // `--changed-job-graph`), produced by jobgraph.ts. ABSENT (undefined) ⇒ no flag ⇒ the graph's
     // readers are inert; a present-but-empty `jobs` array declares a workflow with zero jobs —
@@ -293,6 +285,12 @@ export function displayViolations(report: TamysReport): DisplayViolation[] {
     return violations;
 }
 
+// The rendered-markdown rule applied to text the Action prepends to that markdown — the narration
+// (DN-158.D4) — so a narrative passes the same display guard as the engine's own body.
+export function renderedControlUnit(text: string): { codeUnit: number; index: number } | null {
+    return firstControlUnit(text, 'rendered');
+}
+
 function hexByte(value: number): string {
     return `0x${value.toString(16).padStart(2, '0')}`;
 }
@@ -472,7 +470,9 @@ const ENGINE_ENV_PASSTHROUGH = ['PATH', 'HOME', 'TMPDIR'] as const;
 // engine that parses attacker-controlled log content holds no secret. LC_ALL /
 // LANG / TZ are pinned so the run is locale-/timezone-invariant across runners —
 // the engine is deterministic by construction (canon det_math); this keeps the
-// environment from being a way to perturb it.
+// environment from being a way to perturb it. The narration process, which reads only
+// the validated report and never a log, gets this map plus exactly the three narration
+// variables (narrate.ts, DN-158.D4); the diff process never does.
 export function engineEnv(): Record<string, string> {
     const env: Record<string, string> = { LC_ALL: 'C', LANG: 'C', TZ: 'UTC' };
     for (const key of ENGINE_ENV_PASSTHROUGH) {
@@ -589,15 +589,6 @@ export function tamysArgs(invocation: TamysInvocation): string[] {
     if (invocation.failOn !== 'none') {
         args.push('--fail-on', invocation.failOn);
     }
-    if (invocation.explain) {
-        // Assets are already provisioned (runExplainSetup ran first); `tamys --explain` spawns the bundled
-        // local server itself. Fail-soft in the binary: no endpoint reached ⇒ no narrative, report + exit
-        // code unchanged. The --fail-on exit code ignores the narrative (engine GateExitCodeIgnoresNarrative).
-        args.push('--explain');
-        if (invocation.explainModel) {
-            args.push('--explain-model', invocation.explainModel);
-        }
-    }
     return args;
 }
 
@@ -633,163 +624,4 @@ export async function runTamys(invocation: TamysInvocation): Promise<TamysResult
     // contract.
     const bytes = await fs.readFile(invocation.outputPath);
     return { report: readReport(bytes, invocation.outputPath, exitCode), exitCode };
-}
-
-// The Action-level wall-clock bound on `tamys explain-setup` (the Founder, 2026-09-03).
-//
-// WHY THE ACTION NEEDS ITS OWN BOUND AT ALL. The engine's download is bounded inside
-// insight-eidos (CURLOPT_CONNECTTIMEOUT 30 s + CURLOPT_LOW_SPEED_LIMIT 1 KiB/s over
-// CURLOPT_LOW_SPEED_TIME 120 s — deliberately not CURLOPT_TIMEOUT, because at 2.4 GB no
-// total cap is both wide enough for a slow runner and narrow enough to bound a hang).
-// That bounds the TRANSFER. It does not bound the STEP: anything that wedges the process
-// outside the bounded curl call — a deadlock after the transfer, a future provisioning
-// path that does not route through it — produces NO EXIT CODE, and the fail-soft contract
-// below is delivered by reading an exit code. No exit code means no degrade: the step just
-// stalls, burning a stranger's CI minutes with no diagnostic. This bound is the backstop.
-//
-// WHY 15 MINUTES. The asset is ~2.4 GB, so the bound implies a sustained floor of about
-// 2.7 MB/s across the whole download. A hosted runner pulling from the public HF endpoint
-// clears that by an order of magnitude, and the asset is cached across runs (the caller's
-// one-line actions/cache step on ~/.cache/coderoast), so the full download is a cold-start
-// cost rather than a per-run one. A stalled transfer is already dead in ~2 minutes via the
-// engine's low-speed guard, so this number is not sizing a slow link — it is sizing how
-// long we are willing to wait for a process that has stopped reporting anything at all.
-// Erring wide costs a consumer real minutes; erring narrow costs a narrative and nothing
-// else, because the timeout lands on the fail-soft path.
-export const EXPLAIN_SETUP_TIMEOUT_MS = 15 * 60 * 1000;
-
-// Between SIGTERM and SIGKILL. Short: the child is a downloader with nothing to flush.
-const EXPLAIN_SETUP_KILL_GRACE_MS = 5_000;
-
-// The budget as the warning states it. Minutes for the shipped 15-minute bound; seconds
-// below that, because a test-sized bound rendered in whole minutes reads "0-minute bound"
-// — a message that is wrong about its own number, which is worse than a clumsy unit.
-function describeBudget(ms: number): string {
-    return ms >= 60_000 ? `${Math.round(ms / 60_000)}-minute` : `${(ms / 1000).toFixed(1)}-second`;
-}
-
-export interface ExplainSetupResult {
-    ok: boolean;
-    // Set ONLY when the bound fired, carrying the budget that was exceeded. The caller
-    // branches on this to say what timed out rather than emitting a generic failure.
-    timedOutAfterMs?: number;
-    // One clause naming the cause, composed into the caller's warning.
-    detail: string;
-}
-
-// SIGTERM/SIGKILL the child's whole process GROUP, not just the child. `detached: true`
-// made it a group leader, so a negative pid reaches anything it spawned; killing only the
-// parent can leave a grandchild holding the runner's step open — which is the hang this
-// bound exists to prevent, reached one level down.
-function killExplainSetupGroup(child: ChildProcess, signal: NodeJS.Signals): void {
-    if (child.pid === undefined) return;
-    try {
-        process.kill(-child.pid, signal);
-    } catch {
-        try {
-            child.kill(signal);
-        } catch {
-            /* already reaped — nothing to signal */
-        }
-    }
-}
-
-// `tamys explain-setup`: download + SHA-256-verify + cache the pinned model + inference server from the
-// public CodeRoasted/sift-explain-model HF repo (no credential). Idempotent — a cache hit re-verifies + skips the
-// fetch. Fail-soft: a failure (network / cache service / sha mismatch / the bound above) is a warning,
-// NOT an Action failure — `tamys --explain` then degrades to no-narrative on the (non-TTY) CI run.
-// Secret-free env.
-//
-// This spawns directly instead of using exec.exec, and that is forced rather than
-// preferred: @actions/exec@1.1.1's ExecOptions carries no timeout, no AbortSignal and no
-// handle to the child process (verified against node_modules/@actions/exec/lib/interfaces.d.ts
-// and toolrunner.js), so a bound cannot be expressed through it. The two behaviours that
-// matter are preserved deliberately — `env` REPLACES the environment wholesale, exactly as
-// toolrunner does (`result.env = options.env`), so the credential-free scrub of
-// contract §6.1 item 1 still holds; and the invocation is still echoed to the log.
-export async function runExplainSetup(
-    tamysBin: string,
-    timeoutMs: number = EXPLAIN_SETUP_TIMEOUT_MS,
-): Promise<ExplainSetupResult> {
-    return new Promise<ExplainSetupResult>((resolve) => {
-        core.info(`[command]${tamysBin} explain-setup`);
-        const child = spawn(tamysBin, ['explain-setup'], {
-            env: engineEnv(),
-            detached: true, // own process group — see killExplainSetupGroup
-            stdio: ['ignore', 'pipe', 'pipe'],
-        });
-
-        // `detached: true` is what lets the bound kill the child's whole subtree, but it
-        // also puts the child OUTSIDE this process's group — so a signal aimed at our group
-        // (the runner cancelling the job) no longer reaches it on its own. Left unhandled
-        // that would trade a hang for a leaked 2.4 GB download on every cancelled run, and
-        // the runner's own orphan sweep cannot clean it up either: the child is handed a
-        // scrubbed env (contract §6.1 item 1), so it carries no RUNNER_TRACKING_ID to match
-        // on. Relaying the signal ourselves is the price of the subtree kill, not an extra.
-        const relay: Partial<Record<NodeJS.Signals, () => void>> = {};
-        for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-            relay[signal] = () => {
-                killExplainSetupGroup(child, 'SIGKILL');
-                // A handler REPLACES the default action, so this must terminate explicitly
-                // or the Action would swallow the cancellation and hang — the very failure
-                // this whole function exists to prevent, re-entered through the exit path.
-                process.exit(signal === 'SIGINT' ? 130 : 143);
-            };
-            process.on(signal, relay[signal]!);
-        }
-
-        let settled = false;
-        const finish = (result: ExplainSetupResult): void => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(bound);
-            for (const [signal, handler] of Object.entries(relay)) {
-                process.removeListener(signal as NodeJS.Signals, handler);
-            }
-            resolve(result);
-        };
-
-        child.stdout?.on('data', (b: Buffer) => process.stdout.write(b));
-        child.stderr?.on('data', (b: Buffer) => process.stderr.write(b));
-
-        const bound = setTimeout(() => {
-            killExplainSetupGroup(child, 'SIGTERM');
-            const escalate = setTimeout(
-                () => killExplainSetupGroup(child, 'SIGKILL'),
-                EXPLAIN_SETUP_KILL_GRACE_MS,
-            );
-            escalate.unref();
-            // Resolve NOW rather than waiting for the child to die. Waiting would make the
-            // bound only as strong as the child's willingness to be killed — and a process
-            // stuck in an uninterruptible wait ignores even SIGKILL, which would reinstate
-            // the exact unbounded stall this exists to stop. So we stop waiting for it
-            // instead of waiting harder, and detach everything that could hold the Action
-            // open behind us: the pipes keep the event loop alive, and a kill that races
-            // the child's own exit surfaces as a late 'error' with no listener.
-            child.stdout?.destroy();
-            child.stderr?.destroy();
-            child.removeAllListeners();
-            child.on('error', () => {});
-            child.unref();
-            finish({
-                ok: false,
-                timedOutAfterMs: timeoutMs,
-                detail: `exceeded its ${describeBudget(timeoutMs)} bound and was terminated`,
-            });
-        }, timeoutMs);
-
-        child.on('error', (error: Error) =>
-            finish({ ok: false, detail: `could not be started (${error.message})` }),
-        );
-        child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
-            if (code === 0) {
-                finish({ ok: true, detail: 'ok' });
-                return;
-            }
-            finish({
-                ok: false,
-                detail: signal !== null ? `was killed by ${signal}` : `exited with code ${code}`,
-            });
-        });
-    });
 }

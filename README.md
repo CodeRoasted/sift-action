@@ -3,8 +3,9 @@
 Structural diff of your CI logs, on every PR. Tamys diffs one job's log against
 that job's log from the **last green run on your base branch** and posts **one
 sticky comment** — ranked by what matters, with the noise suppressed — plus an
-optional advisory gate. Deterministic; runs entirely in your CI (your logs never
-leave it).
+optional advisory gate. Deterministic; runs in your CI, and your logs never leave
+it. Optional AI narration sends only Tamys's bounded summary, never a log line, to
+the model you choose, on your own key.
 
 The whole integration:
 
@@ -110,8 +111,9 @@ Every default is overridable — the annotated tour (all knobs optional):
                                      # (auto = target-job's own conclusion; else ${{ needs.<job>.result }})
 
     # ── Extras ───────────────────────────────────────────────────────────
-    explain: false                   # opt-in local-model AI narrative (~2.4 GB, fail-soft) — see "Explain"
-    # explain-model: <name>          # advanced: override the pinned model
+    # explain-api-key: ${{ secrets.ANTHROPIC_API_KEY }}   # optional AI narration on your key — see "AI narration"
+    # explain-model: claude-haiku-5-5                       # the model named in the request
+    # explain-endpoint: https://api.anthropic.com/v1/messages   # or another provider's /chat/completions
     # tamys-binary: /path/to/sift     # self-hosted/in-image override (default: pinned, sha256-verified download)
     github-token: ${{ github.token }}
 ```
@@ -300,39 +302,32 @@ however fits your job; Tamys then runs as a step of the build job itself. Always
   #   with: { log: build.log, changed-outcome: "${{ steps.build.outcome }}" }
   ```
 
-## Explain (opt-in AI narrative)
+## AI narration (optional, on your key)
 
-`explain: true` adds a short plain-English story above the deterministic diff. The Action provisions a
-**local** model + inference server — a pinned, checksum-verified [Phi-3.5-mini GGUF + a static
-`llama.cpp` server](https://huggingface.co/CodeRoasted/sift-explain-model), fetched anonymously (no token, fork-safe)
-— and runs it on the runner. **Nothing leaves the runner**, and the narrative is **advisory + fail-soft**:
-if anything goes wrong (offline, low memory) you still get the full deterministic report, unchanged, and
-the gate is untouched. (Cloud "bring your own key" is a **CLI-only** affordance; the Action never carries
-a credential.)
-
-It costs a one-time **~2.4 GB model download** + a few seconds of CPU. Cache it across runs with one
-standard step — the engine caches under `~/.cache/coderoast`:
+Pass a model provider's key and Tamys adds a short plain-English story above the ranked changes:
 
 ```yaml
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/coderoast          # the pinned model + server (~2.4 GB)
-          key: tamys-explain-${{ runner.os }}-v<ENGINE_VERSION>   # bump with the Tamys engine version
       - uses: CodeRoasted/sift-action@v2
         with:
           log: build.log
-          explain: true
+          explain-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
-Without the cache step it still works — it just re-downloads the model each run. Leave `explain` unset
-(the default) for the lean diff-only path; the model is never downloaded unless you opt in.
+**What leaves your CI:** one request per run to the endpoint you name (Anthropic's, by default) carrying Tamys's
+bounded summary: the top six ranked changes as the report itself prints them (masked templates, with their
+severity and direction), the two runs' labels and line counts. Nothing that is not already in the report, never
+the log, never a raw line. Without a key nothing is sent and you get the structural report alone.
 
-**Provisioning is time-bounded at 15 minutes.** It runs in your CI, so it is never allowed to stall
-there: the download has its own connect and stalled-transfer bounds, and the Action puts a wall-clock
-bound around the whole provisioning step on top of them, because a wedged process reports no exit code
-and would otherwise burn your minutes silently. Hitting the bound is treated exactly like every other
-provisioning failure — a **warning**, never a failed run: you get the full deterministic report and the
-same gate, just without the narrative. If you ever see it on a cold run, the cache step above is the fix.
+**The default model** is Claude Haiku 5.5 (`claude-haiku-5-5`) on Anthropic's Messages API, at medium effort.
+`explain-model` chooses another Claude model (it also runs at medium effort). For another provider, set
+`explain-endpoint` to its OpenAI-compatible `/chat/completions` URL; its own default effort applies. Use a key
+scoped to a workspace. The call is billed to your key: one call per
+run, at most 4 096 output tokens.
+
+**The narrative is advisory and fail-soft.** It is labelled AI-generated. It never changes the ranking, the gate
+or an output, and any failure leaves the report exactly as it would be without a key. It is a model's draw: a
+re-run may word it differently, while the report under it stays the same, bit for bit. Fork pull requests are
+not narrated: GitHub gives their workflows no secrets, and the Action never narrates in `render` mode.
 
 ## Platform & supply chain
 
@@ -396,7 +391,7 @@ curl -fsSL https://raw.githubusercontent.com/CodeRoasted/sift-action/main/instal
 ```
 
 ```powershell
-# Windows (PowerShell) — diff + `--explain` via a BYO endpoint (local model pull is Linux-only):
+# Windows (PowerShell) — diff + `--explain` via an endpoint you name:
 irm https://raw.githubusercontent.com/CodeRoasted/sift-action/main/install.ps1 | iex
 # a different version: & ([scriptblock]::Create((irm .../install.ps1))) -Version <X.Y.Z>
 # the moving target:   & ([scriptblock]::Create((irm .../install.ps1))) -Version latest
@@ -428,8 +423,9 @@ a local shell.
 | `log` | unless `target-job` | — | Path to the captured current-run log to diff. The only source on which the required-check fold can fire, when the file holds several jobs' logs (see [the required-check fold](#usage)). |
 | `tamys-binary` | no | _(auto)_ | Override path to a `sift` binary. Default: download + sha256-verify the version-pinned `sift-linux-x64` release asset. |
 | `fail-on` | no | `none` | `none` \| `medium` \| `high` \| `critical` — fail this step when Tamys reports a change that got worse at this severity or above (a listed row with polarity regression), or when the run's declared verdict got worse (read as critical, so it trips at every value). `none` never fails. Advisory: exit code only; the comment never says "blocked". Any other value fails the run. |
-| `explain` | no | `false` | `true` opts into an AI narrative header: the Action provisions a pinned, checksum-verified **local** model + server (no credential, fork-safe — nothing leaves the runner) and adds a short plain-English story. Advisory + fail-soft — never blocks or changes the gate, and provisioning is bounded at 15 minutes so it cannot stall your run. Adds a ~2.4 GB model download (cache it — see [Explain](#explain-opt-in-ai-narrative)) + a few seconds of CPU. |
-| `explain-model` | no | _(pinned)_ | Advanced: override the model name passed to `tamys --explain`. Leave unset for the auto-provisioned default. |
+| `explain-api-key` | no | `''` | The model provider's API key, from a secret: `${{ secrets.ANTHROPIC_API_KEY }}`. Non-empty: one narration call per run. Empty: the structural report alone. See [AI narration](#ai-narration-optional-on-your-key). |
+| `explain-model` | no | `claude-haiku-5-5` | The model named in the request. |
+| `explain-endpoint` | no | `https://api.anthropic.com/v1/messages` | Anthropic's Messages API by default; any OpenAI-compatible `/chat/completions` URL over https for another provider. |
 | `baseline` | no | `auto` | Baseline **selection**: `auto` \| `branch=<name>` \| `artifact=<name>` (named baseline, repo-wide) \| `path=<file>` \| `none`. Malformed values fail the run — never a silent fallback. See [Choosing the baseline](#choosing-the-baseline--you-are-king). |
 | `baseline-name` | no | `tamys-baseline-log` | Artifact name this run **publishes** its log under (and what `auto`/`branch=` resolvers look for). |
 | `publish-baseline` | no | `auto` | `auto` (PRs always seed; pushes/tags verdict-gated: FAILURE/UNSTABLE/ABORTED/CANCELLED never re-seeds) \| `always` \| `never`. |

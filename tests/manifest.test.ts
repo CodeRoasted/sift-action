@@ -67,3 +67,17 @@ test('the staleness bound ships at 72h — configurable, and it is the only valu
         `baseline-max-age ships at "${shipped}" — 72h is the ruled shipped default`,
     );
 });
+
+// DN-158.D4: the key is the opt-in. `explain` is gone, and the three narration inputs ship with
+// the defaults the Founder ruled (RUL-295): no key, Claude Haiku 5.5, Anthropic's Messages API.
+test('narration inputs: `explain` is absent, and the key, model and endpoint ship at their ruled defaults', () => {
+    const inputs = manifest().inputs;
+    assert.ok(
+        !('explain' in inputs),
+        'action.yml still declares `explain` — a removed input read by nothing is a compatibility shim, ' +
+            'and a declared one hides GitHub\'s "Unexpected input" warning from a v2 leftover',
+    );
+    assert.equal(defaultOf('explain-api-key'), '', 'the key must default to empty: no key, no narration');
+    assert.equal(defaultOf('explain-model'), 'claude-haiku-5-5');
+    assert.equal(defaultOf('explain-endpoint'), 'https://api.anthropic.com/v1/messages');
+});

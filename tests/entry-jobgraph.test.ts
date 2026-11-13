@@ -247,7 +247,6 @@ async function runEntry(options: EntryOptions): Promise<EntryRun> {
         'INPUT_GITHUB-TOKEN': 'stand-in-token',
         INPUT_BASELINE: options.baseline === 'artifact' ? `artifact=${BASELINE_ARTIFACT}` : `path=${log}`,
         'INPUT_TAMYS-BINARY': engine,
-        INPUT_EXPLAIN: 'false',
     };
     if (source === 'log') env.INPUT_LOG = log;
     else env['INPUT_TARGET-JOB'] = TARGET_JOB;

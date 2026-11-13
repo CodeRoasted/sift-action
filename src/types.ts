@@ -132,6 +132,9 @@ export interface TamysCommentContext {
     baseline_age_bound?: string;   // the configured `baseline-max-age`, verbatim (e.g. "72h")
     baseline_stale?: boolean;      // age exceeded the bound ⇒ the frame renders the stale banner
     report_artifact?: ReportArtifact; // absent on cold start, or when the upload failed
+    // The narration endpoint's host when a narrative heads the report's markdown (DN-158.D4);
+    // absent without one. The footer reads the narrative's presence from it.
+    narration_host?: string;
 }
 
 // 0.2.0: the render-side `build_status` binary is RETIRED (ADR-17.D5) — the run verdict

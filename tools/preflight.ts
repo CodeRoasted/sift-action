@@ -19,11 +19,10 @@
 // Cost, stated: it DOWNLOADS the pinned engine (once per version bump; the resolver caches).
 // That is the accepted price for catching this class before the push instead of after.
 //
-// COVERAGE BOUNDARY, declared rather than implied: this drives every flag `tamysArgs` can emit
-// EXCEPT the `--explain` / `--explain-model` pair, which would require provisioning the local
-// model server. Those two are NOT covered here. Probing them with `--help` instead would be a
-// reimplemented predicate — the very thing this file refuses to do — so the residue is recorded
-// honestly rather than faked.
+// COVERAGE, declared rather than implied: this drives every flag `tamysArgs` can emit, and the
+// narration process's vector, `narrationArgs` under `narrationEnv` (DN-158.D4), with no exempt pair:
+// section I runs it on the pinned engine against a loopback https endpoint nothing listens on, so
+// the engine takes the flags, fails its one call soft, and spends nothing.
 //
 // SECOND BOUNDARY, and its history is the reason it is written down. Until 2026-08-10 this file
 // drove ONE argument vector, the one with every optional field populated — which took every
@@ -61,6 +60,7 @@ import {
     type TamysInvocation,
 } from '../src/tamys.js';
 import { fetchTargetJobLog, JOB_LOG_TRANSPORT, type FetchJobLogParams } from '../src/joblog.js';
+import { narrationArgs, narrationEnv } from '../src/narrate.js';
 import { TRANSPORT_CATALOGUE } from '../src/types.js';
 import { CLAIM_BOUNDARY, ngramRefusalLine } from '../src/frame.js';
 import { resolveTamys } from '../src/resolve-tamys.js';
@@ -956,6 +956,49 @@ async function main(): Promise<void> {
         if (verdict !== '') failures.push(`  text cell: ${verdict}.\n      vector: ${args.join(' ')}`);
     }
 
+    // ── I) the narration process's vector (DN-158.D4) — `tamys explain --report … --format md -o …` ──
+    // The real argv and the real environment builder, over a report the pinned engine wrote above.
+    // The endpoint is https on a loopback port nothing listens on: the engine accepts it, its one
+    // call is refused at connect, and the narration fails soft — exit 0 and the output file written,
+    // empty — which is the shape the Action reads as "no narrative".
+    {
+        const outputPath = join(work, 'narrative.md');
+        const args = narrationArgs(bothCellOutput, outputPath);
+        const env = narrationEnv({ apiKey: 'preflight-no-key', endpoint: 'https://127.0.0.1:9/v1/messages', model: 'preflight-model' });
+        let stderr = '';
+        let exitCode = 0;
+        try {
+            stderr = (await execFileAsync(tamysBin, args, { env, maxBuffer: 32 * 1024 * 1024 })).stderr;
+        } catch (e) {
+            const err = e as { stderr?: string; code?: number; signal?: string };
+            stderr = err.stderr ?? '';
+            exitCode = err.code ?? (err.signal ? 134 : 1);
+        }
+        let wrote = true;
+        try {
+            await access(outputPath);
+        } catch {
+            wrote = false;
+        }
+        const verdict =
+            exitCode !== 0
+                ? `exit ${exitCode}`
+                : !wrote
+                  ? `exit 0 and no file at ${outputPath}`
+                  : /unknown option|unknown|unrecognized/i.test(stderr)
+                    ? 'a flag was refused'
+                    : '';
+        process.stdout.write(
+            `preflight narration cell [explain --report --format md -o]: ${verdict === '' ? 'accepted' : 'REJECTED'}\n`,
+        );
+        if (verdict !== '') {
+            if (stderr.trim()) {
+                process.stdout.write(`--- engine stderr ---\n${stderr.trimEnd()}\n---------------------\n`);
+            }
+            failures.push(`  narration cell: ${verdict}.\n      vector: ${args.join(' ')}`);
+        }
+    }
+
     if (failures.length > 0) {
         process.stderr.write(
             `\nPREFLIGHT FAILED — engine ${tamysBin} (TAMYS_VERSION ${TAMYS_VERSION})\n` +
@@ -974,7 +1017,8 @@ async function main(): Promise<void> {
             `the output contract on all ${HOSTILE_CELLS.length} hostile pairs, peeled the target-job ` +
             "stack with its probe agreeing, framed a target job's declared success, named a failed " +
             "target job's listed failed step, joined a banner's value to its declared step across both " +
-            "graphs, still writes the frame's copies of its text verbatim, and its half-pair behaviour is still " +
+            "graphs, still writes the frame's copies of its text verbatim, took the narration vector, and its " +
+            "half-pair behaviour is still " +
             `'${PINNED_ENGINE_HALF_PAIR}'.\n`,
     );
 }

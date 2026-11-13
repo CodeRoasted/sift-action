@@ -452,11 +452,16 @@ function regressionBody(report: TamysReport, context: TamysCommentContext, detai
 // § "What the frame carries"): "last green run on `branch` @ sha", linked to the
 // run. Determinism + on-prem stated once, flat. Identity stamps (head/baseline
 // sha) are run identity, not content.
+// With a narrative attached the claim narrows to the report: the narrative is a model's draw, and a
+// re-run may word it differently while the report under it stays the same (DN-158.D6).
 function footer(context: TamysCommentContext): string {
-    const parts = [
-        'Deterministic — same inputs, same comment. Runs in your CI; your logs never leave it.',
-        `[What is this?](${TAMYS_URL})`,
-    ];
+    const claim =
+        context.narration_host === undefined
+            ? 'Deterministic — same inputs, same comment. Runs in your CI; your logs never leave it.'
+            : "Deterministic report: same inputs, same report. The advisory narrative is a model's draw. " +
+              "Runs in your CI; your logs never leave it, and the narration sent only Tamys's summary to " +
+              `\`${escapeInline(context.narration_host)}\`.`;
+    const parts = [claim, `[What is this?](${TAMYS_URL})`];
     if (context.baseline) {
         parts.push(baselineFootnote(context.baseline));
         // The age is ALWAYS stated when known — a reader must never have to infer

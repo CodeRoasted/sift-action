@@ -97,24 +97,28 @@ inputs:
       comment. Leave unset for the single-comment default.
     required: false
     default: ''
-  explain:
+  explain-api-key:
     description: >-
-      Opt-in AI narrative header (false default | true). When true, the Action provisions a pinned,
-      checksum-verified LOCAL model + inference server (no credential, fork-safe — nothing leaves the
-      runner) and asks tamys for a short plain-English story over the deterministic report. Adds a
-      ~2.4 GB model download (cache it across runs with a one-line `actions/cache` step on
-      `~/.cache/coderoast` — see the README explain example) + a few seconds of CPU inference; the
-      deterministic report is ALWAYS produced regardless (the narrative is advisory and fail-soft — never
-      blocks or changes the gate). Provisioning is bounded at 15 minutes of wall clock: a wedged download
-      reports no exit code, so without a bound it would stall your job silently. Hitting the bound is a
-      WARNING like any other provisioning failure, never a failed run. Cloud BYO is CLI-only and never
-      via the Action.
-    required: false
-    default: 'false'
-  explain-model:
-    description: 'Advanced: override the pinned recommended model name passed to `tamys --explain`. Leave unset for the default (the only model the Action auto-provisions).'
+      The model provider's API key, from a secret (for example the ANTHROPIC_API_KEY secret). Non-empty:
+      one narration call per run, adding a short AI-generated story above the ranked changes. Empty
+      (the default): the structural report alone. Only Tamys's bounded summary is sent, never a log
+      line; the key is masked in the log, never put on a command line, and never seen by the process
+      that parses your logs. Not used in `render` mode. The narrative is advisory and fail-soft: it
+      never changes the ranking, the gate or an output.
     required: false
     default: ''
+  explain-model:
+    description: >-
+      The model named in the narration request. The default is Claude Haiku 5.5; another Claude model
+      also runs at medium effort.
+    required: false
+    default: 'claude-haiku-5-5'
+  explain-endpoint:
+    description: >-
+      Where the narration request goes: Anthropic's Messages API by default. For another provider, its
+      OpenAI-compatible `/chat/completions` URL over https.
+    required: false
+    default: 'https://api.anthropic.com/v1/messages'
   changed-outcome:
     description: >-
       The current run's NATIVE CI verdict token, forwarded VERBATIM to the engine
