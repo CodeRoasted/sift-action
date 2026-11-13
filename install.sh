@@ -20,7 +20,7 @@
 set -eu
 
 REPO="CodeRoasted/tamys-action"
-# The asset is named by the release it comes from (DN-155.D11): every engine release up to
+# The asset is named by the release it comes from (ADR-14.D6): every engine release up to
 # 1.10.11 published `sift-linux-x64`, and each from TAMYS_FIRST_ASSET_VERSION on publishes
 # `tamys-linux-x64`. A version passed by hand may be older than the pin, so the name is read
 # off the version being installed, never off the pin; no published asset is renamed or copied.
