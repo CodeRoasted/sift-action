@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Tamys CLI installer — download + sha256-verify the published linux-x64 binary, no GitHub Actions needed.
 #
-#   curl -fsSL https://raw.githubusercontent.com/CodeRoasted/sift-action/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/CodeRoasted/tamys-action/main/install.sh | sh
 #   curl -fsSL .../install.sh | sh -s -- 1.4.2      # a different pinned version
 #   curl -fsSL .../install.sh | sh -s -- latest     # the moving target, ASKED FOR
 #   TAMYS_INSTALL_DIR="$HOME/bin" curl -fsSL .../install.sh | sh   # choose where
@@ -19,7 +19,7 @@
 # rather than install a wrong-arch binary. The download is public — no token needed.
 set -eu
 
-REPO="CodeRoasted/sift-action"
+REPO="CodeRoasted/tamys-action"
 # The asset is named by the release it comes from (DN-155.D11): every engine release up to
 # 1.10.11 published `sift-linux-x64`, and each from TAMYS_FIRST_ASSET_VERSION on publishes
 # `tamys-linux-x64`. A version passed by hand may be older than the pin, so the name is read

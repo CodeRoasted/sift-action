@@ -5,7 +5,7 @@
 //   1. Override — the `tamys-binary` input names a path (self-hosted runner, an
 //      in-image build, or a Docker-bundle packaging). Used verbatim, no download.
 //   2. Turnkey (default) — download the version-pinned `sift-linux-x64` release
-//      asset from this Action's own PUBLIC repo (CodeRoasted/sift-action) and
+//      asset from this Action's own PUBLIC repo (CodeRoasted/tamys-action) and
 //      VERIFY its sha256 before exec. Public so any consumer's GITHUB_TOKEN can
 //      reach it (the engine binary is free-to-run; the moat is the closed source,
 //      built privately in insight-eidos and published here by its release-publish).
@@ -27,7 +27,7 @@ import * as path from 'path';
 
 import { TAMYS_VERSION } from './tamys-version.js';
 
-const RELEASE_REPO = 'CodeRoasted/sift-action'; // public — unauthenticated download
+const RELEASE_REPO = 'CodeRoasted/tamys-action'; // public — unauthenticated download
 const ASSET = 'sift-linux-x64';
 
 async function download(url: string, dest: string): Promise<void> {

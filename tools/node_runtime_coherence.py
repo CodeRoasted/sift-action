@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Node runtime coherence for `sift-action` — the runtime we PROVE on is the runtime we SHIP on.
+"""Node runtime coherence for `tamys-action` — the runtime we PROVE on is the runtime we SHIP on.
 
-Discharges the `sift-action` node cell of `OPS-7.S111` / `OPS-7.S112`, converting it
+Discharges the `tamys-action` node cell of `OPS-7.S111` / `OPS-7.S112`, converting it
 from JUDG to MECH.
 
 The defect class this gate exists for
 -------------------------------------
-`sift-action` is the only artifact a stranger runs unsupervised, and it is a
+`tamys-action` is the only artifact a stranger runs unsupervised, and it is a
 BUNDLE: GitHub launches `dist/index.js` on the runtime named in `action.yml`
 (`runs.using`), while CI proves the bundle on whatever `setup-node` installs and
 esbuild lowers syntax to whatever `target` says. Those are independent
@@ -65,7 +65,7 @@ runtime it bundles for; a comment that states a fact the compiler does not check
 is state, and stale state here mis-aims the next reader (root `CLAUDE.md`
 § Comments). It is checked as site 3b and reported separately from the `target:`.
 
-WHY THIS LIVES IN `sift-action` AND NOT THE WORKSPACE PIN GATE. Every declaration
+WHY THIS LIVES IN `tamys-action` AND NOT THE WORKSPACE PIN GATE. Every declaration
 site above is a file in THIS repo, so the commit that introduces a skew is a
 commit here — and this repo's `ci.yml` runs on its own push/PR/tag. The
 superproject's `pin_coherence.py` only fires on a superproject push, which is why
@@ -266,7 +266,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path,
                         default=Path(__file__).resolve().parent.parent,
-                        help="The sift-action repo root (default: this script's parent repo).")
+                        help="The tamys-action repo root (default: this script's parent repo).")
     parser.add_argument("--selftest", action="store_true", help="Prove the extractors and exit.")
     args = parser.parse_args()
 

@@ -32,7 +32,7 @@
 
 set -euo pipefail
 
-REPO="CodeRoasted/sift-action"
+REPO="CodeRoasted/tamys-action"
 # Every engine binary an installer downloads: install.sh and the Action the Linux one, install.ps1
 # the Windows one.
 ASSETS="sift-linux-x64 sift-windows-x64.exe"
@@ -154,5 +154,5 @@ grep -q 'TAMYS_PINNED_VERSION' "$install_sh" \
 grep -q 'TamysPinnedVersion' "$install_ps1" \
     || err "install.ps1 lost its baked pin — it would default to 'latest' again."
 
-echo "✓ sift-action pinned to published engine v$ver (src + jenkins example + install.sh + install.ps1 + dist bundle)"
+echo "✓ tamys-action pinned to published engine v$ver (src + jenkins example + install.sh + install.ps1 + dist bundle)"
 echo "  next: commit, cut an Action release, and re-point @v2 at it."

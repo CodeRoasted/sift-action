@@ -2,7 +2,7 @@
 //
 // The GitHub Action is a thin adapter over a CI-AGNOSTIC substrate: the `tamys`
 // engine ships as a PUBLIC, unauthenticated, checksummed release asset
-// (`sift-linux-x64` + `.sha256`) on CodeRoasted/sift-action. Jenkins — or any CI
+// (`sift-linux-x64` + `.sha256`) on CodeRoasted/tamys-action. Jenkins — or any CI
 // with `curl` + `sha256sum` — is just another client of that asset. This pipeline
 // reproduces the Action's advisory-first posture WITHOUT any new code or infra:
 //   • `--fail-on medium` is the gate (advisory: it sets the build result) — it trips
@@ -25,7 +25,7 @@
 //
 // Asset URL (stable, unauthenticated): the only varying segment is the version tag;
 // the asset names are fixed. Pin TAMYS_VERSION to a PUBLISHED release tag.
-//   https://github.com/CodeRoasted/sift-action/releases/download/engine-v<VERSION>/sift-linux-x64
+//   https://github.com/CodeRoasted/tamys-action/releases/download/engine-v<VERSION>/sift-linux-x64
 //
 // Prereqs: a Linux agent with curl + sha256sum; the Copy Artifact plugin (optional,
 // for the baseline); optionally the HTML Publisher plugin to surface the report.
@@ -50,7 +50,7 @@ pipeline {
                     filter: 'changed.log, tamys-outcome.txt', target: 'baseline', optional: true)
       sh '''
         set -euo pipefail
-        base="https://github.com/CodeRoasted/sift-action/releases/download/engine-v${TAMYS_VERSION}"
+        base="https://github.com/CodeRoasted/tamys-action/releases/download/engine-v${TAMYS_VERSION}"
         curl -fsSL "$base/sift-linux-x64"        -o sift-linux-x64
         curl -fsSL "$base/sift-linux-x64.sha256" -o sift-linux-x64.sha256
         sha256sum -c sift-linux-x64.sha256                # FATAL on mismatch

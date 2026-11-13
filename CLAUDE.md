@@ -1,4 +1,4 @@
-# sift-action — the Tamys GitHub Action (TypeScript, public, MIT)
+# tamys-action — the Tamys GitHub Action (TypeScript, public, MIT)
 
 The distribution wrapper around the `tamys` engine: pulls a job's log off the
 GitHub API, diffs against the last green baseline, posts the sticky comment /

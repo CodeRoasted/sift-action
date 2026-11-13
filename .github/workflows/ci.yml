@@ -219,8 +219,8 @@ jobs:
             # payload we parse, and still describes OUR repo, before believing any absence.
             grep -qF '"releaseData":' "$page" || {
               echo "::error::$url no longer carries a releaseData payload — this probe is measuring nothing. Fix the probe; do not trust its verdict."; exit 1; }
-            grep -qF 'CodeRoasted/sift-action' "$page" || {
-              echo "::error::$url does not name CodeRoasted/sift-action — the slug moved (action.yml 'name:' changed?) or the listing detached. Re-derive SLUG."; exit 1; }
+            grep -qF 'CodeRoasted/tamys-action' "$page" || {
+              echo "::error::$url does not name CodeRoasted/tamys-action — the slug moved (action.yml 'name:' changed?) or the listing detached. Re-derive SLUG."; exit 1; }
             if grep -qF "\"tagName\":\"$TAG\"" "$page"; then
               echo "Marketplace listing resolves $TAG ✓"
               exit 0

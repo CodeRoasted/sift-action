@@ -156,7 +156,7 @@ test('executedWorkflowCoordinate: the path from GITHUB_WORKFLOW_REF, the commit 
     );
     assert.deepEqual(
         executedWorkflowCoordinate({
-            GITHUB_WORKFLOW_REF: 'CodeRoasted/sift-action/.github/workflows/ci.yml@refs/heads/main',
+            GITHUB_WORKFLOW_REF: 'CodeRoasted/tamys-action/.github/workflows/ci.yml@refs/heads/main',
             GITHUB_WORKFLOW_SHA: 'A'.repeat(64),
         }),
         { kind: 'executed', path: '.github/workflows/ci.yml', sha: 'A'.repeat(64) },

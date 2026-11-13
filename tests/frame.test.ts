@@ -825,7 +825,7 @@ test('push context (no pr_number) renders identically — the frame never reads 
 
 // DN-132.O2 (the Founder's ruling (a)): the ladder's middle value is `drift`, the word the headline
 // uses. Any other value — the retired `significant` included — fails the run as a config error
-// rather than leaving a surface on or off against the workflow's text. RED at sift-action 65ddebc,
+// rather than leaving a surface on or off against the workflow's text. RED at tamys-action 65ddebc,
 // whose `readCommentLevel` fell back to the surface's default without a word.
 test('parseCommentLevel: the four values parse, empty takes the default, anything else throws naming the input', () => {
     assert.equal(parseCommentLevel('pr-comment', '', 'always'), 'always');
@@ -1269,7 +1269,7 @@ test('budget: the worst case the frame can meet stays under the limit — the in
 // visible frame carries it on every report, whether the engine's markdown is embedded or replaced
 // by its size line. W446: the n-gram disclosure reaches a reader of the Clean comment, which has no
 // details block, and of a comment whose markdown was too large to embed — rendered from the JSON in
-// the engine's own sentence. RED at sift-action 02493dc, whose frame carried neither.
+// the engine's own sentence. RED at tamys-action 02493dc, whose frame carried neither.
 
 // The comment with its full-report block cut out: what a reader sees without opening anything.
 function visibleFrame(out: string): string {

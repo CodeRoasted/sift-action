@@ -350,7 +350,7 @@ test('engineEnv excludes credentials, the action inputs, and runtime tokens', ()
         ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'oidc_secret',
         NPM_TOKEN: 'npm_secret',
         AWS_SECRET_ACCESS_KEY: 'aws_secret',
-        SIFT_ACTION_RELEASE_TOKEN: 'release_secret',
+        TAMYS_ACTION_RELEASE_TOKEN: 'release_secret',
     };
     for (const [key, value] of Object.entries(planted)) {
         process.env[key] = value;
@@ -695,7 +695,7 @@ test('tamysArgs: each gate value forwards verbatim as `--fail-on <value>`; `none
 // ── DN-132.D2: an unknown `fail-on` value is a config error, never a silent `none` ────────────
 //
 // The defect this erases: an unrecognized value read as `none`, so a typo left a workflow ungated
-// without a word. RED at sift-action 65ddebc, whose `readFailOn` mapped every unknown value to
+// without a word. RED at tamys-action 65ddebc, whose `readFailOn` mapped every unknown value to
 // `none`. The retired values `significant` and `regression` (engine ≤ 1.10.7) are among the
 // rejected cells: the pinned engine refuses them, so the Action must fail before forwarding them.
 

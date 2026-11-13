@@ -10,7 +10,7 @@ name: Samples Showcase
 # (the glibc-floor + narration-exposure boundary); a public showcase shows the engine's structural
 # verdict, not the LLM narrative. An `--explain` variant would be a separate, privately-gated job.
 #
-# PUBLIC + anonymous: sift-action, the engine asset, and coderoast-hub are all public — no secret to
+# PUBLIC + anonymous: tamys-action, the engine asset, and coderoast-hub are all public — no secret to
 # install the engine or fetch the samples.
 
 on:

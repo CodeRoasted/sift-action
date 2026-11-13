@@ -102676,7 +102676,7 @@ import * as path7 from "path";
 var TAMYS_VERSION = "1.10.11";
 
 // src/resolve-tamys.ts
-var RELEASE_REPO = "CodeRoasted/sift-action";
+var RELEASE_REPO = "CodeRoasted/tamys-action";
 var ASSET = "sift-linux-x64";
 async function download(url2, dest) {
   const code = await exec.exec("curl", ["-fsSL", url2, "-o", dest], { ignoreReturnCode: true });
@@ -102765,7 +102765,7 @@ function engineFailureMessage(exitCode) {
     case TAMYS_EXIT.INPUT_TOO_LARGE:
       return `Tamys refused this run: one of the logs is over the engine ceiling of ${MAX_CHANGED_LOG_BYTES} bytes / 1000000 lines per input, or has a line over ${MAX_ENGINE_LINE_BYTES} bytes per line, or the two logs need more than ${MAX_ENGINE_ALIGNMENT_CELLS} step-alignment cells (baseline steps x changed steps, summed over every job they share) (engine exit 3). Check with \`wc -lc\` on the log, and find long lines with \`LC_ALL=C awk 'length($0) > ${MAX_ENGINE_LINE_BYTES}' <log>\`; the engine's own message in the step log above names the bound it hit. This is a declared limit, not a crash \u2014 the engine will not diff a truncated window, because that answers a different question without saying so. Narrow what you compare with the TAMYS_CAPTURE markers (see the \`capture\` input) and Tamys will run on the sections you mark.`;
     case TAMYS_EXIT.INTERNAL_ERROR:
-      return "The Tamys engine hit an internal error (exit 4). This is a bug \u2014 please report it at https://github.com/CodeRoasted/sift-action/issues with the engine message from the step log above and the output of `wc -lc` on both logs.";
+      return "The Tamys engine hit an internal error (exit 4). This is a bug \u2014 please report it at https://github.com/CodeRoasted/tamys-action/issues with the engine message from the step log above and the output of `wc -lc` on both logs.";
     default:
       return `The Tamys engine exited with an unexpected status (${exitCode}). ` + (exitCode > 128 ? `That is a signal (${exitCode - 128}), so the engine was killed rather than returning \u2014 a runner out-of-memory kill is the usual cause. ` : "") + "This is a bug \u2014 please report it with the step log and `wc -lc` on both logs.";
   }
@@ -102856,7 +102856,7 @@ function unreadableReportMessage(outputPath, exitCode, facts, defect) {
       break;
     }
   }
-  return `The Tamys ENGINE wrote an unreadable report. It exited ${exitCode} (a report-bearing code) and the file at ${outputPath} EXISTS, but ${broken}. This is a defect in the engine that produced the artefact \u2014 not a missing report, and not a problem with your log, your workflow inputs, or your permissions. Measured on the artefact: ${facts.reportBytes} bytes, ${measured}. The Action FAILS here rather than posting nothing, because a Tamys comment that silently does not appear is indistinguishable from "Tamys found nothing to report" \u2014 and a false all-clear is the one outcome a precision-first tool cannot ship. Please report it at https://github.com/CodeRoasted/sift-action/issues with this message and the engine version.`;
+  return `The Tamys ENGINE wrote an unreadable report. It exited ${exitCode} (a report-bearing code) and the file at ${outputPath} EXISTS, but ${broken}. This is a defect in the engine that produced the artefact \u2014 not a missing report, and not a problem with your log, your workflow inputs, or your permissions. Measured on the artefact: ${facts.reportBytes} bytes, ${measured}. The Action FAILS here rather than posting nothing, because a Tamys comment that silently does not appear is indistinguishable from "Tamys found nothing to report" \u2014 and a false all-clear is the one outcome a precision-first tool cannot ship. Please report it at https://github.com/CodeRoasted/tamys-action/issues with this message and the engine version.`;
 }
 var TamysReportUnreadableError = class extends Error {
   constructor(message, exitCode, facts, defect) {

@@ -21,7 +21,7 @@ set -euo pipefail
 # probes if it re-rolled its own regex.
 ver="$(scripts/engine_pin.sh)"
 echo "engine pin: $ver"
-base="https://github.com/CodeRoasted/sift-action/releases/download/engine-v$ver"
+base="https://github.com/CodeRoasted/tamys-action/releases/download/engine-v$ver"
 rc=0
 for asset in sift-linux-x64 sift-windows-x64.exe; do
   for suffix in "" ".sha256"; do

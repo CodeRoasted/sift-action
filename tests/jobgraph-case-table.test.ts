@@ -11,7 +11,7 @@
 // The join returns no arm, so the `arm` column is read through the grammar's `reach`, the function
 // the join calls, over the same declarations.
 //
-// RED at sift-action 29de46a (the S1 base) on every rendering only arm M or T reaches; the arm E
+// RED at tamys-action 29de46a (the S1 base) on every rendering only arm M or T reaches; the arm E
 // and arm R rows, and every row the collision refusal leaves unreached, are GREEN there.
 
 import { test } from 'node:test';

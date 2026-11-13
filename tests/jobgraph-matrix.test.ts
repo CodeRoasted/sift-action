@@ -14,7 +14,7 @@
 // `examples` are ghostty-org/ghostty's measured collision).
 //
 // Every arm reads the wire through `parseWorkflowJobs` → `joinDeclaredJobs` and reads the new field
-// by name off the emitted object, so the file type-checks at the S1 base (sift-action 29de46a).
+// by name off the emitted object, so the file type-checks at the S1 base (tamys-action 29de46a).
 // RED there where a test says so; the tests marked GREEN there are guards an S1 build keeps green.
 // Conclusions are asserted only where the platform's token is copied verbatim (one rendering), so
 // these arms do not depend on the spelling of a withheld conclusion (DN-89.D26).

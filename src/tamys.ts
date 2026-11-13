@@ -144,7 +144,7 @@ export function engineFailureMessage(exitCode: number): string | null {
         case TAMYS_EXIT.INTERNAL_ERROR:
             return (
                 'The Tamys engine hit an internal error (exit 4). This is a bug — please report ' +
-                'it at https://github.com/CodeRoasted/sift-action/issues with the engine ' +
+                'it at https://github.com/CodeRoasted/tamys-action/issues with the engine ' +
                 'message from the step log above and the output of `wc -lc` on both logs.'
             );
         default:
@@ -348,7 +348,7 @@ export function unreadableReportMessage(
         'The Action FAILS here rather than posting nothing, because a Tamys comment that ' +
         'silently does not appear is indistinguishable from "Tamys found nothing to report" — ' +
         'and a false all-clear is the one outcome a precision-first tool cannot ship. ' +
-        'Please report it at https://github.com/CodeRoasted/sift-action/issues with this ' +
+        'Please report it at https://github.com/CodeRoasted/tamys-action/issues with this ' +
         'message and the engine version.'
     );
 }
@@ -619,7 +619,7 @@ export async function runTamys(invocation: TamysInvocation): Promise<TamysResult
     // The exit-code check above was built for "engine failed, no file". It is DEFEATED by
     // "engine succeeded, bad file": engineFailureMessage() returns null on 0 and 2, so a
     // report-bearing code with a broken artefact would walk straight into the comment, or
-    // surface as a bare SyntaxError attributed to sift-action. readReport is that second door's
+    // surface as a bare SyntaxError attributed to tamys-action. readReport is that second door's
     // guard: it reads the bytes as written and refuses a report that breaks the engine's
     // contract.
     const bytes = await fs.readFile(invocation.outputPath);

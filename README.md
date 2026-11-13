@@ -11,7 +11,7 @@ The whole integration:
 
 ```yaml
 - name: Tamys Log Diff
-  uses: CodeRoasted/sift-action@v2
+  uses: CodeRoasted/tamys-action@v2
   with:
     target-job: build
 ```
@@ -42,7 +42,7 @@ jobs:
       pull-requests: write    # post/update the sticky comment
     steps:
       - name: Tamys Log Diff
-        uses: CodeRoasted/sift-action@v2
+        uses: CodeRoasted/tamys-action@v2
         with:
           target-job: build
 ```
@@ -87,7 +87,7 @@ the same rows. The whole-run mode is planned.
 Every default is overridable — the annotated tour (all knobs optional):
 
 ```yaml
-- uses: CodeRoasted/sift-action@v2
+- uses: CodeRoasted/tamys-action@v2
   with:
     # ── Log sourcing ─────────────────────────────────────────────────────
     target-job: build                # diff a finished job's log (run Tamys in a job that `needs:` it)
@@ -307,7 +307,7 @@ however fits your job; Tamys then runs as a step of the build job itself. Always
 Pass a model provider's key and Tamys adds a short plain-English story above the ranked changes:
 
 ```yaml
-      - uses: CodeRoasted/sift-action@v2
+      - uses: CodeRoasted/tamys-action@v2
         with:
           log: build.log
           explain-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -384,7 +384,7 @@ run months apart installs the same bytes; `latest` is available but must be **as
 
 ```sh
 # Linux (sh) — the published CLI asset is linux-x64:
-curl -fsSL https://raw.githubusercontent.com/CodeRoasted/sift-action/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/CodeRoasted/tamys-action/main/install.sh | sh
 # a different version:    ...install.sh | sh -s -- <X.Y.Z>
 # the moving target:      ...install.sh | sh -s -- latest      # not reproducible, and it says so
 # choose the location:    TAMYS_INSTALL_DIR="$HOME/bin"  (default: /usr/local/bin, else ~/.local/bin)
@@ -392,7 +392,7 @@ curl -fsSL https://raw.githubusercontent.com/CodeRoasted/sift-action/main/instal
 
 ```powershell
 # Windows (PowerShell) — diff + `--explain` via an endpoint you name:
-irm https://raw.githubusercontent.com/CodeRoasted/sift-action/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/CodeRoasted/tamys-action/main/install.ps1 | iex
 # a different version: & ([scriptblock]::Create((irm .../install.ps1))) -Version <X.Y.Z>
 # the moving target:   & ([scriptblock]::Create((irm .../install.ps1))) -Version latest
 # choose location: $env:TAMYS_INSTALL_DIR = 'C:\tools\tamys'  (default: %LOCALAPPDATA%\Programs\tamys)
@@ -402,8 +402,8 @@ Then `tamys <baseline.log> <changed.log>` in any CI or locally. The download URL
 the version tag varies, the asset names are fixed (the engine binaries ride a distinct `engine-v…` tag):
 
 ```
-https://github.com/CodeRoasted/sift-action/releases/download/engine-v<VERSION>/sift-linux-x64
-https://github.com/CodeRoasted/sift-action/releases/download/engine-v<VERSION>/sift-windows-x64.exe
+https://github.com/CodeRoasted/tamys-action/releases/download/engine-v<VERSION>/sift-linux-x64
+https://github.com/CodeRoasted/tamys-action/releases/download/engine-v<VERSION>/sift-windows-x64.exe
 ```
 
 **Jenkins** has a ready, **doc-only** Tier-0 recipe: [`examples/jenkins/Jenkinsfile`](examples/jenkins/Jenkinsfile).

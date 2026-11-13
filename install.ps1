@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 # Tamys CLI installer for Windows — download + sha256-verify the published windows-x64 binary.
 #
-#   irm https://raw.githubusercontent.com/CodeRoasted/sift-action/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/CodeRoasted/tamys-action/main/install.ps1 | iex
 #   & ([scriptblock]::Create((irm .../install.ps1))) -Version 1.5.5     # a different pinned version
 #   & ([scriptblock]::Create((irm .../install.ps1))) -Version latest    # the moving target, ASKED FOR
 #   $env:TAMYS_INSTALL_DIR = 'C:\tools\tamys'; irm .../install.ps1 | iex  # choose where
@@ -24,7 +24,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12  # Windows PowerShell 5.1 default is too old.
 
-$Repo = 'CodeRoasted/sift-action'   # public — unauthenticated download
+$Repo = 'CodeRoasted/tamys-action'   # public — unauthenticated download
 # The asset is named by the release it comes from (DN-155.D11): every engine release up to
 # 1.10.11 published `sift-windows-x64.exe`, and each from $TamysFirstAssetVersion on publishes
 # `tamys-windows-x64.exe`. A -Version passed by hand may be older than the pin, so the name is

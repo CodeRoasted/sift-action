@@ -32,6 +32,6 @@ jobs:
       pull-requests: write    # post/update the sticky comment
     steps:
       - name: Tamys Log Diff
-        uses: CodeRoasted/sift-action@v2
+        uses: CodeRoasted/tamys-action@v2
         with:
           target-job: build

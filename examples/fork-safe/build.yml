@@ -5,7 +5,7 @@
 # fork-controlled) code, it cannot post a comment or touch anything privileged.
 # It renders the Tamys comment body to an artifact; the poster (2 of 2) posts it.
 #
-# Requires sift-action's `render` mode (arms with fork-comment support, contract §6.1).
+# Requires tamys-action's `render` mode (arms with fork-comment support, contract §6.1).
 name: Tamys (build + render)
 
 on:
@@ -40,7 +40,7 @@ jobs:
                                                      # or changed-outcome below is always (wrongly) success
           ./ci/build.sh 2>&1 | tee build.log         # your build; produces the log to diff
 
-      - uses: CodeRoasted/sift-action@v2
+      - uses: CodeRoasted/tamys-action@v2
         with:
           log: build.log
           mode: render                               # compute the body to an artifact dir; never post

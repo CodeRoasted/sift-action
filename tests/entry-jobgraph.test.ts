@@ -350,7 +350,7 @@ test('entry (A3): GITHUB_WORKFLOW_SHA unset ⇒ no graph, zero graph requests, o
 // DN-118.O3 (R5), the Action's half: once the pinned engine refuses a fold whose aggregator and
 // member claim one row, the graph is read at `target-job` grain too — one contents read, at the
 // runner's commit, a second jobs listing (the graph join's, beside the log sourcing's), the flag in
-// the argv — and the one-job line is gone. RED at sift-action a136364, where the gate made zero
+// the argv — and the one-job line is gone. RED at tamys-action a136364, where the gate made zero
 // contents reads at this grain. The engine's half (a `New — FAILING` row in a target job the graph
 // declares successful takes the job frame) is driven on the pinned engine in tools/preflight.ts.
 test('entry (R5): at target-job grain the graph is read once at GITHUB_WORKFLOW_SHA and passes --changed-job-graph', async () => {
