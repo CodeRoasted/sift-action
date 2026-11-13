@@ -20,7 +20,11 @@
 set -eu
 
 REPO="CodeRoasted/sift-action"
-ASSET="sift-linux-x64"
+# The asset is named by the release it comes from (DN-155.D11): every engine release up to
+# 1.10.11 published `sift-linux-x64`, and each from TAMYS_FIRST_ASSET_VERSION on publishes
+# `tamys-linux-x64`. A version passed by hand may be older than the pin, so the name is read
+# off the version being installed, never off the pin; no published asset is renamed or copied.
+TAMYS_FIRST_ASSET_VERSION="1.10.12"
 
 # The default engine pin. ./bump.sh OWNS this line — it is derived from the PUBLISHED
 # release set (the binary and its .sha256 must both be live before bump.sh will write it),
@@ -34,7 +38,7 @@ need curl; need sha256sum; need awk
 # 1. platform — only linux-x64 is published today.
 os="$(uname -s 2>/dev/null || echo unknown)"
 arch="$(uname -m 2>/dev/null || echo unknown)"
-[ "$os" = "Linux" ] || err "this installer publishes linux-x64 only (got '$os'). On Windows use install.ps1, which installs the published sift-windows-x64.exe. macOS is not a supported platform."
+[ "$os" = "Linux" ] || err "this installer publishes linux-x64 only (got '$os'). On Windows use install.ps1, which installs the published Windows binary. macOS is not a supported platform."
 case "$arch" in
     x86_64 | amd64) ;;
     *) err "only x86_64 is published today (got '$arch')." ;;
@@ -51,6 +55,11 @@ if [ "$ver" = "latest" ]; then
     [ -n "$ver" ] || err "could not resolve the latest engine version — pass one explicitly: ... | sh -s -- 1.4.2"
 fi
 [ -n "$ver" ] || err "no version to install: the baked pin is empty and none was given."
+if [ "$(printf '%s\n%s\n' "$TAMYS_FIRST_ASSET_VERSION" "$ver" | sort -V | head -n 1)" = "$TAMYS_FIRST_ASSET_VERSION" ]; then
+    ASSET="tamys-linux-x64"
+else
+    ASSET="sift-linux-x64"
+fi
 base="https://github.com/$REPO/releases/download/engine-v$ver"
 
 # 3. download + sha256-verify (fatal — never install an unverified binary).
