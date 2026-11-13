@@ -54,14 +54,14 @@ permissions:
   contents: read
 
 jobs:
-  # The body is malf's `coderoast-sift-showcase.yml` (ROADMAP N357): this file keeps the triggers and
+  # The body is malf's `coderoast-tamys-showcase.yml` (ROADMAP N357): this file keeps the triggers and
   # resolves them into its three inputs. A dispatch or call names a version or none (the pin); the
   # `release` event names its tag, whose engine-v<X> version the workflow installs. It writes
   # nothing to this repository, so it reads only.
   showcase:
     permissions:
       contents: read
-    uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-sift-showcase.yml@c8e6346f5ed40b44e749c2b6b2356dd3c89f4861
+    uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-tamys-showcase.yml@c8e6346f5ed40b44e749c2b6b2356dd3c89f4861
     with:
       tamys-version: ${{ inputs.tamys_version }}
       samples-ref: ${{ inputs.samples_ref || 'main' }}
