@@ -35,7 +35,7 @@ set -euo pipefail
 REPO="CodeRoasted/tamys-action"
 # Every engine binary an installer downloads: install.sh and the Action the Linux one, install.ps1
 # the Windows one.
-ASSETS="sift-linux-x64 sift-windows-x64.exe"
+ASSETS="tamys-linux-x64 tamys-windows-x64.exe"
 here="$(cd "$(dirname "$0")" && pwd)"
 
 err() { echo "bump: $*" >&2; exit 1; }

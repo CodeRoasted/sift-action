@@ -25,7 +25,7 @@ test('a matching checksum verifies and returns the digest', () => {
 test('the sha256sum "<hash>  <filename>" form parses to the hash alone', () => {
     // The real asset file is this shape. Comparing the whole line would reject every
     // genuine download, so the field split is load-bearing, not cosmetic.
-    assert.equal(verifySha256(`${DIGEST}  sift-linux-x64\n`, BYTES, 'asset'), DIGEST);
+    assert.equal(verifySha256(`${DIGEST}  tamys-linux-x64\n`, BYTES, 'asset'), DIGEST);
 });
 
 test('hex case does not matter — an uppercase checksum still verifies', () => {
@@ -53,8 +53,8 @@ test('a TRUNCATED or non-hex checksum is reported as malformed, not as a mismatc
 });
 
 test('the failure message names the asset so a red step is actionable', () => {
-    assert.throws(() => verifySha256('f'.repeat(64), BYTES, 'sift-linux-x64 (engine v1.2.3)'),
-                  /sift-linux-x64 \(engine v1\.2\.3\)/);
+    assert.throws(() => verifySha256('f'.repeat(64), BYTES, 'tamys-linux-x64 (engine v1.2.3)'),
+                  /tamys-linux-x64 \(engine v1\.2\.3\)/);
 });
 
 test('an explicit tamys-binary override is returned verbatim and never downloads', async () => {
@@ -89,7 +89,7 @@ test('an unsupported platform fails with an actionable message, never a wrong-ar
             // Asserted as a CONTRACT rather than one substring. The previous version matched
             // "publishes a linux-x64 binary only" — which passed happily while the message
             // was factually WRONG: it also told the reader Windows assets were "a fast-follow"
-            // when sift-windows-x64.exe has been published on every engine-v* release, and it
+            // when the Windows asset has been published on every engine-v* release, and it
             // cited a path inside the private superproject that no reader of this public repo
             // can open. A substring match cannot see either defect, so these assert both.
             assert.match(error.message, /linux-x64/, 'must name the asset it downloads');

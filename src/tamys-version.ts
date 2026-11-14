@@ -16,4 +16,4 @@
 // line that debuts at 1.0.0 — do NOT conflate the two numbers. Bump THIS to the
 // latest published engine when cutting an Action release; bump package.json on the
 // Action wrapper's own release cadence.
-export const TAMYS_VERSION = '1.10.11';
+export const TAMYS_VERSION = '1.10.12';

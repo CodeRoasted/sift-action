@@ -102673,11 +102673,11 @@ import { promises as fs11 } from "fs";
 import * as path7 from "path";
 
 // src/tamys-version.ts
-var TAMYS_VERSION = "1.10.11";
+var TAMYS_VERSION = "1.10.12";
 
 // src/resolve-tamys.ts
 var RELEASE_REPO = "CodeRoasted/tamys-action";
-var ASSET = "sift-linux-x64";
+var ASSET = "tamys-linux-x64";
 async function download(url2, dest) {
   const code = await exec.exec("curl", ["-fsSL", url2, "-o", dest], { ignoreReturnCode: true });
   if (code !== 0) {
@@ -102707,7 +102707,7 @@ async function resolveTamys(override, workDir) {
   }
   if (process.platform !== "linux" || process.arch !== "x64") {
     throw new Error(
-      `This Action downloads the linux-x64 engine asset; this runner is ${process.platform}/${process.arch}. Run the Tamys step on a linux x64 runner, or set 'tamys-binary:' to a path you provide. On Windows outside Actions, install the published standalone CLI (sift-windows-x64.exe) with install.ps1 \u2014 see the README. arm assets are a fast-follow; macOS is not a supported platform.`
+      `This Action downloads the linux-x64 engine asset; this runner is ${process.platform}/${process.arch}. Run the Tamys step on a linux x64 runner, or set 'tamys-binary:' to a path you provide. On Windows outside Actions, install the published standalone CLI (tamys-windows-x64.exe) with install.ps1 \u2014 see the README. arm assets are a fast-follow; macOS is not a supported platform.`
     );
   }
   const base = `https://github.com/${RELEASE_REPO}/releases/download/engine-v${TAMYS_VERSION}`;

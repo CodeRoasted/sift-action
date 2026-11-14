@@ -34,7 +34,7 @@ $TamysFirstAssetVersion = '1.10.12'
 # The default engine pin. ./bump.sh OWNS this line — derived from the PUBLISHED release set
 # (binary + .sha256 both live) exactly as src/tamys-version.ts and install.sh are. Never
 # hand-edit it to the workspace dev line: an unpublished version 404s at download.
-$TamysPinnedVersion = '1.10.11'
+$TamysPinnedVersion = '1.10.12'
 function Fail($msg) { Write-Error "tamys-install: $msg"; exit 1 }
 
 # 1. platform — only windows-x64 is published today.

@@ -4,7 +4,7 @@
 // that binary reaches the runner. Two paths:
 //   1. Override — the `tamys-binary` input names a path (self-hosted runner, an
 //      in-image build, or a Docker-bundle packaging). Used verbatim, no download.
-//   2. Turnkey (default) — download the version-pinned `sift-linux-x64` release
+//   2. Turnkey (default) — download the version-pinned `tamys-linux-x64` release
 //      asset from this Action's own PUBLIC repo (CodeRoasted/tamys-action) and
 //      VERIFY its sha256 before exec. Public so any consumer's GITHUB_TOKEN can
 //      reach it (the engine binary is free-to-run; the moat is the closed source,
@@ -15,7 +15,7 @@
 // v1 platform scope = linux x64 (GitHub-hosted runners are overwhelmingly
 // ubuntu-latest). On any other platform we fail with an actionable message rather
 // than download a wrong-arch binary. That is THIS ACTION's scope, not the engine's:
-// sift-windows-x64.exe is published on every engine-v* release — see the correction
+// tamys-windows-x64.exe is published on every engine-v* release — see the correction
 // at resolveTamys() below, which this line contradicted. arm is the fast-follow;
 // macOS is NOT a delivery target -- Linux and Windows are the shipped platforms.
 
@@ -28,7 +28,7 @@ import * as path from 'path';
 import { TAMYS_VERSION } from './tamys-version.js';
 
 const RELEASE_REPO = 'CodeRoasted/tamys-action'; // public — unauthenticated download
-const ASSET = 'sift-linux-x64';
+const ASSET = 'tamys-linux-x64';
 
 async function download(url: string, dest: string): Promise<void> {
     // curl is present on all GitHub-hosted runners; -f fails the step on a 4xx/5xx
@@ -76,7 +76,7 @@ export async function resolveTamys(override: string, workDir: string): Promise<s
     }
 
     // This Action downloads the linux-x64 asset only — GitHub-hosted Tamys jobs run on linux
-    // runners. It is NOT a statement about what the engine publishes: `sift-windows-x64.exe`
+    // runners. It is NOT a statement about what the engine publishes: `tamys-windows-x64.exe`
     // is published (with its .sha256) on every engine-v* release, and install.ps1 installs it
     // as a standalone CLI. The old message said Windows was "a fast-follow", which was false
     // and sent a Windows user away from a binary that exists; it also named a path inside the
@@ -87,7 +87,7 @@ export async function resolveTamys(override: string, workDir: string): Promise<s
                 `${process.platform}/${process.arch}. Run the Tamys step on a linux x64 ` +
                 `runner, or set 'tamys-binary:' to a path you provide. ` +
                 `On Windows outside Actions, install the published standalone CLI ` +
-                `(sift-windows-x64.exe) with install.ps1 — see the README. ` +
+                `(tamys-windows-x64.exe) with install.ps1 — see the README. ` +
                 `arm assets are a fast-follow; macOS is not a supported platform.`,
         );
     }

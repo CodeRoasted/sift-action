@@ -4,7 +4,7 @@
 # check is fatal by design, so a Windows engine published without it breaks every Windows install;
 # until 2026-10-14 nothing here probed it, so the first to notice would have been a user).
 #
-# The Action downloads engine-v<TAMYS_VERSION>/sift-linux-x64 at runtime, so a pin naming an
+# The Action downloads engine-v<TAMYS_VERSION>/tamys-linux-x64 at runtime, so a pin naming an
 # unpublished release 404s every consumer — and does it silently, because the download sits
 # behind continue-on-error (that is how the live @v1 came to pin a long-dead engine-v1.4.2 while
 # every run looked green).
@@ -23,7 +23,7 @@ ver="$(scripts/engine_pin.sh)"
 echo "engine pin: $ver"
 base="https://github.com/CodeRoasted/tamys-action/releases/download/engine-v$ver"
 rc=0
-for asset in sift-linux-x64 sift-windows-x64.exe; do
+for asset in tamys-linux-x64 tamys-windows-x64.exe; do
   for suffix in "" ".sha256"; do
     code="$(curl -sSL -o /dev/null -w '%{http_code}' "$base/$asset$suffix" || echo 000)"
     if [ "$code" = "200" ]; then

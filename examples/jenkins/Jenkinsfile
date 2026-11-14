@@ -2,7 +2,7 @@
 //
 // The GitHub Action is a thin adapter over a CI-AGNOSTIC substrate: the `tamys`
 // engine ships as a PUBLIC, unauthenticated, checksummed release asset
-// (`sift-linux-x64` + `.sha256`) on CodeRoasted/tamys-action. Jenkins — or any CI
+// (`tamys-linux-x64` + `.sha256`) on CodeRoasted/tamys-action. Jenkins — or any CI
 // with `curl` + `sha256sum` — is just another client of that asset. This pipeline
 // reproduces the Action's advisory-first posture WITHOUT any new code or infra:
 //   • `--fail-on medium` is the gate (advisory: it sets the build result) — it trips
@@ -25,14 +25,14 @@
 //
 // Asset URL (stable, unauthenticated): the only varying segment is the version tag;
 // the asset names are fixed. Pin TAMYS_VERSION to a PUBLISHED release tag.
-//   https://github.com/CodeRoasted/tamys-action/releases/download/engine-v<VERSION>/sift-linux-x64
+//   https://github.com/CodeRoasted/tamys-action/releases/download/engine-v<VERSION>/tamys-linux-x64
 //
 // Prereqs: a Linux agent with curl + sha256sum; the Copy Artifact plugin (optional,
 // for the baseline); optionally the HTML Publisher plugin to surface the report.
 
 pipeline {
   agent any
-  environment { TAMYS_VERSION = '1.10.11' }                 // pin the engine version (kept in lock-step with the Action's src/tamys-version.ts by ./bump.sh; ci.yml fails if they drift)
+  environment { TAMYS_VERSION = '1.10.12' }                 // pin the engine version (kept in lock-step with the Action's src/tamys-version.ts by ./bump.sh; ci.yml fails if they drift)
   stages {
     // … your build/test stages here — capture the log you want diffed as changed.log …
     stage('Build') {
@@ -51,10 +51,10 @@ pipeline {
       sh '''
         set -euo pipefail
         base="https://github.com/CodeRoasted/tamys-action/releases/download/engine-v${TAMYS_VERSION}"
-        curl -fsSL "$base/sift-linux-x64"        -o sift-linux-x64
-        curl -fsSL "$base/sift-linux-x64.sha256" -o sift-linux-x64.sha256
-        sha256sum -c sift-linux-x64.sha256                # FATAL on mismatch
-        chmod +x sift-linux-x64
+        curl -fsSL "$base/tamys-linux-x64"        -o tamys-linux-x64
+        curl -fsSL "$base/tamys-linux-x64.sha256" -o tamys-linux-x64.sha256
+        sha256sum -c tamys-linux-x64.sha256                # FATAL on mismatch
+        chmod +x tamys-linux-x64
       '''
       // Forward the NATIVE verdict tokens, verbatim — the engine maps them
       // (baseline sidecar absent ⇒ omit the flag: console-tail / Unknown fallback).
@@ -66,7 +66,7 @@ pipeline {
           if [ -f baseline/tamys-outcome.txt ]; then
             baseline_outcome_flag="--baseline-outcome \$(cat baseline/tamys-outcome.txt)"
           fi
-          ./sift-linux-x64 baseline/changed.log changed.log \
+          ./tamys-linux-x64 baseline/changed.log changed.log \
             --format both -o tamys-report.json \
             --changed-outcome "${currentBuild.currentResult}" \
             \$baseline_outcome_flag \

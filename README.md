@@ -334,12 +334,12 @@ not narrated: GitHub gives their workflows no secrets, and the Action never narr
 - **Runner:** linux x64 (`ubuntu-latest`) — **this Action** downloads the linux-x64
   engine asset only, and on any other runner it fails with an actionable message
   rather than running a wrong-arch binary. That is a statement about the Action, not
-  about what the engine publishes: **`sift-windows-x64.exe` is published** on every
+  about what the engine publishes: **`tamys-windows-x64.exe` is published** on every
   `engine-v*` release and `install.ps1` installs it as a standalone CLI (see
   [Other CI / Jenkins](#other-ci--jenkins)). **Linux x64 and Windows x64 are the delivered
   platforms; arm is a fast-follow. macOS is not a delivery target.**
 - **Binary distribution:** the Action downloads the **version-pinned**
-  `sift-linux-x64` release asset and **verifies its sha256** before executing it —
+  `tamys-linux-x64` release asset and **verifies its sha256** before executing it —
   a checksum mismatch is fatal (the asset is a supply-chain surface: the Action
   runs it). The pinned version is fixed per Action release. Set `tamys-binary:` only
   to override with your own build (self-hosted runner / in-image).
@@ -375,7 +375,7 @@ engine's release train.
 ## Other CI / Jenkins
 
 This Action is a thin adapter over a **CI-agnostic substrate**: the `tamys` engine ships as
-**public, unauthenticated, checksummed** release assets — `sift-linux-x64` and `sift-windows-x64.exe`
+**public, unauthenticated, checksummed** release assets — `tamys-linux-x64` and `tamys-windows-x64.exe`
 (each with a `.sha256`) on this repo's releases. Any CI with `curl` + `sha256sum` is just another client.
 
 **No GitHub Actions? Install the CLI** — one line, downloads + sha256-verifies a **pinned**
@@ -399,11 +399,12 @@ irm https://raw.githubusercontent.com/CodeRoasted/tamys-action/main/install.ps1 
 ```
 
 Then `tamys <baseline.log> <changed.log>` in any CI or locally. The download URLs are **stable** — only
-the version tag varies, the asset names are fixed (the engine binaries ride a distinct `engine-v…` tag):
+the version tag varies (the engine binaries ride a distinct `engine-v…` tag). A release keeps the asset names it
+published: `engine-v1.10.11` and earlier serve `sift-linux-x64` and `sift-windows-x64.exe`, every later one these:
 
 ```
-https://github.com/CodeRoasted/tamys-action/releases/download/engine-v<VERSION>/sift-linux-x64
-https://github.com/CodeRoasted/tamys-action/releases/download/engine-v<VERSION>/sift-windows-x64.exe
+https://github.com/CodeRoasted/tamys-action/releases/download/engine-v<VERSION>/tamys-linux-x64
+https://github.com/CodeRoasted/tamys-action/releases/download/engine-v<VERSION>/tamys-windows-x64.exe
 ```
 
 **Jenkins** has a ready, **doc-only** Tier-0 recipe: [`examples/jenkins/Jenkinsfile`](examples/jenkins/Jenkinsfile).
@@ -421,7 +422,7 @@ a local shell.
 | `target-job` | no | _(none)_ | Zero-plumbing sourcing: diff the log of this finished job (run Tamys in a job that `needs:` it). Wins over `log`. See [Capturing the log](#capturing-the-log). |
 | `capture` | no | `auto` | With `target-job`: `auto` (TAMYS_CAPTURE sections if any, else whole log) \| `off` \| `<name>` (that section only; absent ⇒ the run fails). |
 | `log` | unless `target-job` | — | Path to the captured current-run log to diff. The only source on which the required-check fold can fire, when the file holds several jobs' logs (see [the required-check fold](#usage)). |
-| `tamys-binary` | no | _(auto)_ | Override path to a `sift` binary. Default: download + sha256-verify the version-pinned `sift-linux-x64` release asset. |
+| `tamys-binary` | no | _(auto)_ | Override path to a `tamys` binary. Default: download + sha256-verify the version-pinned `tamys-linux-x64` release asset. |
 | `fail-on` | no | `none` | `none` \| `medium` \| `high` \| `critical` — fail this step when Tamys reports a change that got worse at this severity or above (a listed row with polarity regression), or when the run's declared verdict got worse (read as critical, so it trips at every value). `none` never fails. Advisory: exit code only; the comment never says "blocked". Any other value fails the run. |
 | `explain-api-key` | no | `''` | The model provider's API key, from a secret: `${{ secrets.ANTHROPIC_API_KEY }}`. Non-empty: one narration call per run. Empty: the structural report alone. See [AI narration](#ai-narration-optional-on-your-key). |
 | `explain-model` | no | `claude-haiku-5-5` | The model named in the request. |

@@ -38,7 +38,7 @@ inputs:
       only when the file holds several jobs' logs.
     required: false
     # Override only. By default the Action downloads + sha256-verifies the
-    # version-pinned `sift-linux-x64` release asset (resolve-tamys.ts). Set this to
+    # version-pinned `tamys-linux-x64` release asset (resolve-tamys.ts). Set this to
     # a path for a self-hosted runner / in-image build / Docker-bundle packaging.
   tamys-binary:
     description: 'Override path to a `tamys` binary. Default: download + verify the version-pinned linux-x64 release asset.'
