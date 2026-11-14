@@ -71,9 +71,9 @@ const MAX_TEMPLATE_ID_DISPLAY_BYTES = 64;
 // LIM-25's first two sentences, no figure (W469). The JSON carries no member for it, so the frame
 // holds a copy, and preflight reds when the pinned engine's markdown stops carrying it verbatim.
 export const CLAIM_BOUNDARY =
-    'Sift compares exactly two runs and keeps no history. On two successful runs, Drift means the ' +
+    'Tamys compares exactly two runs and keeps no history. On two successful runs, Drift means the ' +
     'logs differ, not that this change caused the difference: a line that comes and goes between ' +
-    "your workflow's successful runs reads as Drift, because Sift has never seen those runs.";
+    "your workflow's successful runs reads as Drift, because Tamys has never seen those runs.";
 
 // The engine's n-gram disclosure (ADR-9.D3, W446), rendered from the JSON a report always carries
 // (`inputs.<side>.ngram_refusals`) in the engine's own sentence (`ngram_refusal_line`,
