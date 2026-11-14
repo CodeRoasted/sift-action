@@ -440,7 +440,7 @@ async function run(): Promise<void> {
     }
     core.setOutput('report-path', reportPathOut);
 
-    // Inline check-run annotations (contract § B / tamys_conversion_surface § B.3): emit the
+    // Inline check-run annotations (bibles/tamys_action.md § 3.1, ADR-14): emit the
     // level-gated `::error|warning|notice::` workflow commands on stdout. They carry no write
     // token, so this fires in BOTH the inline `comment` job and the UNPRIVILEGED fork `render`
     // job (mode=post returned at the top — no report), surfacing drift on a fork PR's checks

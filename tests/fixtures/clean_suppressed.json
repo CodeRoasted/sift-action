@@ -6,5 +6,5 @@
     "baseline": { "label": "green", "lines_observed": 12043, "unique_templates": 312 },
     "changed": { "label": "pr", "lines_observed": 12058, "unique_templates": 312 }
   },
-  "markdown": "# Sift — green → pr\n\n**851 changes, 0 structurally significant.**\n"
+  "markdown": "# Tamys — green → pr\n\n**851 changes, 0 structurally significant.**\n"
 }

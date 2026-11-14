@@ -1,15 +1,15 @@
 // Inline check-run annotations — the 4th Action output surface
-// (bibles/tamys_action.md § B / sift_conversion_surface.md § B.3).
+// (bibles/tamys_action.md § 3.1; the Action's decisions are ADR-14).
 //
 // GitHub `::error|warning|notice::` workflow commands surface in the Checks tab
 // and the PR "checks were not successful" strip. They are written to STDOUT and
 // need NO write token, so the UNPRIVILEGED fork build job (mode=render) emits
 // them and they appear on a fork PR's checks — fork-safe by construction; the
-// privileged workflow_run poster is untouched (§ B.3.6).
+// privileged workflow_run poster is untouched.
 //
 // This module is a PURE function of the report: same report ⇒ same command list.
 // It reads ONLY the engine's `ranked_changes` (display data) + the verdict ladder
-// — no detection / explain / LLM path is reachable from here (§ B.5 isolation).
+// — no detection / explain / LLM path is reachable from here.
 // The Action never re-authors a row: the message is the engine's `summary` (+
 // first `evidence` line) VERBATIM, only transport-encoded (contract § 1).
 
@@ -17,7 +17,7 @@ import type { RankedChange, TamysReport } from './types.js';
 import { selectState, shouldComment, type CommentLevel } from './verdict.js';
 
 // Defensive cap on emitted annotations: the top significant rows, aligned to
-// GitHub's 10-per-severity-per-step display sweet spot (§ B.3.7). The FULL set
+// GitHub's 10-per-severity-per-step display sweet spot. The FULL set
 // always lives in the PR comment + <details>, so this never hides signal — Tamys's
 // "3 that matter" pitch sits far below it. Mirrors frame.ts's MAX_INLINE_ROWS:
 // a structural bound, not a product limit.
@@ -39,14 +39,14 @@ export const MAX_ANNOTATIONS = 10;
 //   \n → %0A
 // After it the data is GUARANTEED single-line and never at line-start (it always
 // follows our literal `::<kind>::`), so an injected `::error::…` / `::set-output::`
-// is inert text, mid-line — the `::` command-introducer is neutralised (§ B.3.5).
+// is inert text, mid-line — the `::` command-introducer is neutralised.
 // This is the exact escapeData the @actions/core toolkit applies; owned + tested
-// here so the §B.5 re-audit has a concrete encoder to fuzz, like escapeInline.
+// here so a security re-audit has a concrete encoder to fuzz, like escapeInline.
 export function encodeCommandData(raw: string): string {
     return raw.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
 }
 
-// Polarity → annotation severity (§ B.3.3). Annotations are ADVISORY — they never
+// Polarity → annotation severity. Annotations are ADVISORY — they never
 // fail the build (only the exit-code `--fail-on` gate does), consistent with "the
 // comment never says we blocked your merge":
 //   regression → ::error::   recovery → ::notice::   other significant → ::warning::
@@ -64,14 +64,14 @@ function mapKind(polarity: RankedChange['polarity']): AnnotationKind {
 
 // One ranked row → one encoded check-level workflow command. NO `file=`/`line=`
 // anchor: Tamys diffs LOGS, not source, so there is no honest source `file:line`
-// to pin to — a guessed anchor would violate precision-first (§ B.3.2,
-// ADR-9.D2). The message is the engine's `summary` plus its first `evidence`
-// line (the deterministic "here's the line"), surfaced verbatim, then encoded.
+// to pin to — a guessed anchor would violate precision-first (ADR-9.D2). The
+// message is the engine's `summary` plus its first `evidence` line (the
+// deterministic "here's the line"), surfaced verbatim, then encoded.
 //
-// Colour here is GitHub's NATIVE error/warning/notice icon (mapKind, § B.3.3) — a
-// recovery → ::notice:: reads positive, NOT the orange ::warning::. The §B.4 emoji
+// Colour here is GitHub's NATIVE error/warning/notice icon (mapKind) — a
+// recovery → ::notice:: reads positive, NOT the orange ::warning::. The emoji
 // badges are the COMMENT's surface only (PRD-6 § "Badge glyphs"); the message
-// stays the engine string verbatim so the §B.5 re-audit has a pure encoder to fuzz.
+// stays the engine string verbatim so a security re-audit has a pure encoder to fuzz.
 function annotationCommand(row: RankedChange): string {
     const firstEvidence = row.evidence?.[0];
     // WHERE attribution (LSRC-23): the functional location appended to the summary
@@ -85,7 +85,7 @@ function annotationCommand(row: RankedChange): string {
 // The full ordered list of encoded workflow-command lines to emit, level-gated.
 //
 // The surface carries its OWN level (a separate axis from pr-comment / fail-on,
-// contract § 3), reusing `shouldComment` VERBATIM (§ B.3.8): below the level ⇒ no
+// contract § 3), reusing `shouldComment` VERBATIM: below the level ⇒ no
 // annotations. The SHIPPED level is `never` (action.yml), so this builder returns an
 // empty list unless the caller opted in — a default, not a capability cut: at
 // `drift` the surface is whole, and a clean run has no significant rows there,

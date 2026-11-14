@@ -1,5 +1,5 @@
-// Unit tests for the inline check-run annotation surface (tamys_conversion_surface
-// § B.3 / § B.5). Three obligations:
+// Unit tests for the inline check-run annotation surface (bibles/tamys_action.md
+// § 3.1, ADR-14). Three obligations:
 //   • Mapping + content — polarity → ::error|warning|notice::; message = the
 //     engine's `summary` (+ first `evidence`) VERBATIM (never re-authored).
 //   • Level-gating + cap + determinism — reuses `shouldComment`; bounded; pure.
@@ -40,7 +40,7 @@ function report(rows: RankedChange[], significant = rows.length): TamysReport {
     };
 }
 
-// ── Mapping + verbatim content (§ B.3.2 / B.3.3) ─────────────────────────────
+// ── Mapping + verbatim content ───────────────────────────────────────────────
 
 test('regression fixture → ::error:: then ::notice:: (polarity drives severity)', () => {
     const cmds = buildAnnotationCommands(load('regression.json'), 'drift');
@@ -100,7 +100,7 @@ test('a row with WHERE appends the location to the summary line', () => {
 });
 
 // The WHERE rides the SAME encoder as the rest of the message — a forged location
-// cannot inject a workflow command (the § B.5 encoder boundary covers it too).
+// cannot inject a workflow command (the encoder boundary covers it too).
 test('a forged WHERE is encodeCommandData-encoded (no command breakout)', () => {
     const row: RankedChange = { kind: 'drift', severity: 'medium', significance: 0.3, summary: 'shape shifted', where: 'x\n::set-output name=evil::pwned' };
     const cmd = buildAnnotationCommands(report([row]), 'always')[0]!;
@@ -129,7 +129,7 @@ test('the level ladder matches the comment surface exactly', () => {
     assert.equal(buildAnnotationCommands(regr, 'regression').length, 2); // regression clears it
 });
 
-// ── Cap + determinism (§ B.3.7 / B.5) ────────────────────────────────────────
+// ── Cap + determinism ────────────────────────────────────────────────────────
 
 test('the emitted set is capped at MAX_ANNOTATIONS; the rest stay in the comment', () => {
     const rows: RankedChange[] = Array.from({ length: MAX_ANNOTATIONS + 5 }, (_unused, i) => ({
@@ -146,7 +146,7 @@ test('pure: same report ⇒ identical command list', () => {
     assert.deepEqual(buildAnnotationCommands(r, 'always'), buildAnnotationCommands(r, 'always'));
 });
 
-// ── The security boundary: command injection cannot survive (§ B.3.5 / B.5) ──
+// ── The security boundary: command injection cannot survive ─────────────────
 // Engine content derives from CI logs an attacker controls on a fork PR. None of
 // it may forge or break a workflow command. A command is recognised only as a
 // whole line starting with `::`, so the attack surface is (a) a raw newline that
@@ -192,7 +192,7 @@ test('many malicious rows still yield exactly one command line each (no row can 
     }
 });
 
-// ── Isolation (§ B.5): the surface reaches no detection / explain / LLM path ──
+// ── Isolation: the surface reaches no detection / explain / LLM path ─────────
 
 test('annotations.ts imports ONLY the display types + the verdict ladder', () => {
     const source = readFileSync(path.join(SRC, 'annotations.ts'), 'utf8');

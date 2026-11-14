@@ -10,7 +10,7 @@
 # post-cut bump and the next cut, the platform baseline names an engine that does not exist
 # yet. The bump therefore produced a commit that could not be pushed (it would 404 every
 # consumer at download), and the repo sat deliberately dirty for a whole cycle, with the
-# runbook carrying "sift-action is expected to be behind" as a standing exception.
+# runbook carrying "the Action is expected to be behind" as a standing exception.
 #
 # The fix is to invert the direction. The pin is not derived from what WE are developing; it
 # is derived from what has been PUBLISHED. So this script reads the published release list and

@@ -781,7 +781,7 @@ test('safe embedding: the <details> BODY rides escapeInline — every vector, ha
     const report: TamysReport = {
         ...load('drift.json'),
         markdown:
-            '# Sift — baseline → changed\n\n## Significant changes\n\n' +
+            '# Tamys — baseline → changed\n\n## Significant changes\n\n' +
             BODY_VECTORS.map(([raw], i) => `${i + 1}. **[HIGH]** log line carrying ${raw}`).join('\n') +
             '\n',
     };
@@ -993,7 +993,7 @@ function reportCarryingEvidence(): TamysReport {
     const base = load('drift.json');
     // The engine body's own shape: a ranked row, then its evidence as indented bullets.
     const markdown =
-        '# Sift — baseline → changed\n\n' +
+        '# Tamys — baseline → changed\n\n' +
         '**7 changes, 2 structurally significant.**\n\n' +
         '## Significant changes\n\n' +
         '1. **[CRITICAL · regression]** Unit changed outcome: "gate" — required by this run\n' +

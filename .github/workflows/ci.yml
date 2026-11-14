@@ -217,14 +217,67 @@ jobs:
             # CONTROL FIRST. A "not found" from a probe whose subject moved is not a finding,
             # it is a broken instrument reporting one — so prove the page still carries the
             # payload we parse, and still describes OUR repo, before believing any absence.
-            grep -qF '"releaseData":' "$page" || {
-              echo "::error::$url no longer carries a releaseData payload — this probe is measuring nothing. Fix the probe; do not trust its verdict."; exit 1; }
             grep -qF 'CodeRoasted/tamys-action' "$page" || {
               echo "::error::$url does not name CodeRoasted/tamys-action — the slug moved (action.yml 'name:' changed?) or the listing detached. Re-derive SLUG."; exit 1; }
-            if grep -qF "\"tagName\":\"$TAG\"" "$page"; then
-              echo "Marketplace listing resolves $TAG ✓"
-              exit 0
-            fi
+            # The verdict reads ONLY the listing's own release set, `releaseData.releases`. A grep
+            # for the tag over the whole page also matches `releaseData.latestRelease` (the repo's
+            # latest Release, which the cut just created), so it passes while the listing itself
+            # lacks the version — the exact failure this job exists to catch.
+            # Exit 0: the release set carries TAG. 1: it does not (yet). 2: no parseable
+            # `releaseData.releases` on the page — the instrument is broken, not the listing.
+            rc=0
+            python3 -I - "$page" "$TAG" <<'PY' || rc=$?
+          import json, sys
+          from html.parser import HTMLParser
+
+          class JsonScripts(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.inside, self.bodies = False, []
+              def handle_starttag(self, tag, attrs):
+                  if tag == "script" and dict(attrs).get("type") == "application/json":
+                      self.inside = True
+                      self.bodies.append("")
+              def handle_endtag(self, tag):
+                  if tag == "script":
+                      self.inside = False
+              def handle_data(self, data):
+                  if self.inside:
+                      self.bodies[-1] += data
+
+          def release_sets(node):
+              if isinstance(node, dict):
+                  data = node.get("releaseData")
+                  if isinstance(data, dict) and isinstance(data.get("releases"), list):
+                      yield data["releases"]
+                  for value in node.values():
+                      yield from release_sets(value)
+              elif isinstance(node, list):
+                  for value in node:
+                      yield from release_sets(value)
+
+          page, tag = sys.argv[1], sys.argv[2]
+          parser = JsonScripts()
+          with open(page, encoding="utf-8") as fh:
+              parser.feed(fh.read())
+          sets = []
+          for body in parser.bodies:
+              try:
+                  sets.extend(release_sets(json.loads(body)))
+              except json.JSONDecodeError:
+                  continue
+          if len(sets) != 1:
+              print(f"found {len(sets)} releaseData.releases arrays across {len(parser.bodies)} JSON scripts; expected exactly 1")
+              sys.exit(2)
+          tags = [r.get("tagName") for r in sets[0] if isinstance(r, dict)]
+          print(f"listing release set: {tags}")
+          sys.exit(0 if tag in tags else 1)
+          PY
+            case "$rc" in
+              0) echo "Marketplace listing resolves $TAG ✓"; exit 0 ;;
+              1) ;;
+              *) echo "::error::$url carries no single parseable releaseData.releases payload — this probe is measuring nothing. Fix the probe; do not trust its verdict."; exit 1 ;;
+            esac
             echo "attempt $attempt: listing does not yet carry $TAG — waiting for the index."
             sleep 30
           done
