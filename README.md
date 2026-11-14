@@ -11,7 +11,7 @@ The whole integration:
 
 ```yaml
 - name: Tamys Log Diff
-  uses: CodeRoasted/tamys-action@v2
+  uses: CodeRoasted/tamys-action@v3
   with:
     target-job: build
 ```
@@ -42,7 +42,7 @@ jobs:
       pull-requests: write    # post/update the sticky comment
     steps:
       - name: Tamys Log Diff
-        uses: CodeRoasted/tamys-action@v2
+        uses: CodeRoasted/tamys-action@v3
         with:
           target-job: build
 ```
@@ -87,7 +87,7 @@ the same rows. The whole-run mode is planned.
 Every default is overridable — the annotated tour (all knobs optional):
 
 ```yaml
-- uses: CodeRoasted/tamys-action@v2
+- uses: CodeRoasted/tamys-action@v3
   with:
     # ── Log sourcing ─────────────────────────────────────────────────────
     target-job: build                # diff a finished job's log (run Tamys in a job that `needs:` it)
@@ -114,7 +114,7 @@ Every default is overridable — the annotated tour (all knobs optional):
     # explain-api-key: ${{ secrets.ANTHROPIC_API_KEY }}   # optional AI narration on your key — see "AI narration"
     # explain-model: claude-haiku-5-5                       # the model named in the request
     # explain-endpoint: https://api.anthropic.com/v1/messages   # or another provider's /chat/completions
-    # tamys-binary: /path/to/sift     # self-hosted/in-image override (default: pinned, sha256-verified download)
+    # tamys-binary: /path/to/tamys    # self-hosted/in-image override (default: pinned, sha256-verified download)
     github-token: ${{ github.token }}
 ```
 
@@ -142,9 +142,9 @@ staying silent on routine pushes. `fail-on` is a separate axis — it gates the 
 not the comment. A value outside a surface's list fails the run as a configuration error, rather than
 quietly switching the surface on or off. The first run on a fresh branch is a cold start (seed only); every run after diffs.
 
-**What Drift means on two green runs.** Sift compares exactly two runs and keeps no history. On two
+**What Drift means on two green runs.** Tamys compares exactly two runs and keeps no history. On two
 successful runs, Drift means the logs differ, not that this change caused the difference: a line that
-comes and goes between your workflow's successful runs reads as Drift, because Sift has never seen
+comes and goes between your workflow's successful runs reads as Drift, because Tamys has never seen
 those runs. Measured on 21 264 pairs of successful runs from public repositories, 12 357 (58.1 %)
 read Drift. (Measured with the Sift 1.10.6 engine. Every report states the first two sentences under
 its inputs, and the PR comment states them above its footer, whatever its state.)
@@ -307,7 +307,7 @@ however fits your job; Tamys then runs as a step of the build job itself. Always
 Pass a model provider's key and Tamys adds a short plain-English story above the ranked changes:
 
 ```yaml
-      - uses: CodeRoasted/tamys-action@v2
+      - uses: CodeRoasted/tamys-action@v3
         with:
           log: build.log
           explain-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -414,6 +414,42 @@ gate; the archived `tamys-report.json` + build status are the surface. The basel
 base-branch-aware "last green" resolution and a native PR/MR comment are platform-specific Tier-1 work
 (see `bibles/tamys_action.md` § 9). The same curl-verify-run pattern ports to GitLab CI, Buildkite, or
 a local shell.
+
+## Migrating from Sift (`v2` → `v3`)
+
+**Sift is now Tamys.** `v3` is the same Action under the product's new name, and every new engine ships to `v3`
+only; `v2` stays on engine 1.10.11.
+
+1. `uses: CodeRoasted/sift-action@v2` → `uses: CodeRoasted/tamys-action@v3`. The old repository name keeps
+   redirecting, so a pinned `v2` keeps working until you move.
+2. The input `sift-binary` is now `tamys-binary`. Every other input and every output keeps its name; the
+   `report-path` output now points to `tamys-report.json`.
+3. Capture sections: `echo "SIFT_CAPTURE <name>"` … `echo "SIFT_CAPTURE_END"` become `TAMYS_CAPTURE` …
+   `TAMYS_CAPTURE_END`. Left unchanged, `capture: auto` diffs the whole job log, and `capture: <name>` fails the
+   run as a configuration error.
+4. **One cold start per baselined branch.** The baseline artifact is now `tamys-baseline-log`, so the first `v3`
+   run finds no baseline, says so, and diffs nothing. The next green run on the branch seeds it. A `v2` baseline
+   is not read.
+5. **One duplicate comment per open pull request.** The PR comment's marker changed, so the first `v3` run on a
+   pull request opened under `v2` posts a new comment beside the old one, which stops updating. You can delete the
+   old one.
+6. **The CLI installer** now lives at `https://raw.githubusercontent.com/CodeRoasted/tamys-action/main/install.sh`
+   (and `install.ps1`), and engines from 1.10.12 on ship as `tamys-linux-x64` and `tamys-windows-x64.exe`. A copy
+   of the old installer still installs 1.10.11 and older; asked for `latest`, it fails. Download the installer
+   again.
+7. **AI narration now runs on your own key, and the bundled model is gone.** The `explain` input and the
+   2.4 GB local model (Phi-3.5-mini on a llama.cpp server) are removed. To keep a narrative, pass a model
+   provider's key from a secret: `explain-api-key: ${{ secrets.ANTHROPIC_API_KEY }}`. The default model is
+   Claude Haiku 5.5 (`claude-haiku-5-5`) on Anthropic's Messages API, at medium effort. `explain-model` picks
+   another Claude model. The new `explain-endpoint` takes another provider's OpenAI-compatible
+   `/chat/completions` URL. Only Tamys's bounded summary is sent, never the log. Without a key you get the
+   structural report alone. A leftover `explain: true` draws GitHub's "Unexpected input" warning and does nothing,
+   and the `actions/cache` step on `~/.cache/coderoast` can go. The narrative still heads the full report in the
+   comment and in `report.md`; `report.json` no longer carries it.
+8. **The CLI:** `tamys explain-setup` is gone. `--explain` now needs an endpoint (`--explain-endpoint` or
+   `$CODEROAST_LLM_ENDPOINT`) and a model (`--explain-model` or `$CODEROAST_LLM_MODEL`), with a cloud key in
+   `$CODEROAST_LLM_TOKEN`. A model you run yourself (Ollama, llama.cpp) is such an endpoint. A model cached
+   under `~/.cache/coderoast` can be deleted.
 
 ## Inputs
 

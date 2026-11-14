@@ -67,7 +67,7 @@ jobs:
       # ── main push / tag: diff vs the named main baseline, then re-seed it ──
       - name: Tamys — vs main baseline (and re-seed it)
         if: ${{ github.event_name == 'push' }}
-        uses: CodeRoasted/tamys-action@v2
+        uses: CodeRoasted/tamys-action@v3
         with:
           target-job: build
           baseline: artifact=tamys-baseline-main-ci
@@ -81,7 +81,7 @@ jobs:
       # ── PR: ① this build vs main (the headline sticky comment) ──
       - name: Tamys — vs main baseline
         if: ${{ github.event_name == 'pull_request' }}
-        uses: CodeRoasted/tamys-action@v2
+        uses: CodeRoasted/tamys-action@v3
         with:
           target-job: build
           baseline: artifact=tamys-baseline-main-ci
@@ -92,7 +92,7 @@ jobs:
       #        then seed the per-PR baseline for the next push ──
       - name: Tamys — vs previous run of this PR
         if: ${{ github.event_name == 'pull_request' }}
-        uses: CodeRoasted/tamys-action@v2
+        uses: CodeRoasted/tamys-action@v3
         with:
           target-job: build
           baseline: artifact=tamys-baseline-ci-pr-${{ github.event.number }}

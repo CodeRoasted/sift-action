@@ -71,7 +71,7 @@ jobs:
   # The manifest LOADED the way a consumer's runner loads it (`uses: ./`), end to end on a smoke log:
   # malf's `coderoast-tamys-manifest-load.yml`, whose header says what it proves beyond the load and
   # why it pairs with the build's `preflight`. Post-push by nature: a pull request is covered by the
-  # push:main run after merge, before the floating @v2 is re-pointed.
+  # push:main run after merge, before the floating @v3 is re-pointed.
   manifest-load:
     if: github.event_name != 'pull_request'
     uses: CodeRoasted/malf-toolchain/.github/workflows/coderoast-tamys-manifest-load.yml@901617e78cd25b61052e56236018252225322490
